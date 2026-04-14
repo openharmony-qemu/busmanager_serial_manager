@@ -1,0 +1,3 @@
+# busmanager_serial_manager
+
+为应用提供板载串口设备的管理能力，支持多个板载串口/USB转串口设备的访问和控制。
