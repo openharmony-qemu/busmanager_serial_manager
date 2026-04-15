@@ -1,0 +1,4 @@
+
+[callback] interface OHOS.Serial.ISerialServiceCallback {
+    [oneway] void onDataRead([in] String portName, [in] unsigned char[] buffer);
+}

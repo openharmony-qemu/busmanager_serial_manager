@@ -1,0 +1,77 @@
+# Copyright (c) 2025 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import("./../serialmgr.gni")
+
+config("serialsrv_private_config") {
+  include_dirs = [
+    "${serial_manager_path}/interfaces/innerkits/native/include",
+    "${serial_manager_path}/utils/native/include",
+  ]
+}
+
+config("serialsrv_public_config") {
+  include_dirs = [
+    "native/include",
+    "${serial_manager_path}/interfaces/innerkits/native/include",
+    "${serial_manager_path}/utils/native/include",
+  ]
+}
+
+ohos_shared_library("serialservice") {
+  sanitize = {
+    integer_overflow = true
+    ubsan = true
+    boundary_sanitize = true
+    cfi = true
+    cfi_cross_dso = true
+    debug = false
+  }
+  branch_protector_ret = "pac_ret"
+
+  defines = []
+  if (serial_error_code_test) {
+    defines += [ "SERIAL_ERROR_CODE_TEST" ]
+  }
+
+  install_enable = true
+  sources = [
+    "native/src/serial_service.cpp",
+  ]
+
+  configs = [
+    ":serialsrv_private_config",
+  ]
+
+  public_configs = [ ":serialsrv_public_config" ]
+  deps = [ "${serial_manager_path}/interfaces/innerkits:serial_server_stub" ]
+
+  external_deps = [
+    "c_utils:utils",
+    "hilog:libhilog",
+    "ipc:ipc_single",
+    "safwk:system_ability_fwk",
+    "samgr:samgr_proxy",
+  ]
+
+  shlib_type = "sa"
+  subsystem_name = "busmanager"
+  part_name = "serial_manager"
+}
+
+ohos_prebuilt_etc("serial_service.init") {
+  source = "serial_service.cfg"
+  relative_install_dir = "init"
+  subsystem_name = "busmanager"
+  part_name = "serial_manager"
+}

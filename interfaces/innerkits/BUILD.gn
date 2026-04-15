@@ -1,0 +1,107 @@
+# Copyright (c) 2025 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import("//build/config/components/idl_tool/idl.gni")
+import("./../../serialmgr.gni")
+
+idl_gen_interface("serial_server_interface") {
+  sources = [ "ISerialServer.idl" ]
+  sources_common = [ "SerialServerTypes.idl" ]
+  sources_callback = [ "ISerialServiceCallback.idl" ]
+  log_domainid = "0xD002900"
+  log_tag = "SerialSrvClient"
+}
+
+ohos_shared_library("serialsrv_client") {
+  sanitize = {
+    integer_overflow = true
+    ubsan = true
+    boundary_sanitize = true
+  }
+  output_values = get_target_outputs(":serial_server_interface")
+  sources = [
+    "native/src/serial_srv_client.cpp",
+    "native/src/serial_service_callback.cpp",
+  ]
+  sources += filter_include(output_values,
+                            [
+                              "*_proxy.cpp",
+                              "*_types.cpp",
+                              "*callback_stub.cpp",
+                            ])
+  configs = [
+    ":serialsrv_public_config",
+  ]
+  deps = [ ":serial_server_interface" ]
+  public_configs = [ ":serialsrv_public_config" ]
+  external_deps = [
+    "c_utils:utils",
+    "hilog:libhilog",
+    "ipc:ipc_core",
+    "samgr:samgr_proxy",
+  ]
+  subsystem_name = "busmanager"
+  innerapi_tags = [ "platformsdk" ]
+  part_name = "serial_manager"
+}
+
+config("serialsrv_private_config") {
+  include_dirs = [
+    "native/include",
+    "${serial_manager_path}/utils/native/include",
+  ]
+}
+
+config("serialsrv_public_config") {
+  include_dirs = [
+    "native/include",
+    "${target_gen_dir}",
+    "${serial_manager_path}/utils/native/include",
+  ]
+}
+
+config("serial_inner_public_config") {
+  include_dirs = [
+    "${target_gen_dir}",
+    "${serial_manager_path}/services/native/include",
+  ]
+}
+
+ohos_source_set("serial_server_stub") {
+  sanitize = {
+    cfi = true
+    cfi_cross_dso = true
+    debug = false
+  }
+  branch_protector_ret = "pac_ret"
+  configs = [
+    ":serialsrv_private_config",
+  ]
+  public_configs = [ ":serial_inner_public_config" ]
+  output_values = get_target_outputs(":serial_server_interface")
+  sources = filter_include(output_values,
+                           [
+                             "*_stub.cpp",
+                             "*_types.cpp",
+                             "*callback_proxy.cpp",
+                           ])
+  deps = [ ":serial_server_interface" ]
+  external_deps = [
+    "c_utils:utils",
+    "hilog:libhilog",
+    "ipc:ipc_single",
+    "samgr:samgr_proxy",
+  ]
+  subsystem_name = "busmanager"
+  part_name = "serial_manager"
+}
