@@ -13,9 +13,5 @@
 
 import("//build/ohos.gni")
 
-declare_args() {
-  serial_error_code_test = false
-}
-
 serial_manager_path = "//base/busmanager/serial_manager"
 serial_manager_part_name = "serial_manager"

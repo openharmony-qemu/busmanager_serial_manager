@@ -10,11 +10,11 @@
 ### 命令
 
 ```bash
-# 完整编译（首次/改了 bundle.json 或 BUILD.gn 时必须用）
-./build.sh --product-name rk3568 --ccache --build-target serial_manager
+# 完整编译（首次/改了 bundle.json 或 BUILD.gn 时必须用），默认同时编译正式目标+测试目标
+./build.sh --product-name rk3568 --ccache --build-target serial_manager serial_manager_tests
 
 # 快速编译（仅改了 .cpp/.h/.idl 源文件时可用，跳过GN阶段，快50-70%）
-./build.sh --product-name rk3568 --ccache --fast-rebuild --build-target serial_manager
+./build.sh --product-name rk3568 --ccache --fast-rebuild --build-target serial_manager serial_manager_tests
 ```
 
 ### 何时用完整编译
@@ -160,18 +160,53 @@ serial.Parity { NONE='none', EVEN='even', ODD='odd', MARK='mark', SPACE='space' 
 5. `serial_info.cpp` 添加 NAPI 绑定 + 导出
 6. `@ohos.busManager.serial.d.ts` 更新类型声明
 
-## 设备部署
+## 测试构建
 
-- Windows: `push.bat`（推送 .so + SA配置 + Init配置，然后重启设备）
-- 需先禁用 SELinux: `disable_seliux.sh`（设置 permissive）
+### 目录结构
 
-## 外部依赖
+```
+test/
+├── BUILD.gn                           # group("serial_manager_tests") 汇总所有测试目标
+└── develop/
+    └── BUILD.gn                       # serialservice_errcodetest 等开发调试目标
+```
 
-需配合修改的外部仓库（见 `周边依赖的PR列表.md`）：
-- `security_selinux_adapter` — SELinux 策略
-- `startup_init` — Init 系统配置
-- `systemabilitymgr_samgr` — SA 管理器注册
-- `hiviewdfx_hidumper` — 诊断 dump
+### 关键目标
+
+| 目标 | 路径 | 说明 |
+|------|------|------|
+| `serial_manager_tests` | `test:serial_manager_tests` | 汇总所有测试子目标的 group，已注册到 `bundle.json` 的 `test` 字段 |
+| `serialservice_errcodetest` | `test/develop:serialservice_errcodetest` | 错误码测试服务变体，编译 `serial_service.cpp` 并定义 `SERIAL_ERROR_CODE_TEST` |
+
+### 编译命令
+
+```bash
+# 编译全部测试目标
+./build.sh --product-name rk3568 --ccache --build-target serial_manager_tests
+
+# 仅编译错误码测试服务
+./build.sh --product-name rk3568 --ccache --build-target serialservice_errcodetest
+```
+
+### 错误码测试（serialservice_errcodetest）
+
+- 独立于正式 `serialservice` 目标，通过 `defines = [ "SERIAL_ERROR_CODE_TEST" ]` 启用 `serial_service.cpp` 中的 `#ifdef` 测试分支
+- `install_enable = false`，不会随系统安装
+- 服务端通过 `TestScenario` 结构体按轮次返回预设错误码，覆盖所有错误码场景
+- 编译时抑制 `-Wno-unused-variable` / `-Wno-unused-function`（测试代码存在未使用的场景字段）
+
+### 新增测试目标流程
+
+1. 在 `test/` 下创建子目录（如 `test/fuzz/`、`test/unittest/`）
+2. 在子目录中编写 `BUILD.gn`，定义测试目标
+3. 在 `test/BUILD.gn` 的 `group("serial_manager_tests")` 的 `deps` 中追加新目标
+4. `bundle.json` 无需修改（已指向 `test:serial_manager_tests`）
+
+### 设计原则
+
+- **不在正式目标中通过 GN 参数控制测试行为**：`serial_error_code_test` GN 参数已移除，测试变体通过独立 BUILD.gn 目标实现
+- **test/BUILD.gn 只做汇总**：不定义编译目标，仅通过 `group` 聚合子目录的测试目标
+- **每个子目录职责单一**：如 `develop/` 放开发调试用目标，`fuzz/` 放模糊测试，`unittest/` 放单元测试
 
 ## 常见陷阱
 

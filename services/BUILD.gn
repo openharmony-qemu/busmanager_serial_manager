@@ -39,15 +39,6 @@ ohos_shared_library("serialservice") {
   }
   branch_protector_ret = "pac_ret"
 
-  defines = []
-  if (serial_error_code_test) {
-    defines += [ "SERIAL_ERROR_CODE_TEST" ]
-    cflags_cc += [
-      "-Wno-unused-variable",
-      "-Wno-unused-function",
-    ]
-  }
-
   install_enable = true
   sources = [
     "native/src/serial_service.cpp",

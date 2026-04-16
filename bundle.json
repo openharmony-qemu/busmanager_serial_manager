@@ -53,7 +53,9 @@
                     "header_base": "//base/busmanager/serial_manager/interfaces/innerkits/native/include"
                 }
             }],
-            "test": []
+            "test": [
+                "//base/busmanager/serial_manager/test:serial_manager_tests"
+            ]
         }
     }
 }
