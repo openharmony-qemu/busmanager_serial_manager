@@ -42,7 +42,10 @@ ohos_shared_library("serialsrv_client") {
   configs = [
     ":serialsrv_public_config",
   ]
-  deps = [ ":serial_server_interface" ]
+  deps = [
+    ":serial_server_interface",
+    "${serial_manager_path}/utils:serial_error_code",
+  ]
   public_configs = [ ":serialsrv_public_config" ]
   external_deps = [
     "c_utils:utils",

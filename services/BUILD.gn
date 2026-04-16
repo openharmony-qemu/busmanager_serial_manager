@@ -49,7 +49,10 @@ ohos_shared_library("serialservice") {
   ]
 
   public_configs = [ ":serialsrv_public_config" ]
-  deps = [ "${serial_manager_path}/interfaces/innerkits:serial_server_stub" ]
+  deps = [
+    "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
+    "${serial_manager_path}/utils:serial_error_code",
+  ]
 
   external_deps = [
     "c_utils:utils",

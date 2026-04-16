@@ -70,15 +70,20 @@ static const struct {
 };
 
 #define SERIAL_HILOGF(module, ...) \
-    ((void)HILOG_IMPL(LOG_CORE, LOG_FATAL, SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
+    ((void)HILOG_IMPL(LOG_CORE, LOG_FATAL, \
+        SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
 #define SERIAL_HILOGE(module, ...) \
-    ((void)HILOG_IMPL(LOG_CORE, LOG_ERROR, SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
+    ((void)HILOG_IMPL(LOG_CORE, LOG_ERROR, \
+        SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
 #define SERIAL_HILOGW(module, ...) \
-    ((void)HILOG_IMPL(LOG_CORE, LOG_WARN, SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
+    ((void)HILOG_IMPL(LOG_CORE, LOG_WARN, \
+        SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
 #define SERIAL_HILOGI(module, ...) \
-    ((void)HILOG_IMPL(LOG_CORE, LOG_INFO, SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
+    ((void)HILOG_IMPL(LOG_CORE, LOG_INFO, \
+        SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
 #define SERIAL_HILOGD(module, ...) \
-    ((void)HILOG_IMPL(LOG_CORE, LOG_DEBUG, SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
+    ((void)HILOG_IMPL(LOG_CORE, LOG_DEBUG, \
+        SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
 } // namespace SERIAL
 } // namespace OHOS
 

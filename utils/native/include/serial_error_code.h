@@ -41,57 +41,11 @@ constexpr int32_t SERIAL_JS_ERR_TIMEOUT = 35700006;
 constexpr int32_t SERIAL_JS_ERR_PERMISSION_DENIED = 35700007;
 constexpr int32_t SERIAL_JS_ERR_NOT_ALLOWED = 35700008;
 
-inline int32_t SerialInternalToJsCode(int32_t internalCode)
-{
-    switch (internalCode) {
-        case SERIAL_ERR_SERVICE:
-            return SERIAL_JS_ERR_SERVICE;
-        case SERIAL_ERR_INVALID_PARAM:
-            return SERIAL_JS_ERR_INVALID_PARAM;
-        case SERIAL_ERR_DEVICE_DISCONNECTED:
-            return SERIAL_JS_ERR_DEVICE_DISCONNECTED;
-        case SERIAL_ERR_DEVICE_BUSY:
-            return SERIAL_JS_ERR_DEVICE_BUSY;
-        case SERIAL_ERR_DEVICE_NOT_OPENED:
-            return SERIAL_JS_ERR_DEVICE_NOT_OPENED;
-        case SERIAL_ERR_TIMEOUT:
-            return SERIAL_JS_ERR_TIMEOUT;
-        case SERIAL_ERR_PERMISSION_DENIED:
-            return SERIAL_JS_ERR_PERMISSION_DENIED;
-        case SERIAL_ERR_NOT_ALLOWED:
-            return SERIAL_JS_ERR_NOT_ALLOWED;
-        case SERIAL_OK:
-            return SERIAL_OK;
-        default:
-            return SERIAL_JS_ERR_SERVICE;
-    }
-}
-
-inline const char* SerialJsErrorMessage(int32_t jsCode)
-{
-    switch (jsCode) {
-        case SERIAL_JS_ERR_SERVICE:
-            return "Service error";
-        case SERIAL_JS_ERR_INVALID_PARAM:
-            return "Invalid parameter";
-        case SERIAL_JS_ERR_DEVICE_DISCONNECTED:
-            return "Device disconnected or info changed";
-        case SERIAL_JS_ERR_DEVICE_BUSY:
-            return "Device busy";
-        case SERIAL_JS_ERR_DEVICE_NOT_OPENED:
-            return "Device not opened";
-        case SERIAL_JS_ERR_TIMEOUT:
-            return "Timeout";
-        case SERIAL_JS_ERR_PERMISSION_DENIED:
-            return "Permission denied";
-        case SERIAL_JS_ERR_NOT_ALLOWED:
-            return "Not allowed";
-        default:
-            return "Service error";
-    }
-}
+int32_t SerialInternalToJsCode(int32_t internalCode);
+const char* SerialJsErrorMessage(int32_t jsCode);
 
 }
+
 }
 
 #endif

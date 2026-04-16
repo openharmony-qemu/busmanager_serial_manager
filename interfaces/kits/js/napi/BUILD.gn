@@ -33,7 +33,10 @@ ohos_shared_library("serial") {
   sources = [
     "src/serial_info.cpp",
   ]
-  deps = [ "${serial_manager_path}/interfaces/innerkits:serialsrv_client" ]
+  deps = [
+    "${serial_manager_path}/interfaces/innerkits:serialsrv_client",
+    "${serial_manager_path}/utils:serial_error_code",
+  ]
   external_deps = [
     "c_utils:utils",
     "hilog:libhilog",
