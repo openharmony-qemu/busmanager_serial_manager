@@ -1,0 +1,104 @@
+# Copyright (c) 2026 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import("../../serialmgr.gni")
+
+config("serialsrv_errcode_private_config") {
+  include_dirs = [
+    "${serial_manager_path}/interfaces/innerkits/native/include",
+    "${serial_manager_path}/utils/native/include",
+  ]
+}
+
+config("serialsrv_errcode_public_config") {
+  include_dirs = [
+    "${serial_manager_path}/services/native/include",
+    "${serial_manager_path}/interfaces/innerkits/native/include",
+    "${serial_manager_path}/utils/native/include",
+  ]
+}
+
+ohos_shared_library("serialservice_errcodetest") {
+  sanitize = {
+    integer_overflow = true
+    ubsan = true
+    boundary_sanitize = true
+    cfi = true
+    cfi_cross_dso = true
+    debug = false
+  }
+  branch_protector_ret = "pac_ret"
+
+  cflags_cc = [
+    "-Wno-unused-variable",
+    "-Wno-unused-function",
+  ]
+
+  install_enable = false
+  sources = [ "serial_service_errcodetest.cpp" ]
+
+  configs = [ ":serialsrv_errcode_private_config" ]
+
+  public_configs = [ ":serialsrv_errcode_public_config" ]
+  deps = [
+    "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
+    "${serial_manager_path}/utils:serial_error_code",
+  ]
+
+  external_deps = [
+    "c_utils:utils",
+    "hilog:libhilog",
+    "ipc:ipc_single",
+    "safwk:system_ability_fwk",
+    "samgr:samgr_proxy",
+  ]
+
+  shlib_type = "sa"
+  subsystem_name = "busmanager"
+  part_name = "serial_manager"
+}
+
+ohos_shared_library("serial_service_lifecycle_test") {
+  sanitize = {
+    integer_overflow = true
+    ubsan = true
+    boundary_sanitize = true
+    cfi = true
+    cfi_cross_dso = true
+    debug = false
+  }
+  branch_protector_ret = "pac_ret"
+
+  install_enable = false
+  sources = [ "serial_service_lifecycle_test.cpp" ]
+
+  configs = [ ":serialsrv_errcode_private_config" ]
+
+  public_configs = [ ":serialsrv_errcode_public_config" ]
+  deps = [
+    "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
+    "${serial_manager_path}/utils:serial_error_code",
+  ]
+
+  external_deps = [
+    "c_utils:utils",
+    "hilog:libhilog",
+    "ipc:ipc_single",
+    "safwk:system_ability_fwk",
+    "samgr:samgr_proxy",
+  ]
+
+  shlib_type = "sa"
+  subsystem_name = "busmanager"
+  part_name = "serial_manager"
+}
