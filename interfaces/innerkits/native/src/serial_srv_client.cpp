@@ -16,21 +16,21 @@
 #include <sys/types.h>
 
 #include "hilog_wrapper.h"
+#include "if_system_ability_manager.h"
 #include "iremote_broker.h"
 #include "iremote_object.h"
-#include "if_system_ability_manager.h"
 #include "iservice_registry.h"
-#include "system_ability_definition.h"
-#include "serial_srv_client.h"
-#include "serial_service_callback.h"
 #include "serial_error_code.h"
+#include "serial_service_callback.h"
+#include "serial_srv_client.h"
+#include "system_ability_definition.h"
 
 namespace OHOS {
 namespace Serial {
 namespace {
 constexpr int32_t SERIAL_SERVICE_ID = 4202;
 constexpr uint32_t MAX_WAIT_LOAD_SA_SECONDS = 4;
-}
+} // namespace
 
 SerialSrvClient::SerialSrvClient()
 {
@@ -52,13 +52,13 @@ SerialSrvClient& SerialSrvClient::GetInstance()
     return instance;
 }
 
-void SerialSrvClient::SerialSrvDeathRecipient::OnRemoteDied(const wptr<IRemoteObject> &remote)
+void SerialSrvClient::SerialSrvDeathRecipient::OnRemoteDied(const wptr<IRemoteObject>& remote)
 {
     SERIAL_HILOGE(MODULE_INNERKIT, "Remote died");
     SerialSrvClient::GetInstance().ResetProxy(remote);
 }
 
-void SerialSrvClient::ResetProxy(const wptr<IRemoteObject> &remote)
+void SerialSrvClient::ResetProxy(const wptr<IRemoteObject>& remote)
 {
     SERIAL_HILOGI(MODULE_INNERKIT, "Enter");
     std::lock_guard<std::mutex> lock(mutex_);
@@ -177,8 +177,8 @@ int32_t SerialSrvClient::CloseSerial(const std::string& portName)
     return jsRet;
 }
 
-int32_t SerialSrvClient::WriteSerial(const std::string& portName, const std::vector<uint8_t>& data,
-    int32_t timeout, int32_t& bytesWritten)
+int32_t SerialSrvClient::WriteSerial(
+    const std::string& portName, const std::vector<uint8_t>& data, int32_t timeout, int32_t& bytesWritten)
 {
     SERIAL_HILOGI(MODULE_INNERKIT, "Enter, portName=%{public}s, timeout=%{public}d", portName.c_str(), timeout);
     if (Connect(true) != SERIAL_OK) {
@@ -193,8 +193,8 @@ int32_t SerialSrvClient::WriteSerial(const std::string& portName, const std::vec
 
     int32_t ret = proxy_->WriteSerial(portName, data, timeout, bytesWritten);
     int32_t jsRet = SerialInternalToJsCode(ret);
-    SERIAL_HILOGI(MODULE_INNERKIT, "WriteSerial ret = %{public}d -> jsRet = %{public}d, bytesWritten=%{public}d",
-                  ret, jsRet, bytesWritten);
+    SERIAL_HILOGI(MODULE_INNERKIT, "WriteSerial ret = %{public}d -> jsRet = %{public}d, bytesWritten=%{public}d", ret,
+        jsRet, bytesWritten);
     return jsRet;
 }
 
@@ -289,15 +289,14 @@ int32_t SerialSrvClient::GetCtsSignal(const std::string& portName, bool& cts)
 
     int32_t ret = proxy_->GetCtsSignal(portName, cts);
     int32_t jsRet = SerialInternalToJsCode(ret);
-    SERIAL_HILOGI(MODULE_INNERKIT,
-                  "GetCtsSignal ret = %{public}d -> jsRet = %{public}d, cts=%{public}d", ret, jsRet, cts);
+    SERIAL_HILOGI(
+        MODULE_INNERKIT, "GetCtsSignal ret = %{public}d -> jsRet = %{public}d, cts=%{public}d", ret, jsRet, cts);
     return jsRet;
 }
 
 int32_t SerialSrvClient::AddPortAuthorization(const std::string& tokenId, const std::string& deviceId)
 {
-    SERIAL_HILOGI(MODULE_INNERKIT, "Enter, tokenId=%{public}s, deviceId=%{public}s",
-                  tokenId.c_str(), deviceId.c_str());
+    SERIAL_HILOGI(MODULE_INNERKIT, "Enter, tokenId=%{public}s, deviceId=%{public}s", tokenId.c_str(), deviceId.c_str());
     if (Connect(true) != SERIAL_OK) {
         SERIAL_HILOGE(MODULE_INNERKIT, "Connect failed");
         return SERIAL_JS_ERR_SERVICE;
@@ -335,7 +334,7 @@ ListenerHandle SerialSrvClient::RegisterDataListener(const std::string& portName
         return 0;
     }
     SERIAL_HILOGI(MODULE_INNERKIT, "RegisterDataListener success, listenerHandle=%{public}llu, wasFirst=%{public}d",
-                  (unsigned long long)listenerHandle, wasFirstListener);
+        (unsigned long long)listenerHandle, wasFirstListener);
 
     if (wasFirstListener) {
         if (Connect(true) != SERIAL_OK) {
@@ -363,8 +362,8 @@ ListenerHandle SerialSrvClient::RegisterDataListener(const std::string& portName
 
 int32_t SerialSrvClient::UnregisterDataListener(const std::string& portName, ListenerHandle listenerHandle)
 {
-    SERIAL_HILOGI(MODULE_INNERKIT, "Enter, portName=%{public}s, listenerHandle=%{public}llu",
-                  portName.c_str(), (unsigned long long)listenerHandle);
+    SERIAL_HILOGI(MODULE_INNERKIT, "Enter, portName=%{public}s, listenerHandle=%{public}llu", portName.c_str(),
+        (unsigned long long)listenerHandle);
     if (callback_ == nullptr) {
         SERIAL_HILOGE(MODULE_INNERKIT, "callback_ is nullptr");
         return -1;
@@ -382,7 +381,7 @@ int32_t SerialSrvClient::UnregisterDataListener(const std::string& portName, Lis
     }
     size_t countAfter = callback_->GetListenerCount(portName);
     SERIAL_HILOGI(MODULE_INNERKIT, "UnregisterDataListener success, count before=%{public}zu, after=%{public}zu",
-                  countBefore, countAfter);
+        countBefore, countAfter);
 
     if (countBefore > 0 && countAfter == 0) {
         if (Connect(true) != SERIAL_OK) {
@@ -404,5 +403,5 @@ int32_t SerialSrvClient::UnregisterDataListener(const std::string& portName, Lis
     return SERIAL_OK;
 }
 
-}
-}
+} // namespace Serial
+} // namespace OHOS

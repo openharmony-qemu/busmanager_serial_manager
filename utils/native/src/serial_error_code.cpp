@@ -58,17 +58,17 @@ const char* SerialJsErrorMessage(int32_t jsCode)
         case SERIAL_JS_ERR_INVALID_PARAM:
             return "Invalid parameter";
         case SERIAL_JS_ERR_DEVICE_DISCONNECTED:
-            return "Device disconnected or info changed";
+            return "Virtual serial port disconnected";
         case SERIAL_JS_ERR_DEVICE_BUSY:
-            return "Device busy";
+            return "Port already in use";
         case SERIAL_JS_ERR_DEVICE_NOT_OPENED:
-            return "Device not opened";
+            return "Port not open";
         case SERIAL_JS_ERR_TIMEOUT:
-            return "Timeout";
+            return "Transmission timeout";
         case SERIAL_JS_ERR_PERMISSION_DENIED:
-            return "Permission denied";
+            return "User authorization required";
         case SERIAL_JS_ERR_NOT_ALLOWED:
-            return "Not allowed";
+            return "Permission denied";
         case SERIAL_JS_ERR_NOT_SYSTEM_APP:
             return "Permission denied. Called by non-system application";
         case SERIAL_JS_ERR_ENTERPRISE_POLICY:
@@ -80,5 +80,5 @@ const char* SerialJsErrorMessage(int32_t jsCode)
     }
 }
 
-}
-}
+} // namespace Serial
+} // namespace OHOS

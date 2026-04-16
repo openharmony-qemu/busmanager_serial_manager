@@ -147,9 +147,9 @@ serial.Parity { NONE='none', EVEN='even', ODD='odd', MARK='mark', SPACE='space' 
 ## 日志
 
 三模块独立域：
-- `SERIAL_HILOGI/E/W/D(MODULE_INNERKIT, ...)` — 域 `0xD002901`，tag `SerialSrvClient`
-- `SERIAL_HILOGI/E/W/D(MODULE_SERVICE, ...)` — 域 `0xD002902`，tag `SerialService`
-- `SERIAL_HILOGI/E/W/D(MODULE_JS_NAPI, ...)` — 域 `0xD002903`，tag `SerialNapi`
+- `SERIAL_HILOGI/E/W/D(MODULE_INNERKIT, ...)` — 域 `0xD002A08`，tag `SerialSrvClient`
+- `SERIAL_HILOGI/E/W/D(MODULE_SERVICE, ...)` — 域 `0xD002A08`，tag `SerialService`
+- `SERIAL_HILOGI/E/W/D(MODULE_JS_NAPI, ...)` — 域 `0xD002A08`，tag `SerialNapi`
 
 ## 扩展新接口流程
 
@@ -210,6 +210,12 @@ test/
 - **test/BUILD.gn 只做汇总**：不定义编译目标，仅通过 `group` 聚合子目录的测试目标
 - **每个子目录职责单一**：如 `develop/` 放开发调试用目标，`fuzz/` 放模糊测试，`unittest/` 放单元测试
 
+## 代码格式化
+
+- **C/C++**: `clang-format -i <file>`，配置文件位于项目根目录 `.clang-format`，所有 C/C++ 代码提交前必须格式化
+- **BUILD.gn**: `gn format <file>`，修改 BUILD.gn 后必须格式化，工具路径 `prebuilts/build-tools/linux-x86/bin/gn`
+- **bundle.json**: 使用 `python3 -c "import json; ... json.dump(data, f, indent=2)"` 格式化
+
 ## 代码风格
 
 **K&R 风格**（Kernighan & Ritchie），C/C++ 代码必须遵守：
@@ -234,6 +240,26 @@ void MyClass::MyMethod(int arg) {
     }
 }
 ```
+
+## 编码规范
+
+### 禁止魔鬼数字
+
+代码中禁止使用未命名的字面量数字（魔鬼数字）。所有数字常量必须定义为 `constexpr` 命名常量，并放在合理的词法作用域中：
+
+```cpp
+// 正确 — 命名常量
+constexpr uint8_t ASCII_PRINTABLE_MIN = 32;
+constexpr uint8_t ASCII_PRINTABLE_MAX = 126;
+constexpr int HEX_WIDTH = 2;
+
+if (data[i] >= ASCII_PRINTABLE_MIN && data[i] <= ASCII_PRINTABLE_MAX) { ... }
+
+// 错误 — 魔鬼数字
+if (data[i] >= 32 && data[i] <= 126) { ... }
+```
+
+例外：语义完全清晰且无歧义的数字可以保留，如 `0`（零值初始化）、`1`（单步递增）、`std::setfill('0')` 中的字符参数等。
 
 ## 常见陷阱
 

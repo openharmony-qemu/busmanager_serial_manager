@@ -1,6 +1,6 @@
 BasedOnStyle: Webkit
 ColumnLimit: 120
-PointerAlignment: Right
+PointerAlignment: Left
 AlignAfterOpenBracket: DontAlign
 AlignTrailingComments: true
 AlignConsecutiveMacros: Consecutive
@@ -13,11 +13,12 @@ NamespaceIndentation: None
 FixNamespaceComments: true
 ConstructorInitializerAllOnOneLineOrOnePerLine: true
 BreakConstructorInitializers: BeforeColon
-AlignArrayOfStructures: Left
 AllowShortFunctionsOnASingleLine: Empty
 AllowShortLambdasOnASingleLine: Empty
 AlwaysBreakTemplateDeclarations: true
+MaxEmptyLinesToKeep: 1
 SpaceInEmptyBlock: false
+KeepEmptyLinesAtTheStartOfBlocks: false
 LambdaBodyIndentation: Signature
 BreakBeforeTernaryOperators: false
 Cpp11BracedListStyle: true

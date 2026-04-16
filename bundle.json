@@ -1,61 +1,63 @@
 {
-    "name": "@ohos/serial_manager",
-    "version": "1.0.0",
-    "description": "serial manager",
-    "publishAs": "code-segment",
-    "segment": {
-        "destPath": "base/busmanager/serial_manager"
+  "name": "@ohos/serial_manager",
+  "version": "1.0.0",
+  "description": "serial manager",
+  "publishAs": "code-segment",
+  "segment": {
+    "destPath": "base/busmanager/serial_manager"
+  },
+  "repository": "",
+  "license": "Apache License 2.0",
+  "dirs": {},
+  "scripts": {},
+  "component": {
+    "name": "serial_manager",
+    "subsystem": "busmanager",
+    "features": [],
+    "syscap": [
+      "SystemCapability.BusManager.Serial"
+    ],
+    "adapted_system_type": [
+      "standard"
+    ],
+    "rom": "200KB",
+    "ram": "1000KB",
+    "deps": {
+      "components": [
+        "hilog",
+        "napi",
+        "ipc",
+        "safwk",
+        "c_utils",
+        "samgr"
+      ]
     },
-    "repository": "",
-    "license": "Apache License 2.0",
-    "dirs": {},
-    "scripts": {},
-    "component": {
-        "name": "serial_manager",
-        "subsystem": "busmanager",
-        "features": [],
-        "syscap": [
-            "SystemCapability.BusManager.Serial"
+    "build": {
+      "group_type": {
+        "base_group": [],
+        "fwk_group": [
+          "//base/busmanager/serial_manager/interfaces/innerkits:serialsrv_client",
+          "//base/busmanager/serial_manager/interfaces/kits/js/napi:serial"
         ],
-        "adapted_system_type": [
-            "standard"
-        ],
-        "rom": "200KB",
-        "ram": "1000KB",
-        "deps": {
-            "components": [
-                "hilog",
-                "napi",
-                "ipc",
-                "safwk",
-                "c_utils",
-                "samgr"
-            ]
-        },
-        "build": {
-            "group_type": {
-                "base_group": [],
-                "fwk_group": [
-                    "//base/busmanager/serial_manager/interfaces/innerkits:serialsrv_client",
-                    "//base/busmanager/serial_manager/interfaces/kits/js/napi:serial"
-                ],
-                "service_group": [
-                    "//base/busmanager/serial_manager/sa_profile:serialmgr_sa_profile",
-                    "//base/busmanager/serial_manager/services:serialservice"
-                ]
-            },
-            "inner_kits": [{
-                "name": "//base/busmanager/serial_manager/interfaces/innerkits:serialsrv_client",
-                "header": {
-                    "header_files": [
-                        "serial_srv_client.h"
-                    ],
-                    "header_base": "//base/busmanager/serial_manager/interfaces/innerkits/native/include"
-                }
-            }],
-            "test": [
-                "//base/busmanager/serial_manager/test:serial_manager_tests"
-            ]
+        "service_group": [
+          "//base/busmanager/serial_manager/sa_profile:serialmgr_sa_profile",
+          "//base/busmanager/serial_manager/services:serialservice"
+        ]
+      },
+      "inner_kits": [
+        {
+          "name": "//base/busmanager/serial_manager/interfaces/innerkits:serialsrv_client",
+          "header": {
+            "header_files": [
+              "serial_srv_client.h"
+            ],
+            "header_base": "//base/busmanager/serial_manager/interfaces/innerkits/native/include"
+          }
         }
+      ],
+      "test": [
+        "//base/busmanager/serial_manager/test:serial_manager_tests"
+      ]
     }
+  }
 }

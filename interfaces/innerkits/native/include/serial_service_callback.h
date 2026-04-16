@@ -49,7 +49,7 @@ private:
     ListenerHandle nextListenerHandle_ = 1;
 };
 
-}
-}
+} // namespace Serial
+} // namespace OHOS
 
 #endif

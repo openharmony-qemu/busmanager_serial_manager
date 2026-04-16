@@ -30,9 +30,7 @@ ohos_shared_library("serial") {
 
   defines = [ "SERIAL_NAPI" ]
 
-  sources = [
-    "src/serial_info.cpp",
-  ]
+  sources = [ "src/serial_info.cpp" ]
   deps = [
     "${serial_manager_path}/interfaces/innerkits:serialsrv_client",
     "${serial_manager_path}/utils:serial_error_code",
@@ -45,9 +43,7 @@ ohos_shared_library("serial") {
     "samgr:samgr_proxy",
   ]
 
-  configs = [
-    ":serialnapi_private_config",
-  ]
+  configs = [ ":serialnapi_private_config" ]
 
   relative_install_dir = "module/busmanager"
 

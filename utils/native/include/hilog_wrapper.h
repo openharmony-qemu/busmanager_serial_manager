@@ -51,12 +51,12 @@ enum SerialMgrSubModule {
     SERIALMGR_MODULE_BUTT,
 };
 
-constexpr unsigned int BASE_SERIAL_DOMAIN_ID = 0xD002900;
+constexpr unsigned int BASE_SERIAL_DOMAIN_ID = 0xD002A08;
 
 enum SerialMgrDomainId {
-    SERIALMGR_INNERKIT_DOMAIN = BASE_SERIAL_DOMAIN_ID + MODULE_INNERKIT + 1,
-    SERIALMGR_SERVICE_DOMAIN = BASE_SERIAL_DOMAIN_ID + MODULE_SERVICE + 1,
-    SERIALMGR_JS_NAPI = BASE_SERIAL_DOMAIN_ID + MODULE_JS_NAPI + 1,
+    SERIALMGR_INNERKIT_DOMAIN = BASE_SERIAL_DOMAIN_ID,
+    SERIALMGR_SERVICE_DOMAIN = BASE_SERIAL_DOMAIN_ID,
+    SERIALMGR_JS_NAPI = BASE_SERIAL_DOMAIN_ID,
     SERIALMGR_BUTT,
 };
 
@@ -70,21 +70,21 @@ static const struct {
 };
 
 #define SERIAL_HILOGF(module, ...) \
-    ((void)HILOG_IMPL(LOG_CORE, LOG_FATAL, \
-        SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
+    ((void)HILOG_IMPL(             \
+        LOG_CORE, LOG_FATAL, SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
 #define SERIAL_HILOGE(module, ...) \
-    ((void)HILOG_IMPL(LOG_CORE, LOG_ERROR, \
-        SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
+    ((void)HILOG_IMPL(             \
+        LOG_CORE, LOG_ERROR, SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
 #define SERIAL_HILOGW(module, ...) \
-    ((void)HILOG_IMPL(LOG_CORE, LOG_WARN, \
-        SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
+    ((void)HILOG_IMPL(             \
+        LOG_CORE, LOG_WARN, SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
 #define SERIAL_HILOGI(module, ...) \
-    ((void)HILOG_IMPL(LOG_CORE, LOG_INFO, \
-        SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
+    ((void)HILOG_IMPL(             \
+        LOG_CORE, LOG_INFO, SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
 #define SERIAL_HILOGD(module, ...) \
-    ((void)HILOG_IMPL(LOG_CORE, LOG_DEBUG, \
-        SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
-} // namespace SERIAL
+    ((void)HILOG_IMPL(             \
+        LOG_CORE, LOG_DEBUG, SERIAL_MGR_LABEL[module].domainId, SERIAL_MGR_LABEL[module].tag, ##__VA_ARGS__))
+} // namespace Serial
 } // namespace OHOS
 
 #else

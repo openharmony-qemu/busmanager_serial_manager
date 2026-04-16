@@ -37,8 +37,8 @@ public:
     int32_t QuerySerialDevices(std::vector<SerialPortInfo>& devices);
     int32_t OpenSerial(const SerialPortInfo& portInfo, const SerialConfig& config);
     int32_t CloseSerial(const std::string& portName);
-    int32_t WriteSerial(const std::string& portName, const std::vector<uint8_t>& data,
-                        int32_t timeout, int32_t& bytesWritten);
+    int32_t WriteSerial(
+        const std::string& portName, const std::vector<uint8_t>& data, int32_t timeout, int32_t& bytesWritten);
     int32_t Flush(const std::string& portName);
     int32_t Drain(const std::string& portName);
     int32_t SendBrkSignal(const std::string& portName);
@@ -55,13 +55,13 @@ private:
 
     int32_t Connect(bool force = false);
     int32_t ConnectUnLocked(bool force = false);
-    void ResetProxy(const wptr<IRemoteObject> &remote);
+    void ResetProxy(const wptr<IRemoteObject>& remote);
 
     class SerialSrvDeathRecipient : public IRemoteObject::DeathRecipient {
     public:
         SerialSrvDeathRecipient() = default;
         ~SerialSrvDeathRecipient() override = default;
-        void OnRemoteDied(const wptr<IRemoteObject> &remote) override;
+        void OnRemoteDied(const wptr<IRemoteObject>& remote) override;
 
     private:
         DISALLOW_COPY_AND_MOVE(SerialSrvDeathRecipient);
@@ -73,8 +73,8 @@ private:
     std::mutex mutex_;
 };
 
-}
+} // namespace Serial
 
-}
+} // namespace OHOS
 
 #endif

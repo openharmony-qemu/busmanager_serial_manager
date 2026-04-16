@@ -15,6 +15,7 @@ import("//build/ohos.gni")
 
 group("serial_manager_tests") {
   deps = [
+    "develop:serial_service_lifecycle_test",
     "develop:serialservice_errcodetest",
   ]
 }

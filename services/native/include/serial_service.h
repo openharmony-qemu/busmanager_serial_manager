@@ -16,16 +16,16 @@
 #ifndef SERIAL_SERVICE_H
 #define SERIAL_SERVICE_H
 
-#include <vector>
-#include <mutex>
-#include <map>
-#include <thread>
-#include <condition_variable>
 #include <atomic>
+#include <condition_variable>
+#include <map>
+#include <mutex>
+#include <thread>
+#include <vector>
 
-#include "system_ability.h"
-#include "serial_server_stub.h"
 #include "iserial_service_callback.h"
+#include "serial_server_stub.h"
+#include "system_ability.h"
 
 namespace OHOS {
 namespace Serial {
@@ -33,7 +33,7 @@ namespace Serial {
 struct ReadContext {
     sptr<ISerialServiceCallback> callback;
     std::thread readThread;
-    std::atomic<bool> running{false};
+    std::atomic<bool> running {false};
     std::condition_variable cv;
     std::mutex mutex;
     std::vector<uint8_t> lastWrittenData;
@@ -50,11 +50,11 @@ public:
     void OnStop() override;
 
     int32_t QuerySerialDevices(std::vector<SerialPortInfo>& devices) override;
-    int32_t OpenSerial(const SerialPortInfo& portInfo, const SerialConfig& config,
-                       const sptr<ISerialServiceCallback>& token) override;
+    int32_t OpenSerial(
+        const SerialPortInfo& portInfo, const SerialConfig& config, const sptr<ISerialServiceCallback>& token) override;
     int32_t CloseSerial(const std::string& portName) override;
-    int32_t WriteSerial(const std::string& portName, const std::vector<uint8_t>& data,
-                        int32_t timeout, int32_t& bytesWritten) override;
+    int32_t WriteSerial(
+        const std::string& portName, const std::vector<uint8_t>& data, int32_t timeout, int32_t& bytesWritten) override;
     int32_t StartRead(const std::string& portName) override;
     int32_t StopRead(const std::string& portName) override;
     int32_t Flush(const std::string& portName) override;
@@ -72,6 +72,6 @@ private:
     std::map<std::string, std::shared_ptr<ReadContext>> readContexts_;
 };
 
-}
+} // namespace Serial
 } // namespace OHOS
 #endif

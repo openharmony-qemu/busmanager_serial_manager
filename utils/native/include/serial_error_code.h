@@ -50,8 +50,8 @@ constexpr int32_t SERIAL_JS_ERR_PARAM_ERROR = 401;
 int32_t SerialInternalToJsCode(int32_t internalCode);
 const char* SerialJsErrorMessage(int32_t jsCode);
 
-}
+} // namespace Serial
 
-}
+} // namespace OHOS
 
 #endif

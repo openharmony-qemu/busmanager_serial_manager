@@ -40,13 +40,9 @@ ohos_shared_library("serialservice") {
   branch_protector_ret = "pac_ret"
 
   install_enable = true
-  sources = [
-    "native/src/serial_service.cpp",
-  ]
+  sources = [ "native/src/serial_service.cpp" ]
 
-  configs = [
-    ":serialsrv_private_config",
-  ]
+  configs = [ ":serialsrv_private_config" ]
 
   public_configs = [ ":serialsrv_public_config" ]
   deps = [

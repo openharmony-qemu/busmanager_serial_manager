@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-Serial Manager 是一个基于OpenHarmony系统的串口设备管理服务组件，提供串口设备的发现、打开、关闭、读写、流控制等完整管理功能。该组件参考了OpenHarmony标准USB Manager组件的设计架构，实现了完整的Native到JavaScript的NAPI绑定层，并通过IDL驱动的IPC机制实现Client-Server间通信。
+Serial Manager 是一个基于OpenHarmony系统的串口设备管理服务组件，提供串口设备的发现、打开、关闭、读写、流控制等完整管理功能。该组件实现了完整的Native到JavaScript的NAPI绑定层，并通过IDL驱动的IPC机制实现Client-Server间通信。
 
 ## 主要功能
 
@@ -39,7 +39,7 @@ Serial Manager 是一个基于OpenHarmony系统的串口设备管理服务组件
 │        System Ability 服务 (libserialservice.z.so) │
 │  SerialService extends SystemAbility + Stub    │
 │  ReadContext (每端口读线程 + 回调代理)            │
-│  当前为模拟实现：硬编码设备 + 环回回显             │
+│  当前为桩实现：所有方法记录日志后返回成功            │
 └──────────────────────────────────────────────┘
 ```
 
@@ -49,11 +49,9 @@ Serial Manager 是一个基于OpenHarmony系统的串口设备管理服务组件
 serial_manager/
 ├── bundle.json                                  # 组件定义
 ├── serialmgr.gni                                # 全局路径变量
-├── disable_seliux.sh                            # 禁用SELinux脚本
-├── push.bat                                     # Windows部署脚本
 ├── interfaces/
 │   ├── innerkits/
-│   │   ├── ISerialServer.idl                    # 主接口IDL（12个方法）
+│   │   ├── ISerialServer.idl                    # 主接口IDL
 │   │   ├── ISerialServiceCallback.idl           # 数据回调IDL（oneway）
 │   │   ├── SerialServerTypes.idl                # 数据类型IDL
 │   │   ├── BUILD.gn                             # InnerAPI构建配置
@@ -64,13 +62,14 @@ serial_manager/
 │   │       └── src/
 │   │           ├── serial_srv_client.cpp        # 客户端实现
 │   │           └── serial_service_callback.cpp  # 回调分发 + 监听器管理实现
-│   └── kits/js/napi/
+│   └── kits/js/
 │       ├── @ohos.busManager.serial.d.ts         # TypeScript API 声明
-│       ├── BUILD.gn                             # NAPI构建配置
-│       ├── include/
-│       │   └── napi_common.h                    # NAPI模块初始化声明
-│       └── src/
-│           └── serial_info.cpp                  # NAPI完整实现（~1395行）
+│       └── napi/
+│           ├── BUILD.gn                         # NAPI构建配置
+│           ├── include/
+│           │   └── napi_common.h                # NAPI模块初始化声明
+│           └── src/
+│               └── serial_info.cpp              # NAPI完整实现
 ├── services/
 │   ├── BUILD.gn                                 # 服务构建配置
 │   ├── serial_service.cfg                       # Init进程服务配置
@@ -78,15 +77,24 @@ serial_manager/
 │       ├── include/
 │       │   └── serial_service.h                 # 服务头文件（含ReadContext）
 │       └── src/
-│           └── serial_service.cpp               # 服务实现（模拟）
+│           └── serial_service.cpp               # 服务实现（桩）
 ├── sa_profile/
 │   ├── 4202.json                                # SA配置文件
 │   └── BUILD.gn                                 # SA构建配置
-└── utils/
-    └── native/
-        └── include/
-            ├── hilog_wrapper.h                  # 日志宏（CLIENT/SERVICE/NAPI三模块）
-            └── delayed_sp_singleton.h           # 延迟单例模板
+├── utils/
+│   ├── BUILD.gn                                 # 工具库构建配置
+│   └── native/
+│       ├── include/
+│       │   ├── hilog_wrapper.h                  # 日志宏（CLIENT/SERVICE/NAPI三模块）
+│       │   └── serial_error_code.h              # 错误码定义 + 内部码↔JS码映射
+│       └── src/
+│           └── serial_error_code.cpp            # 错误码映射 + 消息查询实现
+└── test/
+    ├── BUILD.gn                                 # group("serial_manager_tests") 汇总测试目标
+    └── develop/
+        ├── BUILD.gn                             # 测试服务变体构建配置
+        ├── serial_service_errcodetest.cpp       # 错误码测试服务（轮次返回预设错误码）
+        └── serial_service_lifecycle_test.cpp    # 生命周期测试服务（模拟设备+环回+端口管理）
 ```
 
 ## IDL 接口定义
@@ -160,7 +168,7 @@ ports[0].onDataRead((data: Uint8Array) => {
 });
 
 // 写入数据
-const bytesWritten = await ports[0].write([0x01, 0x02, 0x03], 1000);
+const bytesWritten = await ports[0].write(new Uint8Array([0x01, 0x02, 0x03]), 1000);
 
 // 流控制
 await ports[0].setRts(true);
@@ -174,7 +182,7 @@ await ports[0].close();
 
 | API | 类型 | 说明 |
 |-----|------|------|
-| `getSerialPortList()` | Promise / Callback | 获取串口设备列表，返回 SerialPort 对象数组 |
+| `getSerialPortList()` | Promise | 获取串口设备列表，返回 SerialPort 对象数组 |
 | `addPortAuthorization(tokenId, deviceId)` | Promise | 系统级端口授权（@systemapi） |
 | `SerialPort.open(config?)` | Promise | 打开串口，config 可选，有默认值 |
 | `SerialPort.close()` | Promise | 关闭串口 |
@@ -199,15 +207,17 @@ enum Parity    { NONE = 'none', EVEN = 'even', ODD = 'odd', MARK = 'mark', SPACE
 
 | 错误码 | 含义 |
 |--------|------|
-| 203 | 权限校验失败 |
-| 35700001 | 服务内部错误 |
-| 35700002 | 参数无效 |
-| 35700003 | 设备未找到 |
-| 35700004 | 设备被占用 |
-| 35700005 | 设备未打开 |
-| 35700006 | 操作超时 |
-| 35700007 | 无用户授权 |
-| 35700008 | 非授权弹窗应用 |
+| 202 | 非系统应用调用权限拒绝 |
+| 203 | 企业管理策略禁止此功能 |
+| 35700001 | 服务错误 |
+| 35700002 | 无效参数 |
+| 35700003 | 虚拟串口已断开 |
+| 35700004 | 端口已被占用 |
+| 35700005 | 端口未打开 |
+| 35700006 | 传输超时 |
+| 35700007 | 需要用户授权 |
+| 35700008 | 权限拒绝 |
+| 401 | 参数错误 |
 
 ## 核心实现细节
 
@@ -220,21 +230,31 @@ enum Parity    { NONE = 'none', EVEN = 'even', ODD = 'odd', MARK = 'mark', SPACE
 
 ### 2. 服务端（SerialService）
 
-- **SA注册**：`REGISTER_SYSTEM_ABILITY_BY_ID(SerialService, 4202, true)`，开机自启
-- **每端口上下文**：`ReadContext` 包含回调代理、读线程、原子运行标志、条件变量
-- **当前模拟实现**：
-  - `QuerySerialDevices` 返回3个硬编码设备（`/dev/ttyS0`、`/dev/ttyS1`、`/dev/ttyUSB0`）
-  - `WriteSerial` 记录数据并返回写入字节数（无真实硬件I/O）
-  - `ReadThreadFunc` 每5秒将最后写入的数据通过 `onDataRead` 回环发送（模拟环回）
+- **SA注册**：`REGISTER_SYSTEM_ABILITY_BY_ID(SerialService, SERIAL_SYSTEM_ABILITY_ID, true)`，run-on-create=true
+- **每端口上下文**：`ReadContext` 包含回调代理、读线程、原子运行标志、条件变量、最后写入数据
+- **当前桩实现**（`serial_service.cpp`）：
+  - 所有12个IDL方法仅记录日志后返回 `SERIAL_OK`，无真实硬件I/O
+  - `QuerySerialDevices` 返回空设备列表（不填充 devices）
+  - `WriteSerial` 记录数据并返回 `data.size()`
+  - `GetCtsSignal` 固定返回 `cts=false`
   - `Flush` / `Drain` / `SendBrkSignal` / `SetRtsSignal` / `AddPortAuthorization` 为空操作桩
-  - `GetCtsSignal` 固定返回 `false`
+  - `ReadThreadFunc` 在头文件中声明但主服务未调用
+- **测试变体实现**（`test/develop/`）：
+  - `serial_service_lifecycle_test.cpp`：模拟设备枚举（多场景轮替）+ 端口占用检测 + ReadContext 管理 + 环回读线程
+  - `serial_service_errcodetest.cpp`：基于 `TestScenario` 按轮次返回预设错误码，覆盖全部错误码场景
 
 ### 3. NAPI绑定层
 
 - 所有变更操作使用 `napi_create_async_work` 异步模式（Worker线程执行 + JS线程回调）
-- `getSerialPortList` 同时支持 Callback 和 Promise 两种调用风格
-- `SerialPort` 为JS对象，携带 `portName` 和 `portInfo` 属性及绑定方法
+- `getSerialPortList` 支持 Promise 调用风格
+- `SerialPort` 为JS对象，通过 `napi_wrap` 绑定 `SerialPortNative*`，支持缓存复用/失效/恢复/GC 回收
 - `onDataRead` 注册时创建C++ lambda包装回调，通过 `napi_async_work` 调度到JS线程执行
+
+### 4. 错误码映射（utils）
+
+- `serial_error_code.h` 定义内部错误码（`SERIAL_ERR_*`，负数）和JS错误码（`SERIAL_JS_ERR_*`，正数）
+- `serial_error_code.cpp` 提供 `SerialInternalToJsCode()` 内部→JS映射和 `SerialJsErrorMessage()` 消息查询
+- NAPI 层统一使用 JS 错误码通过 `BusinessError.code` 返回给应用
 
 ## 编译说明
 
@@ -247,7 +267,7 @@ enum Parity    { NONE = 'none', EVEN = 'even', ODD = 'odd', MARK = 'mark', SPACE
 #### 完整编译（首次编译、修改了IDL/BUILD.gn/bundle.json时必须使用）
 
 ```bash
-./build.sh --product-name rk3568 --ccache --build-target serial_manager
+./build.sh --product-name rk3568 --ccache --build-target serial_manager serial_manager_tests
 ```
 
 #### 快速编译（仅修改源代码时使用）
@@ -259,7 +279,7 @@ enum Parity    { NONE = 'none', EVEN = 'even', ODD = 'odd', MARK = 'mark', SPACE
 - 使用 `--fast-rebuild` 可以显著提高编译速度，因为它跳过了GN生成阶段，直接使用已有的构建配置
 
 ```bash
-./build.sh --product-name rk3568 --ccache --fast-rebuild --build-target serial_manager
+./build.sh --product-name rk3568 --ccache --fast-rebuild --build-target serial_manager serial_manager_tests
 ```
 
 ### 编译产物
@@ -270,13 +290,20 @@ enum Parity    { NONE = 'none', EVEN = 'even', ODD = 'odd', MARK = 'mark', SPACE
 | `libserialservice.z.so` | System Ability服务库 |
 | `libserial.z.so` | NAPI绑定库（安装路径 `module/busmanager`） |
 
+### 测试编译产物
+
+| 产物 | 路径 | 说明 |
+|------|------|------|
+| `serialservice_errcodetest` | `test/develop:serialservice_errcodetest` | 错误码测试服务，`install_enable = false` |
+| `serial_service_lifecycle_test` | `test/develop:serial_service_lifecycle_test` | 生命周期测试服务，`install_enable = false` |
+
 ### 系统注册
 
-- 组件注册到 `busmanager/serial_manager` 子系统
+- 组件注册到 `busmanager` 子系统，部件名 `serial_manager`
 - SA ID: 4202
 - 进程名: `serial_service`，以 `serial` 用户/组运行
-- 按需加载（ondemand），开机事件触发启动，自动重启
-- SA配置文件: `sa_profile/4202.json`
+- 按需加载（ondemand），开机完成事件触发启动（`bootevent.boot.completed`），自动重启
+- SA配置文件: `sa_profile/4202.json`（run-on-create=true, auto-restart=true）
 - Init配置: `services/serial_service.cfg`
 
 ## IDL 代码生成说明
@@ -315,43 +342,36 @@ out/rk3568/gen/base/busmanager/serial_manager/interfaces/innerkits/
 ## 技术特点
 
 1. **遵循OpenHarmony规范**：标准IDL接口定义、System Ability框架、NAPI JavaScript绑定
-2. **参考USB Manager设计**：相同目录结构、构建配置、IPC通信模式
-3. **子系统架构**：子系统名 `bus`，部件名 `serial_manager`，可独立编译集成
-4. **完整日志系统**：`SERIAL_HILOGI/E/W/D` 宏，支持 CLIENT / SERVICE / NAPI 三模块独立域
-5. **回调驱动架构**：`ISerialServiceCallback` 使用 `[oneway]` 异步回调，服务端主动推送数据到客户端
-6. **监听器多路复用**：单端口支持注册多个JS回调，自动管理底层读取线程生命周期
-7. **环回模拟**：当前服务端实现为环回模式，写入数据5秒后通过 `onDataRead` 回显，可用于端到端功能验证
+2. **子系统架构**：子系统名 `busmanager`，部件名 `serial_manager`，可独立编译集成
+3. **完整日志系统**：`SERIAL_HILOGI/E/W/D` 宏，支持 CLIENT / SERVICE / NAPI 三模块独立域
+4. **回调驱动架构**：`ISerialServiceCallback` 使用 `[oneway]` 异步回调，服务端主动推送数据到客户端
+5. **监听器多路复用**：单端口支持注册多个JS回调，自动管理底层读取线程生命周期
+6. **统一错误码体系**：内部负数错误码通过 `SerialInternalToJsCode()` 映射为JS层正数错误码，NAPI统一通过 `BusinessError` 抛出
 
 ## TypeScript API 声明
 
-API声明文件位于 `interfaces/kits/js/napi/@ohos.busManager.serial.d.ts`，模块名为 `@ohos.busManager.serial`，syscap 为 `SystemCapability.BusManager.Serial`。
+API声明文件位于 `interfaces/kits/js/@ohos.busManager.serial.d.ts`，模块名为 `@ohos.busManager.serial`，syscap 为 `SystemCapability.BusManager.Serial`。
 
 ## 扩展指南
 
 1. **添加新接口**：在 `ISerialServer.idl` 中定义新方法
 2. **实现新功能**：在 `serial_service.cpp` 中实现对应 override 方法
 3. **添加NAPI绑定**：在 `serial_info.cpp` 中添加 NAPI 函数并导出
-4. **替换模拟实现**：在 `serial_service.cpp` 中将模拟逻辑替换为真实硬件 I/O（操作 `/dev/ttyS*`、`/dev/ttyUSB*`）
+4. **替换模拟实现**：在 `serial_service.cpp` 中将桩逻辑替换为真实硬件 I/O（操作 `/dev/ttyS*`、`/dev/ttyUSB*`）
+5. **新增错误码**：同步更新 `serial_error_code.h/cpp`、`.d.ts` 的 `@throws` 声明
 
 ## 当前实现状态
 
 - 完整的目录结构和代码框架
 - 3个IDL接口定义和代码生成（ISerialServer + ISerialServiceCallback + SerialServerTypes）
 - InnerAPI客户端实现（12个方法 + 监听器管理 + 死亡通知重连）
-- System Ability服务实现（12个方法，当前为模拟 + 环回）
-- 完整NAPI绑定层（12个JS API + 3个枚举 + SerialPort对象 + Promise/Callback双模式）
-- SA配置和注册（SA 4202 + Init配置 + SELinux策略）
+- System Ability服务实现（12个方法，当前为桩实现）
+- 完整NAPI绑定层（12个JS API + 3个枚举 + SerialPort对象 + Promise模式）
+- SA配置和注册（SA 4202 + Init配置）
 - 编译系统集成，成功编译通过
 - TypeScript API声明文件
-- 设备部署脚本（push.bat + disable_seliux.sh）
-
-## 周边依赖
-
-项目依赖以下外部仓库的修改（详见 `周边依赖的PR列表.md`）：
-- `security_selinux_adapter` — SELinux 策略
-- `startup_init` — Init 系统配置
-- `systemabilitymgr_samgr` — SA 管理器注册
-- `hiviewdfx_hidumper` — 诊断 dump 支持
+- 错误码映射模块（内部码↔JS码 + 消息查询）
+- 测试服务变体：错误码测试（errcodetest）+ 生命周期测试（lifecycle_test）
 
 ## 常见问题
 
@@ -365,7 +385,7 @@ API声明文件位于 `interfaces/kits/js/napi/@ohos.busManager.serial.d.ts`，�
 通常节省50-70%编译时间，因为跳过了GN生成阶段。
 
 ### Q4: onDataRead 回调没有触发？
-确认已调用 `open()` 打开端口并 `write()` 写入数据。当前模拟实现每5秒回显最后写入的数据。
+主服务当前为桩实现，不包含环回逻辑。如需测试环回行为，请部署 `serial_service_lifecycle_test` 测试变体。
 
-### Q5: 如何在真机上测试？
-使用 `push.bat`（Windows）部署编译产物到设备，确保SELinux已设置为permissive（使用 `disable_seliux.sh`）。
+### Q5: 如何部署测试变体到设备？
+将测试变体 so 替换正式 `libserialservice.z.so` 部署到设备对应路径，重启服务即可。

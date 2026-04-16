@@ -18,9 +18,9 @@
 #include "hilog_wrapper.h"
 #include "if_system_ability_manager.h"
 #include "iservice_registry.h"
-#include "system_ability_definition.h"
-#include "serial_service.h"
 #include "serial_error_code.h"
+#include "serial_service.h"
+#include "system_ability_definition.h"
 
 namespace OHOS {
 namespace Serial {
@@ -31,8 +31,7 @@ constexpr int32_t READ_POLL_INTERVAL_SEC = 5;
 
 REGISTER_SYSTEM_ABILITY_BY_ID(SerialService, SERIAL_SYSTEM_ABILITY_ID, true);
 
-SerialService::SerialService(int32_t systemAbilityId, bool runOnCreate)
-    : SystemAbility(systemAbilityId, runOnCreate)
+SerialService::SerialService(int32_t systemAbilityId, bool runOnCreate) : SystemAbility(systemAbilityId, runOnCreate)
 {
     SERIAL_HILOGI(MODULE_SERVICE, "SerialService constructed");
 }
@@ -107,7 +106,7 @@ void SerialService::ReadThreadFunc(const std::string& portName)
 
     while (context->running.load()) {
         SERIAL_HILOGI(MODULE_SERVICE, "ReadThreadFunc loop start, portName=%{public}s, running=%{public}d",
-                      portName.c_str(), context->running.load());
+            portName.c_str(), context->running.load());
 
         std::unique_lock<std::mutex> lock(context->mutex);
         bool stopped = context->cv.wait_for(lock, std::chrono::seconds(READ_POLL_INTERVAL_SEC), [&context] {
@@ -115,12 +114,11 @@ void SerialService::ReadThreadFunc(const std::string& portName)
         });
 
         SERIAL_HILOGI(MODULE_SERVICE,
-                      "ReadThreadFunc after wait_for, portName=%{public}s, stopped=%{public}d, running=%{public}d",
-                      portName.c_str(), stopped, context->running.load());
+            "ReadThreadFunc after wait_for, portName=%{public}s, stopped=%{public}d, running=%{public}d",
+            portName.c_str(), stopped, context->running.load());
 
         if (stopped) {
-            SERIAL_HILOGI(MODULE_SERVICE, "ReadThreadFunc stopped by condition, portName=%{public}s",
-                          portName.c_str());
+            SERIAL_HILOGI(MODULE_SERVICE, "ReadThreadFunc stopped by condition, portName=%{public}s", portName.c_str());
             break;
         }
 
@@ -131,8 +129,8 @@ void SerialService::ReadThreadFunc(const std::string& portName)
 
         if (callback != nullptr && !context->lastWrittenData.empty()) {
             SERIAL_HILOGI(MODULE_SERVICE,
-                          "ReadThreadFunc calling onDataRead, portName=%{public}s, dataSize=%{public}zu",
-                          portName.c_str(), context->lastWrittenData.size());
+                "ReadThreadFunc calling onDataRead, portName=%{public}s, dataSize=%{public}zu", portName.c_str(),
+                context->lastWrittenData.size());
             callback->onDataRead(portName, context->lastWrittenData);
         } else if (context->lastWrittenData.empty()) {
             SERIAL_HILOGD(MODULE_SERVICE, "ReadThreadFunc: no data to send, portName=%{public}s", portName.c_str());
@@ -159,51 +157,34 @@ struct TestScenario {
     int32_t addAuthRet;
 };
 
-static std::atomic<int32_t> g_testRoundIndex{0};
+static std::atomic<int32_t> g_testRoundIndex {0};
 
 static const TestScenario TEST_SCENARIOS[] = {
-    { SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_OK },
-    { SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,
-      SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,
-      SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE },
-    { SERIAL_OK,                     SERIAL_ERR_INVALID_PARAM,      SERIAL_OK,
-      SERIAL_ERR_INVALID_PARAM,      SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
-      SERIAL_ERR_INVALID_PARAM },
-    { SERIAL_OK,                     SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_OK,
-      SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_ERR_DEVICE_DISCONNECTED,
-      SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_ERR_DEVICE_DISCONNECTED,
-      SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_ERR_DEVICE_DISCONNECTED,
-      SERIAL_OK },
-    { SERIAL_OK,                     SERIAL_ERR_DEVICE_BUSY,        SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_OK },
-    { SERIAL_OK,                     SERIAL_OK,
-      SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_ERR_DEVICE_NOT_OPENED,
-      SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_ERR_DEVICE_NOT_OPENED,
-      SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_ERR_DEVICE_NOT_OPENED,
-      SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_OK },
-    { SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_ERR_TIMEOUT,
-      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_OK },
-    { SERIAL_OK,                     SERIAL_ERR_PERMISSION_DENIED,  SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_OK },
-    { SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_ERR_NOT_ALLOWED },
-    { TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,
-      TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,
-      TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,
-      TEST_UNKNOWN_ERROR },
-    { SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_ERR_NOT_SYSTEM_APP },
-    { SERIAL_ERR_ENTERPRISE_POLICY,  SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_OK },
+    {SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK},
+    {SERIAL_ERR_SERVICE, SERIAL_ERR_SERVICE, SERIAL_ERR_SERVICE, SERIAL_ERR_SERVICE, SERIAL_ERR_SERVICE,
+        SERIAL_ERR_SERVICE, SERIAL_ERR_SERVICE, SERIAL_ERR_SERVICE, SERIAL_ERR_SERVICE, SERIAL_ERR_SERVICE},
+    {SERIAL_OK, SERIAL_ERR_INVALID_PARAM, SERIAL_OK, SERIAL_ERR_INVALID_PARAM, SERIAL_OK, SERIAL_OK, SERIAL_OK,
+        SERIAL_OK, SERIAL_OK, SERIAL_ERR_INVALID_PARAM},
+    {SERIAL_OK, SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_OK, SERIAL_ERR_DEVICE_DISCONNECTED,
+        SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_ERR_DEVICE_DISCONNECTED,
+        SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_OK},
+    {SERIAL_OK, SERIAL_ERR_DEVICE_BUSY, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK,
+        SERIAL_OK},
+    {SERIAL_OK, SERIAL_OK, SERIAL_ERR_DEVICE_NOT_OPENED, SERIAL_ERR_DEVICE_NOT_OPENED, SERIAL_ERR_DEVICE_NOT_OPENED,
+        SERIAL_ERR_DEVICE_NOT_OPENED, SERIAL_ERR_DEVICE_NOT_OPENED, SERIAL_ERR_DEVICE_NOT_OPENED,
+        SERIAL_ERR_DEVICE_NOT_OPENED, SERIAL_OK},
+    {SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_ERR_TIMEOUT, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK,
+        SERIAL_OK},
+    {SERIAL_OK, SERIAL_ERR_PERMISSION_DENIED, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK,
+        SERIAL_OK, SERIAL_OK},
+    {SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK,
+        SERIAL_ERR_NOT_ALLOWED},
+    {TEST_UNKNOWN_ERROR, TEST_UNKNOWN_ERROR, TEST_UNKNOWN_ERROR, TEST_UNKNOWN_ERROR, TEST_UNKNOWN_ERROR,
+        TEST_UNKNOWN_ERROR, TEST_UNKNOWN_ERROR, TEST_UNKNOWN_ERROR, TEST_UNKNOWN_ERROR, TEST_UNKNOWN_ERROR},
+    {SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK,
+        SERIAL_ERR_NOT_SYSTEM_APP},
+    {SERIAL_ERR_ENTERPRISE_POLICY, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK, SERIAL_OK,
+        SERIAL_OK, SERIAL_OK},
 };
 
 static constexpr int32_t TEST_SCENARIO_COUNT = sizeof(TEST_SCENARIOS) / sizeof(TEST_SCENARIOS[0]);
@@ -223,21 +204,21 @@ static const TestScenario& GetCurrentTestScenario()
     return TEST_SCENARIOS[GetCurrentTestRound()];
 }
 
-}
+} // namespace
 
 int32_t SerialService::QuerySerialDevices(std::vector<SerialPortInfo>& devices)
 {
     int32_t round = AdvanceTestRound();
     const TestScenario& scenario = TEST_SCENARIOS[round];
-    SERIAL_HILOGI(MODULE_SERVICE, "[TEST] QuerySerialDevices round=%{public}d returning %{public}d",
-                  round, scenario.queryRet);
+    SERIAL_HILOGI(
+        MODULE_SERVICE, "[TEST] QuerySerialDevices round=%{public}d returning %{public}d", round, scenario.queryRet);
     devices.push_back({"/dev/ttyS0", 1, 1, "MfgA"});
     devices.push_back({"/dev/ttyS1", 2, 2, "MfgB"});
     return scenario.queryRet;
 }
 
-int32_t SerialService::OpenSerial(const SerialPortInfo& portInfo, const SerialConfig& config,
-    const sptr<ISerialServiceCallback>& token)
+int32_t SerialService::OpenSerial(
+    const SerialPortInfo& portInfo, const SerialConfig& config, const sptr<ISerialServiceCallback>& token)
 {
     const TestScenario& scenario = GetCurrentTestScenario();
     SERIAL_HILOGI(MODULE_SERVICE, "[TEST] OpenSerial returning %{public}d", scenario.openRet);
@@ -279,8 +260,8 @@ int32_t SerialService::CloseSerial(const std::string& portName)
     return scenario.closeRet;
 }
 
-int32_t SerialService::WriteSerial(const std::string& portName, const std::vector<uint8_t>& data,
-    int32_t timeout, int32_t& bytesWritten)
+int32_t SerialService::WriteSerial(
+    const std::string& portName, const std::vector<uint8_t>& data, int32_t timeout, int32_t& bytesWritten)
 {
     const TestScenario& scenario = GetCurrentTestScenario();
     SERIAL_HILOGI(MODULE_SERVICE, "[TEST] WriteSerial returning %{public}d", scenario.writeRet);
@@ -375,5 +356,5 @@ int32_t SerialService::AddPortAuthorization(const std::string& tokenId, const st
     return scenario.addAuthRet;
 }
 
-}
-}
+} // namespace Serial
+} // namespace OHOS

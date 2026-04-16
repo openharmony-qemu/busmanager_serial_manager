@@ -18,7 +18,7 @@ idl_gen_interface("serial_server_interface") {
   sources = [ "ISerialServer.idl" ]
   sources_common = [ "SerialServerTypes.idl" ]
   sources_callback = [ "ISerialServiceCallback.idl" ]
-  log_domainid = "0xD002900"
+  log_domainid = "0xD002A08"
   log_tag = "SerialSrvClient"
 }
 
@@ -30,8 +30,8 @@ ohos_shared_library("serialsrv_client") {
   }
   output_values = get_target_outputs(":serial_server_interface")
   sources = [
-    "native/src/serial_srv_client.cpp",
     "native/src/serial_service_callback.cpp",
+    "native/src/serial_srv_client.cpp",
   ]
   sources += filter_include(output_values,
                             [
@@ -39,9 +39,7 @@ ohos_shared_library("serialsrv_client") {
                               "*_types.cpp",
                               "*callback_stub.cpp",
                             ])
-  configs = [
-    ":serialsrv_public_config",
-  ]
+  configs = [ ":serialsrv_public_config" ]
   deps = [
     ":serial_server_interface",
     "${serial_manager_path}/utils:serial_error_code",
@@ -87,9 +85,7 @@ ohos_source_set("serial_server_stub") {
     debug = false
   }
   branch_protector_ret = "pac_ret"
-  configs = [
-    ":serialsrv_private_config",
-  ]
+  configs = [ ":serialsrv_private_config" ]
   public_configs = [ ":serial_inner_public_config" ]
   output_values = get_target_outputs(":serial_server_interface")
   sources = filter_include(output_values,

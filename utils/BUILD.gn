@@ -14,15 +14,11 @@
 import("../serialmgr.gni")
 
 config("serialutils_public_config") {
-  include_dirs = [
-    "${serial_manager_path}/utils/native/include",
-  ]
+  include_dirs = [ "${serial_manager_path}/utils/native/include" ]
 }
 
 ohos_source_set("serial_error_code") {
-  sources = [
-    "native/src/serial_error_code.cpp",
-  ]
+  sources = [ "native/src/serial_error_code.cpp" ]
 
   public_configs = [ ":serialutils_public_config" ]
 

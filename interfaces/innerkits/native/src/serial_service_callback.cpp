@@ -21,8 +21,7 @@ namespace Serial {
 
 ErrCode SerialServiceCallback::onDataRead(const std::string& portName, const std::vector<uint8_t>& buffer)
 {
-    SERIAL_HILOGD(MODULE_INNERKIT, "onDataRead portName=%{public}s, size=%{public}zu",
-                  portName.c_str(), buffer.size());
+    SERIAL_HILOGD(MODULE_INNERKIT, "onDataRead portName=%{public}s, size=%{public}zu", portName.c_str(), buffer.size());
 
     std::lock_guard<std::mutex> lock(listenerMutex_);
     auto it = listeners_.find(portName);
@@ -51,8 +50,8 @@ ListenerHandle SerialServiceCallback::AddListener(const std::string& portName, c
     ListenerHandle listenerHandle = nextListenerHandle_++;
     listeners_[portName][listenerHandle] = callback;
     SERIAL_HILOGI(MODULE_INNERKIT,
-                  "Add listener for portName=%{public}s, listenerHandle=%{public}llu, count=%{public}zu",
-                  portName.c_str(), (unsigned long long)listenerHandle, listeners_[portName].size());
+        "Add listener for portName=%{public}s, listenerHandle=%{public}llu, count=%{public}zu", portName.c_str(),
+        (unsigned long long)listenerHandle, listeners_[portName].size());
     return listenerHandle;
 }
 
@@ -69,14 +68,14 @@ bool SerialServiceCallback::RemoveListener(const std::string& portName, Listener
     auto it = listenerMap.find(listenerHandle);
     if (it == listenerMap.end()) {
         SERIAL_HILOGW(MODULE_INNERKIT, "Listener not found for portName=%{public}s, listenerHandle=%{public}llu",
-                      portName.c_str(), (unsigned long long)listenerHandle);
+            portName.c_str(), (unsigned long long)listenerHandle);
         return false;
     }
 
     listenerMap.erase(it);
     SERIAL_HILOGI(MODULE_INNERKIT,
-                  "Remove listener for portName=%{public}s, listenerHandle=%{public}llu, remaining=%{public}zu",
-                  portName.c_str(), (unsigned long long)listenerHandle, listenerMap.size());
+        "Remove listener for portName=%{public}s, listenerHandle=%{public}llu, remaining=%{public}zu", portName.c_str(),
+        (unsigned long long)listenerHandle, listenerMap.size());
 
     if (listenerMap.empty()) {
         listeners_.erase(portIt);
@@ -91,7 +90,7 @@ void SerialServiceCallback::RemoveAllListeners(const std::string& portName)
     auto it = listeners_.find(portName);
     if (it != listeners_.end()) {
         SERIAL_HILOGI(MODULE_INNERKIT, "Remove all listeners for portName=%{public}s, count=%{public}zu",
-                      portName.c_str(), it->second.size());
+            portName.c_str(), it->second.size());
         listeners_.erase(it);
     }
 }
@@ -113,5 +112,5 @@ size_t SerialServiceCallback::GetListenerCount(const std::string& portName)
     return it->second.size();
 }
 
-}
-}
+} // namespace Serial
+} // namespace OHOS
