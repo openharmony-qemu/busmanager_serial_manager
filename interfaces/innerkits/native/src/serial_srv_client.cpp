@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Huawei Device Co., Ltd.
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -289,7 +289,8 @@ int32_t SerialSrvClient::GetCtsSignal(const std::string& portName, bool& cts)
 
     int32_t ret = proxy_->GetCtsSignal(portName, cts);
     int32_t jsRet = SerialInternalToJsCode(ret);
-    SERIAL_HILOGI(MODULE_INNERKIT, "GetCtsSignal ret = %{public}d -> jsRet = %{public}d, cts=%{public}d", ret, jsRet, cts);
+    SERIAL_HILOGI(MODULE_INNERKIT,
+                  "GetCtsSignal ret = %{public}d -> jsRet = %{public}d, cts=%{public}d", ret, jsRet, cts);
     return jsRet;
 }
 

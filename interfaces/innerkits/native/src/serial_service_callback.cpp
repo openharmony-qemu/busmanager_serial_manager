@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Huawei Device Co., Ltd.
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -50,7 +50,8 @@ ListenerHandle SerialServiceCallback::AddListener(const std::string& portName, c
     std::lock_guard<std::mutex> lock(listenerMutex_);
     ListenerHandle listenerHandle = nextListenerHandle_++;
     listeners_[portName][listenerHandle] = callback;
-    SERIAL_HILOGI(MODULE_INNERKIT, "Add listener for portName=%{public}s, listenerHandle=%{public}llu, count=%{public}zu",
+    SERIAL_HILOGI(MODULE_INNERKIT,
+                  "Add listener for portName=%{public}s, listenerHandle=%{public}llu, count=%{public}zu",
                   portName.c_str(), (unsigned long long)listenerHandle, listeners_[portName].size());
     return listenerHandle;
 }
@@ -73,7 +74,8 @@ bool SerialServiceCallback::RemoveListener(const std::string& portName, Listener
     }
 
     listenerMap.erase(it);
-    SERIAL_HILOGI(MODULE_INNERKIT, "Remove listener for portName=%{public}s, listenerHandle=%{public}llu, remaining=%{public}zu",
+    SERIAL_HILOGI(MODULE_INNERKIT,
+                  "Remove listener for portName=%{public}s, listenerHandle=%{public}llu, remaining=%{public}zu",
                   portName.c_str(), (unsigned long long)listenerHandle, listenerMap.size());
 
     if (listenerMap.empty()) {

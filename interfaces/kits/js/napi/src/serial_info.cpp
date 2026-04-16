@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Huawei Device Co., Ltd.
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -38,6 +38,12 @@
 
 using namespace OHOS;
 using namespace OHOS::Serial;
+
+namespace {
+constexpr size_t PORT_NAME_BUF_SIZE = 256;
+constexpr int32_t DEFAULT_BAUD_RATE = 115200;
+constexpr size_t PARITY_BUF_SIZE = 16;
+}
 
 static SerialSrvClient &g_serialClient = SerialSrvClient::GetInstance();
 
@@ -194,7 +200,7 @@ static bool CheckPortNotInvalidated(napi_env env, napi_value thisVar)
     SerialPortNative *native = static_cast<SerialPortNative *>(nativePtr);
     if (native != nullptr && native->invalidated) {
         SERIAL_HILOGW(MODULE_JS_NAPI, "Operation on invalidated port: portName=%{public}s", native->portName.c_str());
-        ThrowBusinessError(env, 35700003, "Device disconnected or info changed");
+        ThrowBusinessError(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED, "Device disconnected or info changed");
         return false;
     }
     return true;
@@ -269,6 +275,13 @@ static napi_value CreateSerialPortInfoObject(napi_env env, const SerialPortInfo 
     return portInfoObj;
 }
 
+static void SetNamedFunction(napi_env env, napi_value obj, const char *name, napi_callback cb)
+{
+    napi_value func;
+    napi_create_function(env, name, NAPI_AUTO_LENGTH, cb, nullptr, &func);
+    napi_set_named_property(env, obj, name, func);
+}
+
 static napi_value SerialPortToJSObject(napi_env env, const SerialPortInfo &deviceInfo, SerialPortNative *native)
 {
     napi_value serialPortObj;
@@ -292,49 +305,85 @@ static napi_value SerialPortToJSObject(napi_env env, const SerialPortInfo &devic
     napi_value portInfoObj = CreateSerialPortInfoObject(env, deviceInfo);
     napi_set_named_property(env, serialPortObj, "portInfo", portInfoObj);
 
-    napi_value openFunc;
-    napi_create_function(env, "open", NAPI_AUTO_LENGTH, SerialOpenNapi, nullptr, &openFunc);
-    napi_set_named_property(env, serialPortObj, "open", openFunc);
-
-    napi_value closeFunc;
-    napi_create_function(env, "close", NAPI_AUTO_LENGTH, SerialCloseNapi, nullptr, &closeFunc);
-    napi_set_named_property(env, serialPortObj, "close", closeFunc);
-
-    napi_value writeFunc;
-    napi_create_function(env, "write", NAPI_AUTO_LENGTH, SerialWriteNapi, nullptr, &writeFunc);
-    napi_set_named_property(env, serialPortObj, "write", writeFunc);
-
-    napi_value onDataReadFunc;
-    napi_create_function(env, "onDataRead", NAPI_AUTO_LENGTH, SerialOnDataReadNapi, nullptr, &onDataReadFunc);
-    napi_set_named_property(env, serialPortObj, "onDataRead", onDataReadFunc);
-
-    napi_value offDataReadFunc;
-    napi_create_function(env, "offDataRead", NAPI_AUTO_LENGTH, SerialOffDataReadNapi, nullptr, &offDataReadFunc);
-    napi_set_named_property(env, serialPortObj, "offDataRead", offDataReadFunc);
-
-    napi_value flushFunc;
-    napi_create_function(env, "flush", NAPI_AUTO_LENGTH, SerialFlushNapi, nullptr, &flushFunc);
-    napi_set_named_property(env, serialPortObj, "flush", flushFunc);
-
-    napi_value drainFunc;
-    napi_create_function(env, "drain", NAPI_AUTO_LENGTH, SerialDrainNapi, nullptr, &drainFunc);
-    napi_set_named_property(env, serialPortObj, "drain", drainFunc);
-
-    napi_value setRtsFunc;
-    napi_create_function(env, "setRts", NAPI_AUTO_LENGTH, SerialSetRtsNapi, nullptr, &setRtsFunc);
-    napi_set_named_property(env, serialPortObj, "setRts", setRtsFunc);
-
-    napi_value sendBrkFunc;
-    napi_create_function(env, "sendBrk", NAPI_AUTO_LENGTH, SerialSendBrkNapi, nullptr, &sendBrkFunc);
-    napi_set_named_property(env, serialPortObj, "sendBrk", sendBrkFunc);
-
-    napi_value getCtsFunc;
-    napi_create_function(env, "getCts", NAPI_AUTO_LENGTH, SerialGetCtsNapi, nullptr, &getCtsFunc);
-    napi_set_named_property(env, serialPortObj, "getCts", getCtsFunc);
+    SetNamedFunction(env, serialPortObj, "open", SerialOpenNapi);
+    SetNamedFunction(env, serialPortObj, "close", SerialCloseNapi);
+    SetNamedFunction(env, serialPortObj, "write", SerialWriteNapi);
+    SetNamedFunction(env, serialPortObj, "onDataRead", SerialOnDataReadNapi);
+    SetNamedFunction(env, serialPortObj, "offDataRead", SerialOffDataReadNapi);
+    SetNamedFunction(env, serialPortObj, "flush", SerialFlushNapi);
+    SetNamedFunction(env, serialPortObj, "drain", SerialDrainNapi);
+    SetNamedFunction(env, serialPortObj, "setRts", SerialSetRtsNapi);
+    SetNamedFunction(env, serialPortObj, "sendBrk", SerialSendBrkNapi);
+    SetNamedFunction(env, serialPortObj, "getCts", SerialGetCtsNapi);
 
     napi_wrap(env, serialPortObj, native, SerialPortFinalize, nullptr, nullptr);
 
     return serialPortObj;
+}
+
+static void InvalidatePort(napi_env env, SerialPortNative *native)
+{
+    native->invalidated = true;
+    RemoveAllListenersForPort(env, native->portName);
+
+    napi_value oldObj = nullptr;
+    napi_get_reference_value(env, native->objectRef, &oldObj);
+    napi_delete_reference(env, native->objectRef);
+    if (oldObj != nullptr) {
+        napi_create_reference(env, oldObj, 0, &native->objectRef);
+        g_invalidatedPorts.push_back(native);
+    } else {
+        delete native;
+    }
+}
+
+static napi_value RestoreInvalidatedPort(napi_env env, const SerialPortInfo &deviceInfo)
+{
+    for (auto it = g_invalidatedPorts.begin(); it != g_invalidatedPorts.end();) {
+        SerialPortNative *native = *it;
+        if (native->portName != deviceInfo.portName || !IsSerialPortInfoEqual(native->info, deviceInfo)) {
+            ++it;
+            continue;
+        }
+
+        napi_value jsObj = nullptr;
+        napi_get_reference_value(env, native->objectRef, &jsObj);
+        if (jsObj != nullptr) {
+            SERIAL_HILOGI(MODULE_JS_NAPI,
+                          "[LIFECYCLE] RESTORE: portName=%{public}s, ptr=%{public}p",
+                          deviceInfo.portName.c_str(), native);
+            napi_delete_reference(env, native->objectRef);
+            napi_create_reference(env, jsObj, 1, &native->objectRef);
+            native->invalidated = false;
+            g_activePorts[deviceInfo.portName] = native;
+            g_invalidatedPorts.erase(it);
+            return jsObj;
+        }
+
+        SERIAL_HILOGI(MODULE_JS_NAPI,
+                      "[LIFECYCLE] GC(detected in restore check): portName=%{public}s, ptr=%{public}p",
+                      native->portName.c_str(), native);
+        napi_delete_reference(env, native->objectRef);
+        delete native;
+        it = g_invalidatedPorts.erase(it);
+    }
+    return nullptr;
+}
+
+static void InvalidateDisappearedPorts(napi_env env, const std::set<std::string> &activePortNames)
+{
+    for (auto it = g_activePorts.begin(); it != g_activePorts.end();) {
+        if (activePortNames.find(it->first) == activePortNames.end()) {
+            SerialPortNative *native = it->second;
+            SERIAL_HILOGI(MODULE_JS_NAPI,
+                          "[LIFECYCLE] INVALIDATE(disappeared): portName=%{public}s, ptr=%{public}p",
+                          native->portName.c_str(), native);
+            InvalidatePort(env, native);
+            it = g_activePorts.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 static napi_value CreateDeviceListArray(napi_env env, const std::vector<SerialPortInfo> &deviceList)
@@ -368,49 +417,11 @@ static napi_value CreateDeviceListArray(napi_env env, const std::vector<SerialPo
             SERIAL_HILOGI(MODULE_JS_NAPI,
                           "[LIFECYCLE] INVALIDATE: portName=%{public}s, ptr=%{public}p (info changed)",
                           deviceInfo.portName.c_str(), native);
-            native->invalidated = true;
-            RemoveAllListenersForPort(env, deviceInfo.portName);
-
-            napi_value oldObj = nullptr;
-            napi_get_reference_value(env, native->objectRef, &oldObj);
-            napi_delete_reference(env, native->objectRef);
-            if (oldObj != nullptr) {
-                napi_create_reference(env, oldObj, 0, &native->objectRef);
-                g_invalidatedPorts.push_back(native);
-            } else {
-                delete native;
-            }
+            InvalidatePort(env, native);
             g_activePorts.erase(activeIt);
         }
 
-        for (auto it = g_invalidatedPorts.begin(); it != g_invalidatedPorts.end();) {
-            SerialPortNative *native = *it;
-            if (native->portName == deviceInfo.portName && IsSerialPortInfoEqual(native->info, deviceInfo)) {
-                napi_value jsObj = nullptr;
-                napi_get_reference_value(env, native->objectRef, &jsObj);
-                if (jsObj != nullptr) {
-                    SERIAL_HILOGI(MODULE_JS_NAPI,
-                                  "[LIFECYCLE] RESTORE: portName=%{public}s, ptr=%{public}p",
-                                  deviceInfo.portName.c_str(), native);
-                    napi_delete_reference(env, native->objectRef);
-                    napi_create_reference(env, jsObj, 1, &native->objectRef);
-                    native->invalidated = false;
-                    g_activePorts[deviceInfo.portName] = native;
-                    g_invalidatedPorts.erase(it);
-                    serialPortObj = jsObj;
-                    break;
-                } else {
-                    SERIAL_HILOGI(MODULE_JS_NAPI,
-                                  "[LIFECYCLE] GC(detected in restore check): portName=%{public}s, ptr=%{public}p",
-                                  native->portName.c_str(), native);
-                    napi_delete_reference(env, native->objectRef);
-                    delete native;
-                    it = g_invalidatedPorts.erase(it);
-                    continue;
-                }
-            }
-            ++it;
-        }
+        serialPortObj = RestoreInvalidatedPort(env, deviceInfo);
 
         if (serialPortObj == nullptr) {
             SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] CREATE: portName=%{public}s", deviceInfo.portName.c_str());
@@ -429,29 +440,7 @@ static napi_value CreateDeviceListArray(napi_env env, const std::vector<SerialPo
         napi_set_element(env, result, i, serialPortObj);
     }
 
-    for (auto it = g_activePorts.begin(); it != g_activePorts.end();) {
-        if (activePortNames.find(it->first) == activePortNames.end()) {
-            SerialPortNative *native = it->second;
-            SERIAL_HILOGI(MODULE_JS_NAPI,
-                          "[LIFECYCLE] INVALIDATE(disappeared): portName=%{public}s, ptr=%{public}p",
-                          native->portName.c_str(), native);
-            native->invalidated = true;
-            RemoveAllListenersForPort(env, native->portName);
-
-            napi_value oldObj = nullptr;
-            napi_get_reference_value(env, native->objectRef, &oldObj);
-            napi_delete_reference(env, native->objectRef);
-            if (oldObj != nullptr) {
-                napi_create_reference(env, oldObj, 0, &native->objectRef);
-                g_invalidatedPorts.push_back(native);
-            } else {
-                delete native;
-            }
-            it = g_activePorts.erase(it);
-        } else {
-            ++it;
-        }
-    }
+    InvalidateDisappearedPorts(env, activePortNames);
 
     return result;
 }
@@ -589,7 +578,7 @@ static bool GetPortNameFromThisVar(napi_env env, napi_value thisVar, std::string
 {
     napi_value portNameValue;
     if (thisVar != nullptr && napi_get_named_property(env, thisVar, "portName", &portNameValue) == napi_ok) {
-        char buf[256] = {0};
+        char buf[PORT_NAME_BUF_SIZE] = {0};
         size_t len = 0;
         if (napi_get_value_string_utf8(env, portNameValue, buf, sizeof(buf), &len) == napi_ok && len > 0) {
             portName = std::string(buf, len);
@@ -597,6 +586,64 @@ static bool GetPortNameFromThisVar(napi_env env, napi_value thisVar, std::string
         }
     }
     return false;
+}
+
+static void GetInt32Property(napi_env env, napi_value obj, const char *name, int32_t &out, int32_t defaultValue)
+{
+    napi_value value;
+    if (napi_get_named_property(env, obj, name, &value) == napi_ok) {
+        napi_get_value_int32(env, value, &out);
+    } else {
+        out = defaultValue;
+    }
+}
+
+static void GetBoolProperty(napi_env env, napi_value obj, const char *name, bool &out, bool defaultValue)
+{
+    napi_value value;
+    if (napi_get_named_property(env, obj, name, &value) == napi_ok) {
+        napi_get_value_bool(env, value, &out);
+    } else {
+        out = defaultValue;
+    }
+}
+
+static int32_t ParseParityString(const std::string &parityStr)
+{
+    if (parityStr == "none") return 0;
+    if (parityStr == "even") return 1;
+    if (parityStr == "odd") return 2;
+    if (parityStr == "mark") return 3;
+    if (parityStr == "space") return 4;
+    return 0;
+}
+
+static void ParseSerialConfig(napi_env env, napi_value configObj, SerialConfig &config)
+{
+    napi_valuetype type;
+    napi_typeof(env, configObj, &type);
+    if (type != napi_object) {
+        return;
+    }
+
+    GetInt32Property(env, configObj, "baudRate", config.baudRate, DEFAULT_BAUD_RATE);
+    GetInt32Property(env, configObj, "dataBits", config.dataBits, 8);
+    GetInt32Property(env, configObj, "stopBits", config.stopBits, 1);
+
+    napi_value configValue;
+    if (napi_get_named_property(env, configObj, "parity", &configValue) == napi_ok) {
+        char parityBuf[PARITY_BUF_SIZE] = {0};
+        size_t parityLen = 0;
+        napi_get_value_string_utf8(env, configValue, parityBuf, sizeof(parityBuf), &parityLen);
+        config.parity = ParseParityString(std::string(parityBuf));
+    } else {
+        config.parity = 0;
+    }
+
+    GetBoolProperty(env, configObj, "rtscts", config.rtscts, false);
+    GetBoolProperty(env, configObj, "xon", config.xon, false);
+    GetBoolProperty(env, configObj, "xoff", config.xoff, false);
+    GetBoolProperty(env, configObj, "xany", config.xany, false);
 }
 
 static napi_value SerialOpenNapi(napi_env env, napi_callback_info info)
@@ -623,67 +670,7 @@ static napi_value SerialOpenNapi(napi_env env, napi_callback_info info)
     GetPortNameFromThisVar(env, thisVar, context->portInfo.portName);
 
     if (argc >= 1) {
-        napi_valuetype type;
-        napi_typeof(env, argv[0], &type);
-        if (type == napi_object) {
-            napi_value configValue;
-            if (napi_get_named_property(env, argv[0], "baudRate", &configValue) == napi_ok) {
-                napi_get_value_int32(env, configValue, &context->config.baudRate);
-            } else {
-                context->config.baudRate = 115200;
-            }
-            if (napi_get_named_property(env, argv[0], "dataBits", &configValue) == napi_ok) {
-                napi_get_value_int32(env, configValue, &context->config.dataBits);
-            } else {
-                context->config.dataBits = 8;
-            }
-            if (napi_get_named_property(env, argv[0], "stopBits", &configValue) == napi_ok) {
-                napi_get_value_int32(env, configValue, &context->config.stopBits);
-            } else {
-                context->config.stopBits = 1;
-            }
-            if (napi_get_named_property(env, argv[0], "parity", &configValue) == napi_ok) {
-                char parityBuf[16] = {0};
-                size_t parityLen = 0;
-                napi_get_value_string_utf8(env, configValue, parityBuf, sizeof(parityBuf), &parityLen);
-                std::string parityStr(parityBuf);
-                if (parityStr == "none") {
-                    context->config.parity = 0;
-                } else if (parityStr == "even") {
-                    context->config.parity = 1;
-                } else if (parityStr == "odd") {
-                    context->config.parity = 2;
-                } else if (parityStr == "mark") {
-                    context->config.parity = 3;
-                } else if (parityStr == "space") {
-                    context->config.parity = 4;
-                } else {
-                    context->config.parity = 0;
-                }
-            } else {
-                context->config.parity = 0;
-            }
-            if (napi_get_named_property(env, argv[0], "rtscts", &configValue) == napi_ok) {
-                napi_get_value_bool(env, configValue, &context->config.rtscts);
-            } else {
-                context->config.rtscts = false;
-            }
-            if (napi_get_named_property(env, argv[0], "xon", &configValue) == napi_ok) {
-                napi_get_value_bool(env, configValue, &context->config.xon);
-            } else {
-                context->config.xon = false;
-            }
-            if (napi_get_named_property(env, argv[0], "xoff", &configValue) == napi_ok) {
-                napi_get_value_bool(env, configValue, &context->config.xoff);
-            } else {
-                context->config.xoff = false;
-            }
-            if (napi_get_named_property(env, argv[0], "xany", &configValue) == napi_ok) {
-                napi_get_value_bool(env, configValue, &context->config.xany);
-            } else {
-                context->config.xany = false;
-            }
-        }
+        ParseSerialConfig(env, argv[0], context->config);
     }
 
     napi_value promise = nullptr;
@@ -876,41 +863,10 @@ static napi_value SerialWriteNapi(napi_env env, napi_callback_info info)
     return promise;
 }
 
-static napi_value SerialOnDataReadNapi(napi_env env, napi_callback_info info)
+static std::function<void(const std::vector<uint8_t>&)> CreateDataReadCallback(
+    const std::string &portName, napi_ref callbackRef, napi_env env)
 {
-    SERIAL_HILOGI(MODULE_JS_NAPI, "onDataRead start");
-    size_t argc = 1;
-    napi_value argv[1] = {nullptr};
-    napi_value thisVar = nullptr;
-    void *data = nullptr;
-
-    napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
-
-    if (!CheckPortNotInvalidated(env, thisVar)) {
-        return nullptr;
-    }
-
-    std::string portName;
-    GetPortNameFromThisVar(env, thisVar, portName);
-
-    if (argc < 1) {
-        SERIAL_HILOGE(MODULE_JS_NAPI, "onDataRead requires callback parameter");
-        napi_throw_error(env, nullptr, "Callback is required");
-        return nullptr;
-    }
-
-    napi_valuetype type;
-    napi_typeof(env, argv[0], &type);
-    if (type != napi_function) {
-        SERIAL_HILOGE(MODULE_JS_NAPI, "onDataRead parameter is not a function");
-        napi_throw_type_error(env, nullptr, "Callback must be a function");
-        return nullptr;
-    }
-
-    napi_ref callbackRef = nullptr;
-    napi_create_reference(env, argv[0], 1, &callbackRef);
-
-    auto callback = [portName, callbackRef, env](const std::vector<uint8_t>& data) {
+    return [portName, callbackRef, env](const std::vector<uint8_t>& data) {
         CallbackData* callbackData = new CallbackData();
         callbackData->portName = portName;
         callbackData->data = data;
@@ -946,6 +902,43 @@ static napi_value SerialOnDataReadNapi(napi_env env, napi_callback_info info)
             delete asyncData;
         }
     };
+}
+
+static napi_value SerialOnDataReadNapi(napi_env env, napi_callback_info info)
+{
+    SERIAL_HILOGI(MODULE_JS_NAPI, "onDataRead start");
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_value thisVar = nullptr;
+    void *data = nullptr;
+
+    napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
+
+    if (!CheckPortNotInvalidated(env, thisVar)) {
+        return nullptr;
+    }
+
+    std::string portName;
+    GetPortNameFromThisVar(env, thisVar, portName);
+
+    if (argc < 1) {
+        SERIAL_HILOGE(MODULE_JS_NAPI, "onDataRead requires callback parameter");
+        napi_throw_error(env, nullptr, "Callback is required");
+        return nullptr;
+    }
+
+    napi_valuetype type;
+    napi_typeof(env, argv[0], &type);
+    if (type != napi_function) {
+        SERIAL_HILOGE(MODULE_JS_NAPI, "onDataRead parameter is not a function");
+        napi_throw_type_error(env, nullptr, "Callback must be a function");
+        return nullptr;
+    }
+
+    napi_ref callbackRef = nullptr;
+    napi_create_reference(env, argv[0], 1, &callbackRef);
+
+    auto callback = CreateDataReadCallback(portName, callbackRef, env);
 
     ListenerHandle listenerHandle = g_serialClient.RegisterDataListener(portName, callback);
     if (listenerHandle == 0) {
@@ -969,6 +962,45 @@ static napi_value SerialOnDataReadNapi(napi_env env, napi_callback_info info)
     return undefined;
 }
 
+struct FoundListener {
+    ListenerHandle handle;
+    napi_ref callbackRef;
+};
+
+static FoundListener FindAndRemoveSpecificListener(napi_env env, const std::string &portName,
+                                                    napi_value jsCallback)
+{
+    FoundListener result = {0, nullptr};
+    std::lock_guard<std::mutex> lock(g_callbackMutex);
+    auto portIt = g_dataCallbacks.find(portName);
+    if (portIt == g_dataCallbacks.end()) {
+        return result;
+    }
+
+    for (auto it = portIt->second.begin(); it != portIt->second.end(); ++it) {
+        napi_value storedCallback = nullptr;
+        napi_get_reference_value(env, it->first, &storedCallback);
+
+        bool isEqual = false;
+        napi_strict_equals(env, jsCallback, storedCallback, &isEqual);
+
+        if (isEqual) {
+            result.handle = it->second.listenerHandle;
+            result.callbackRef = it->first;
+            break;
+        }
+    }
+
+    if (result.handle != 0 && result.callbackRef != nullptr) {
+        napi_delete_reference(env, result.callbackRef);
+        portIt->second.erase(result.callbackRef);
+        if (portIt->second.empty()) {
+            g_dataCallbacks.erase(portIt);
+        }
+    }
+    return result;
+}
+
 static napi_value SerialOffDataReadNapi(napi_env env, napi_callback_info info)
 {
     SERIAL_HILOGI(MODULE_JS_NAPI, "offDataRead start");
@@ -986,64 +1018,30 @@ static napi_value SerialOffDataReadNapi(napi_env env, napi_callback_info info)
     std::string portName;
     GetPortNameFromThisVar(env, thisVar, portName);
 
-    if (argc >= 1) {
-        napi_valuetype type;
-        napi_typeof(env, argv[0], &type);
-        if (type == napi_function) {
-            ListenerHandle listenerHandle = 0;
-            napi_ref foundCallbackRef = nullptr;
-
-            {
-                std::lock_guard<std::mutex> lock(g_callbackMutex);
-                auto portIt = g_dataCallbacks.find(portName);
-                if (portIt != g_dataCallbacks.end()) {
-                    for (auto it = portIt->second.begin(); it != portIt->second.end(); ++it) {
-                        napi_value storedCallback = nullptr;
-                        napi_get_reference_value(env, it->first, &storedCallback);
-
-                        bool isEqual = false;
-                        napi_strict_equals(env, argv[0], storedCallback, &isEqual);
-
-                        if (isEqual) {
-                            listenerHandle = it->second.listenerHandle;
-                            foundCallbackRef = it->first;
-                            break;
-                        }
-                    }
-
-                    if (listenerHandle != 0 && foundCallbackRef != nullptr) {
-                        napi_delete_reference(env, foundCallbackRef);
-                        portIt->second.erase(foundCallbackRef);
-                        if (portIt->second.empty()) {
-                            g_dataCallbacks.erase(portIt);
-                        }
-                    }
-                }
-            }
-
-            if (listenerHandle != 0) {
-                int32_t ret = g_serialClient.UnregisterDataListener(portName, listenerHandle);
-                SERIAL_HILOGI(MODULE_JS_NAPI, "offDataRead specific callback, portName=%{public}s, ret=%{public}d",
-                              portName.c_str(), ret);
-            } else {
-                SERIAL_HILOGW(MODULE_JS_NAPI, "Callback not found for portName=%{public}s", portName.c_str());
-            }
-        } else {
-            SERIAL_HILOGW(MODULE_JS_NAPI, "offDataRead parameter is not a function");
-        }
-    } else {
-        {
-            std::lock_guard<std::mutex> lock(g_callbackMutex);
-            auto portIt = g_dataCallbacks.find(portName);
-            if (portIt != g_dataCallbacks.end()) {
-                for (auto& pair : portIt->second) {
-                    napi_delete_reference(env, pair.second.callbackRef);
-                    g_serialClient.UnregisterDataListener(portName, pair.second.listenerHandle);
-                }
-                g_dataCallbacks.erase(portIt);
-            }
-        }
+    if (argc < 1) {
+        RemoveAllListenersForPort(env, portName);
         SERIAL_HILOGI(MODULE_JS_NAPI, "offDataRead all callbacks for portName=%{public}s", portName.c_str());
+        napi_value undefined = nullptr;
+        napi_get_undefined(env, &undefined);
+        return undefined;
+    }
+
+    napi_valuetype type;
+    napi_typeof(env, argv[0], &type);
+    if (type != napi_function) {
+        SERIAL_HILOGW(MODULE_JS_NAPI, "offDataRead parameter is not a function");
+        napi_value undefined = nullptr;
+        napi_get_undefined(env, &undefined);
+        return undefined;
+    }
+
+    FoundListener found = FindAndRemoveSpecificListener(env, portName, argv[0]);
+    if (found.handle != 0) {
+        int32_t ret = g_serialClient.UnregisterDataListener(portName, found.handle);
+        SERIAL_HILOGI(MODULE_JS_NAPI, "offDataRead specific callback, portName=%{public}s, ret=%{public}d",
+                      portName.c_str(), ret);
+    } else {
+        SERIAL_HILOGW(MODULE_JS_NAPI, "Callback not found for portName=%{public}s", portName.c_str());
     }
 
     napi_value undefined = nullptr;
@@ -1542,12 +1540,12 @@ static napi_value SerialAddPortAuthorizationNapi(napi_env env, napi_callback_inf
     context->workRef = nullptr;
 
     if (argc >= 2) {
-        char tokenIdBuf[256] = {0};
+        char tokenIdBuf[PORT_NAME_BUF_SIZE] = {0};
         size_t tokenIdLen = 0;
         napi_get_value_string_utf8(env, argv[0], tokenIdBuf, sizeof(tokenIdBuf), &tokenIdLen);
         context->tokenId = std::string(tokenIdBuf);
 
-        char deviceIdBuf[256] = {0};
+        char deviceIdBuf[PORT_NAME_BUF_SIZE] = {0};
         size_t deviceIdLen = 0;
         napi_get_value_string_utf8(env, argv[1], deviceIdBuf, sizeof(deviceIdBuf), &deviceIdLen);
         context->deviceId = std::string(deviceIdBuf);

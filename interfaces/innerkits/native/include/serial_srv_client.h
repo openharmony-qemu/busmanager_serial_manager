@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Huawei Device Co., Ltd.
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -37,7 +37,8 @@ public:
     int32_t QuerySerialDevices(std::vector<SerialPortInfo>& devices);
     int32_t OpenSerial(const SerialPortInfo& portInfo, const SerialConfig& config);
     int32_t CloseSerial(const std::string& portName);
-    int32_t WriteSerial(const std::string& portName, const std::vector<uint8_t>& data, int32_t timeout, int32_t& bytesWritten);
+    int32_t WriteSerial(const std::string& portName, const std::vector<uint8_t>& data,
+                        int32_t timeout, int32_t& bytesWritten);
     int32_t Flush(const std::string& portName);
     int32_t Drain(const std::string& portName);
     int32_t SendBrkSignal(const std::string& portName);

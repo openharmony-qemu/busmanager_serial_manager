@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Huawei Device Co., Ltd.
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -27,6 +27,12 @@
 
 namespace OHOS {
 namespace Serial {
+
+namespace {
+constexpr int32_t READ_POLL_INTERVAL_SEC = 5;
+constexpr uint8_t PRINTABLE_ASCII_MIN = 32;
+constexpr uint8_t PRINTABLE_ASCII_MAX = 126;
+}
 
 REGISTER_SYSTEM_ABILITY_BY_ID(SerialService, SERIAL_SYSTEM_ABILITY_ID, true);
 
@@ -109,15 +115,17 @@ void SerialService::ReadThreadFunc(const std::string& portName)
                       portName.c_str(), context->running.load());
 
         std::unique_lock<std::mutex> lock(context->mutex);
-        bool stopped = context->cv.wait_for(lock, std::chrono::seconds(5), [&context] {
+        bool stopped = context->cv.wait_for(lock, std::chrono::seconds(READ_POLL_INTERVAL_SEC), [&context] {
             return !context->running.load();
         });
 
-        SERIAL_HILOGI(MODULE_SERVICE, "ReadThreadFunc after wait_for, portName=%{public}s, stopped=%{public}d, running=%{public}d",
+        SERIAL_HILOGI(MODULE_SERVICE,
+                      "ReadThreadFunc after wait_for, portName=%{public}s, stopped=%{public}d, running=%{public}d",
                       portName.c_str(), stopped, context->running.load());
 
         if (stopped) {
-            SERIAL_HILOGI(MODULE_SERVICE, "ReadThreadFunc stopped by condition, portName=%{public}s", portName.c_str());
+            SERIAL_HILOGI(MODULE_SERVICE, "ReadThreadFunc stopped by condition, portName=%{public}s",
+                          portName.c_str());
             break;
         }
 
@@ -127,7 +135,8 @@ void SerialService::ReadThreadFunc(const std::string& portName)
         }
 
         if (callback != nullptr && !context->lastWrittenData.empty()) {
-            SERIAL_HILOGI(MODULE_SERVICE, "ReadThreadFunc calling onDataRead, portName=%{public}s, dataSize=%{public}zu",
+            SERIAL_HILOGI(MODULE_SERVICE,
+                          "ReadThreadFunc calling onDataRead, portName=%{public}s, dataSize=%{public}zu",
                           portName.c_str(), context->lastWrittenData.size());
             callback->onDataRead(portName, context->lastWrittenData);
         } else if (context->lastWrittenData.empty()) {
@@ -140,6 +149,7 @@ void SerialService::ReadThreadFunc(const std::string& portName)
 
 #ifdef SERIAL_ERROR_CODE_TEST
 
+constexpr int32_t TEST_UNKNOWN_ERROR = -99;
 static std::atomic<int32_t> g_testRoundIndex{0};
 
 struct TestScenario {
@@ -162,17 +172,21 @@ static const TestScenario g_testScenarios[] = {
     { SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,
       SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,
       SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE },
-    { SERIAL_OK,                     SERIAL_ERR_INVALID_PARAM,      SERIAL_OK,                     SERIAL_ERR_INVALID_PARAM,
-      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
-      SERIAL_OK,                     SERIAL_ERR_INVALID_PARAM },
-    { SERIAL_OK,                     SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_OK,                    SERIAL_ERR_DEVICE_DISCONNECTED,
-      SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_ERR_DEVICE_DISCONNECTED,
+    { SERIAL_OK,                     SERIAL_ERR_INVALID_PARAM,      SERIAL_OK,
+      SERIAL_ERR_INVALID_PARAM,      SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
+      SERIAL_ERR_INVALID_PARAM },
+    { SERIAL_OK,                     SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_OK,
+      SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_ERR_DEVICE_DISCONNECTED,
+      SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_ERR_DEVICE_DISCONNECTED,
       SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_OK },
     { SERIAL_OK,                     SERIAL_ERR_DEVICE_BUSY,        SERIAL_OK,                     SERIAL_OK,
       SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
       SERIAL_OK,                     SERIAL_OK },
-    { SERIAL_OK,                     SERIAL_OK,                     SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_ERR_DEVICE_NOT_OPENED,
-      SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_ERR_DEVICE_NOT_OPENED,
+    { SERIAL_OK,                     SERIAL_OK,
+      SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_ERR_DEVICE_NOT_OPENED,
+      SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_ERR_DEVICE_NOT_OPENED,
+      SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_ERR_DEVICE_NOT_OPENED,
       SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_OK },
     { SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_ERR_TIMEOUT,
       SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
@@ -183,9 +197,10 @@ static const TestScenario g_testScenarios[] = {
     { SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
       SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
       SERIAL_OK,                     SERIAL_ERR_NOT_ALLOWED },
-    { -99,                           -99,                           -99,                           -99,
-      -99,                           -99,                           -99,                           -99,
-      -99,                           -99 },
+    { TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,
+      TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,
+      TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,
+      TEST_UNKNOWN_ERROR },
 };
 
 static constexpr int32_t TEST_SCENARIO_COUNT = sizeof(g_testScenarios) / sizeof(g_testScenarios[0]);
@@ -236,22 +251,26 @@ int32_t SerialService::CloseSerial(const std::string& portName)
 {
     const TestScenario& scenario = GetCurrentTestScenario();
     SERIAL_HILOGI(MODULE_SERVICE, "[TEST] CloseSerial returning %{public}d", scenario.closeRet);
-    if (scenario.closeRet == SERIAL_OK) {
-        std::lock_guard<std::mutex> lock(serviceMutex_);
-        auto it = readContexts_.find(portName);
-        if (it != readContexts_.end()) {
-            if (it->second) {
-                if (it->second->running) {
-                    it->second->running = false;
-                    it->second->cv.notify_all();
-                    if (it->second->readThread.joinable()) {
-                        it->second->readThread.join();
-                    }
-                }
-                readContexts_.erase(it);
-            }
+    if (scenario.closeRet != SERIAL_OK) {
+        return scenario.closeRet;
+    }
+    std::lock_guard<std::mutex> lock(serviceMutex_);
+    auto it = readContexts_.find(portName);
+    if (it == readContexts_.end()) {
+        return scenario.closeRet;
+    }
+    if (!it->second) {
+        readContexts_.erase(it);
+        return scenario.closeRet;
+    }
+    if (it->second->running) {
+        it->second->running = false;
+        it->second->cv.notify_all();
+        if (it->second->readThread.joinable()) {
+            it->second->readThread.join();
         }
     }
+    readContexts_.erase(it);
     return scenario.closeRet;
 }
 
@@ -483,7 +502,7 @@ int32_t SerialService::WriteSerial(const std::string& portName, const std::vecto
             hexStream << " ";
         }
 
-        if (data[i] >= 32 && data[i] <= 126) {
+        if (data[i] >= PRINTABLE_ASCII_MIN && data[i] <= PRINTABLE_ASCII_MAX) {
             strStream << static_cast<char>(data[i]);
         } else {
             strStream << ".";
