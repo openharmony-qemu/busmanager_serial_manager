@@ -326,12 +326,6 @@ out/rk3568/gen/base/busmanager/serial_manager/interfaces/innerkits/
 
 API声明文件位于 `interfaces/kits/js/napi/@ohos.busManager.serial.d.ts`，模块名为 `@ohos.busManager.serial`，syscap 为 `SystemCapability.BusManager.Serial`。
 
-## 系统要求
-
-- **OpenHarmony系统版本**：OpenHarmony 4.0+
-- **目标平台**：rk3568（标准系统）
-- **编译器**：Clang（通过GN/Ninja构建）
-
 ## 扩展指南
 
 1. **添加新接口**：在 `ISerialServer.idl` 中定义新方法

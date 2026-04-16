@@ -39,8 +39,6 @@ ohos_shared_library("serialservice_errcodetest") {
   }
   branch_protector_ret = "pac_ret"
 
-  defines = [ "SERIAL_ERROR_CODE_TEST" ]
-
   cflags_cc = [
     "-Wno-unused-variable",
     "-Wno-unused-function",
@@ -48,7 +46,7 @@ ohos_shared_library("serialservice_errcodetest") {
 
   install_enable = false
   sources = [
-    "${serial_manager_path}/services/native/src/serial_service.cpp",
+    "serial_service_errcodetest.cpp",
   ]
 
   configs = [

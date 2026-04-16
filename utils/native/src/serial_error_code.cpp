@@ -37,6 +37,12 @@ int32_t SerialInternalToJsCode(int32_t internalCode)
             return SERIAL_JS_ERR_PERMISSION_DENIED;
         case SERIAL_ERR_NOT_ALLOWED:
             return SERIAL_JS_ERR_NOT_ALLOWED;
+        case SERIAL_ERR_NOT_SYSTEM_APP:
+            return SERIAL_JS_ERR_NOT_SYSTEM_APP;
+        case SERIAL_ERR_ENTERPRISE_POLICY:
+            return SERIAL_JS_ERR_ENTERPRISE_POLICY;
+        case SERIAL_ERR_PARAM_ERROR:
+            return SERIAL_JS_ERR_PARAM_ERROR;
         case SERIAL_OK:
             return SERIAL_OK;
         default:
@@ -63,6 +69,12 @@ const char* SerialJsErrorMessage(int32_t jsCode)
             return "Permission denied";
         case SERIAL_JS_ERR_NOT_ALLOWED:
             return "Not allowed";
+        case SERIAL_JS_ERR_NOT_SYSTEM_APP:
+            return "Permission denied. Called by non-system application";
+        case SERIAL_JS_ERR_ENTERPRISE_POLICY:
+            return "This function is prohibited by enterprise management policies";
+        case SERIAL_JS_ERR_PARAM_ERROR:
+            return "Parameter error";
         default:
             return "Service error";
     }

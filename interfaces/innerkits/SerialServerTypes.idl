@@ -15,11 +15,6 @@
 
 package OHOS.Serial;
 
-/**
- * @brief Serial device information
- * @since 7.0
- * @version 1.0
- */
 struct SerialPortInfo {
     String portName;
     int productId;
@@ -27,11 +22,6 @@ struct SerialPortInfo {
     String manufacturer;
 };
 
-/**
- * @brief Serial configuration
- * @since 7.0
- * @version 1.0
- */
 struct SerialConfig {
     int baudRate;
     int dataBits;

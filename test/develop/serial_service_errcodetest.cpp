@@ -1,0 +1,379 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include <chrono>
+
+#include "hilog_wrapper.h"
+#include "if_system_ability_manager.h"
+#include "iservice_registry.h"
+#include "system_ability_definition.h"
+#include "serial_service.h"
+#include "serial_error_code.h"
+
+namespace OHOS {
+namespace Serial {
+
+namespace {
+constexpr int32_t READ_POLL_INTERVAL_SEC = 5;
+}
+
+REGISTER_SYSTEM_ABILITY_BY_ID(SerialService, SERIAL_SYSTEM_ABILITY_ID, true);
+
+SerialService::SerialService(int32_t systemAbilityId, bool runOnCreate)
+    : SystemAbility(systemAbilityId, runOnCreate)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "SerialService constructed");
+}
+
+SerialService::~SerialService()
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "SerialService destroyed");
+    std::lock_guard<std::mutex> lock(serviceMutex_);
+    for (auto& pair : readContexts_) {
+        if (pair.second && pair.second->running) {
+            pair.second->running = false;
+            pair.second->cv.notify_all();
+            if (pair.second->readThread.joinable()) {
+                pair.second->readThread.join();
+            }
+        }
+    }
+    readContexts_.clear();
+}
+
+void SerialService::OnStart()
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "SerialService OnStart");
+    if (registerToService_) {
+        SERIAL_HILOGW(MODULE_SERVICE, "SerialService already started");
+        return;
+    }
+
+    if (!Publish(this)) {
+        SERIAL_HILOGE(MODULE_SERVICE, "SerialService publish failed");
+        return;
+    }
+
+    registerToService_ = true;
+    SERIAL_HILOGI(MODULE_SERVICE, "SerialService OnStart success");
+}
+
+void SerialService::OnStop()
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "SerialService OnStop");
+    std::lock_guard<std::mutex> lock(serviceMutex_);
+    for (auto& pair : readContexts_) {
+        if (pair.second && pair.second->running) {
+            pair.second->running = false;
+            pair.second->cv.notify_all();
+            if (pair.second->readThread.joinable()) {
+                pair.second->readThread.join();
+            }
+        }
+    }
+    readContexts_.clear();
+    registerToService_ = false;
+    SERIAL_HILOGI(MODULE_SERVICE, "SerialService OnStop success");
+}
+
+void SerialService::ReadThreadFunc(const std::string& portName)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "ReadThreadFunc started, portName=%{public}s", portName.c_str());
+
+    sptr<ISerialServiceCallback> callback;
+    std::shared_ptr<ReadContext> context;
+    {
+        std::lock_guard<std::mutex> lock(serviceMutex_);
+        auto it = readContexts_.find(portName);
+        if (it == readContexts_.end() || !it->second) {
+            SERIAL_HILOGE(MODULE_SERVICE, "ReadThreadFunc: portName %{public}s not found", portName.c_str());
+            return;
+        }
+        context = it->second;
+        callback = context->callback;
+    }
+
+    while (context->running.load()) {
+        SERIAL_HILOGI(MODULE_SERVICE, "ReadThreadFunc loop start, portName=%{public}s, running=%{public}d",
+                      portName.c_str(), context->running.load());
+
+        std::unique_lock<std::mutex> lock(context->mutex);
+        bool stopped = context->cv.wait_for(lock, std::chrono::seconds(READ_POLL_INTERVAL_SEC), [&context] {
+            return !context->running.load();
+        });
+
+        SERIAL_HILOGI(MODULE_SERVICE,
+                      "ReadThreadFunc after wait_for, portName=%{public}s, stopped=%{public}d, running=%{public}d",
+                      portName.c_str(), stopped, context->running.load());
+
+        if (stopped) {
+            SERIAL_HILOGI(MODULE_SERVICE, "ReadThreadFunc stopped by condition, portName=%{public}s",
+                          portName.c_str());
+            break;
+        }
+
+        if (!context->running.load()) {
+            SERIAL_HILOGI(MODULE_SERVICE, "ReadThreadFunc stopped, portName=%{public}s", portName.c_str());
+            break;
+        }
+
+        if (callback != nullptr && !context->lastWrittenData.empty()) {
+            SERIAL_HILOGI(MODULE_SERVICE,
+                          "ReadThreadFunc calling onDataRead, portName=%{public}s, dataSize=%{public}zu",
+                          portName.c_str(), context->lastWrittenData.size());
+            callback->onDataRead(portName, context->lastWrittenData);
+        } else if (context->lastWrittenData.empty()) {
+            SERIAL_HILOGD(MODULE_SERVICE, "ReadThreadFunc: no data to send, portName=%{public}s", portName.c_str());
+        }
+    }
+
+    SERIAL_HILOGI(MODULE_SERVICE, "ReadThreadFunc exited, portName=%{public}s", portName.c_str());
+}
+
+namespace {
+
+constexpr int32_t TEST_UNKNOWN_ERROR = -99;
+
+struct TestScenario {
+    int32_t queryRet;
+    int32_t openRet;
+    int32_t closeRet;
+    int32_t writeRet;
+    int32_t flushRet;
+    int32_t drainRet;
+    int32_t sendBrkRet;
+    int32_t setRtsRet;
+    int32_t getCtsRet;
+    int32_t addAuthRet;
+};
+
+static std::atomic<int32_t> g_testRoundIndex{0};
+
+static const TestScenario TEST_SCENARIOS[] = {
+    { SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_OK },
+    { SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,
+      SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE,
+      SERIAL_ERR_SERVICE,            SERIAL_ERR_SERVICE },
+    { SERIAL_OK,                     SERIAL_ERR_INVALID_PARAM,      SERIAL_OK,
+      SERIAL_ERR_INVALID_PARAM,      SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
+      SERIAL_ERR_INVALID_PARAM },
+    { SERIAL_OK,                     SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_OK,
+      SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_ERR_DEVICE_DISCONNECTED,
+      SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_ERR_DEVICE_DISCONNECTED,
+      SERIAL_ERR_DEVICE_DISCONNECTED, SERIAL_ERR_DEVICE_DISCONNECTED,
+      SERIAL_OK },
+    { SERIAL_OK,                     SERIAL_ERR_DEVICE_BUSY,        SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_OK },
+    { SERIAL_OK,                     SERIAL_OK,
+      SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_ERR_DEVICE_NOT_OPENED,
+      SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_ERR_DEVICE_NOT_OPENED,
+      SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_ERR_DEVICE_NOT_OPENED,
+      SERIAL_ERR_DEVICE_NOT_OPENED,  SERIAL_OK },
+    { SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_ERR_TIMEOUT,
+      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_OK },
+    { SERIAL_OK,                     SERIAL_ERR_PERMISSION_DENIED,  SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_OK },
+    { SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_ERR_NOT_ALLOWED },
+    { TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,
+      TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,
+      TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,            TEST_UNKNOWN_ERROR,
+      TEST_UNKNOWN_ERROR },
+    { SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_ERR_NOT_SYSTEM_APP },
+    { SERIAL_ERR_ENTERPRISE_POLICY,  SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,                     SERIAL_OK,
+      SERIAL_OK,                     SERIAL_OK },
+};
+
+static constexpr int32_t TEST_SCENARIO_COUNT = sizeof(TEST_SCENARIOS) / sizeof(TEST_SCENARIOS[0]);
+
+static int32_t AdvanceTestRound()
+{
+    return g_testRoundIndex.fetch_add(1) % TEST_SCENARIO_COUNT;
+}
+
+static int32_t GetCurrentTestRound()
+{
+    return (g_testRoundIndex.load() - 1 + TEST_SCENARIO_COUNT) % TEST_SCENARIO_COUNT;
+}
+
+static const TestScenario& GetCurrentTestScenario()
+{
+    return TEST_SCENARIOS[GetCurrentTestRound()];
+}
+
+}
+
+int32_t SerialService::QuerySerialDevices(std::vector<SerialPortInfo>& devices)
+{
+    int32_t round = AdvanceTestRound();
+    const TestScenario& scenario = TEST_SCENARIOS[round];
+    SERIAL_HILOGI(MODULE_SERVICE, "[TEST] QuerySerialDevices round=%{public}d returning %{public}d",
+                  round, scenario.queryRet);
+    devices.push_back({"/dev/ttyS0", 1, 1, "MfgA"});
+    devices.push_back({"/dev/ttyS1", 2, 2, "MfgB"});
+    return scenario.queryRet;
+}
+
+int32_t SerialService::OpenSerial(const SerialPortInfo& portInfo, const SerialConfig& config,
+    const sptr<ISerialServiceCallback>& token)
+{
+    const TestScenario& scenario = GetCurrentTestScenario();
+    SERIAL_HILOGI(MODULE_SERVICE, "[TEST] OpenSerial returning %{public}d", scenario.openRet);
+    if (scenario.openRet == SERIAL_OK && token != nullptr) {
+        std::lock_guard<std::mutex> lock(serviceMutex_);
+        if (readContexts_.find(portInfo.portName) == readContexts_.end()) {
+            auto context = std::make_shared<ReadContext>();
+            context->callback = token;
+            readContexts_[portInfo.portName] = context;
+        }
+    }
+    return scenario.openRet;
+}
+
+int32_t SerialService::CloseSerial(const std::string& portName)
+{
+    const TestScenario& scenario = GetCurrentTestScenario();
+    SERIAL_HILOGI(MODULE_SERVICE, "[TEST] CloseSerial returning %{public}d", scenario.closeRet);
+    if (scenario.closeRet != SERIAL_OK) {
+        return scenario.closeRet;
+    }
+    std::lock_guard<std::mutex> lock(serviceMutex_);
+    auto it = readContexts_.find(portName);
+    if (it == readContexts_.end()) {
+        return scenario.closeRet;
+    }
+    if (!it->second) {
+        readContexts_.erase(it);
+        return scenario.closeRet;
+    }
+    if (it->second->running) {
+        it->second->running = false;
+        it->second->cv.notify_all();
+        if (it->second->readThread.joinable()) {
+            it->second->readThread.join();
+        }
+    }
+    readContexts_.erase(it);
+    return scenario.closeRet;
+}
+
+int32_t SerialService::WriteSerial(const std::string& portName, const std::vector<uint8_t>& data,
+    int32_t timeout, int32_t& bytesWritten)
+{
+    const TestScenario& scenario = GetCurrentTestScenario();
+    SERIAL_HILOGI(MODULE_SERVICE, "[TEST] WriteSerial returning %{public}d", scenario.writeRet);
+    if (scenario.writeRet == SERIAL_OK) {
+        bytesWritten = static_cast<int32_t>(data.size());
+        std::lock_guard<std::mutex> lock(serviceMutex_);
+        auto it = readContexts_.find(portName);
+        if (it != readContexts_.end() && it->second) {
+            it->second->lastWrittenData = data;
+        }
+    } else {
+        bytesWritten = 0;
+    }
+    return scenario.writeRet;
+}
+
+int32_t SerialService::StartRead(const std::string& portName)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "[TEST] StartRead, portName=%{public}s", portName.c_str());
+    std::lock_guard<std::mutex> lock(serviceMutex_);
+    auto it = readContexts_.find(portName);
+    if (it == readContexts_.end() || !it->second) {
+        return SERIAL_ERR_DEVICE_NOT_OPENED;
+    }
+    if (it->second->running) {
+        return SERIAL_OK;
+    }
+    it->second->running = true;
+    it->second->readThread = std::thread(&SerialService::ReadThreadFunc, this, portName);
+    return SERIAL_OK;
+}
+
+int32_t SerialService::StopRead(const std::string& portName)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "[TEST] StopRead, portName=%{public}s", portName.c_str());
+    std::lock_guard<std::mutex> lock(serviceMutex_);
+    auto it = readContexts_.find(portName);
+    if (it == readContexts_.end() || !it->second) {
+        return SERIAL_ERR_DEVICE_NOT_OPENED;
+    }
+    if (!it->second->running) {
+        return SERIAL_OK;
+    }
+    it->second->running = false;
+    it->second->cv.notify_all();
+    if (it->second->readThread.joinable()) {
+        it->second->readThread.join();
+    }
+    return SERIAL_OK;
+}
+
+int32_t SerialService::Flush(const std::string& portName)
+{
+    const TestScenario& scenario = GetCurrentTestScenario();
+    SERIAL_HILOGI(MODULE_SERVICE, "[TEST] Flush returning %{public}d", scenario.flushRet);
+    return scenario.flushRet;
+}
+
+int32_t SerialService::Drain(const std::string& portName)
+{
+    const TestScenario& scenario = GetCurrentTestScenario();
+    SERIAL_HILOGI(MODULE_SERVICE, "[TEST] Drain returning %{public}d", scenario.drainRet);
+    return scenario.drainRet;
+}
+
+int32_t SerialService::SendBrkSignal(const std::string& portName)
+{
+    const TestScenario& scenario = GetCurrentTestScenario();
+    SERIAL_HILOGI(MODULE_SERVICE, "[TEST] SendBrkSignal returning %{public}d", scenario.sendBrkRet);
+    return scenario.sendBrkRet;
+}
+
+int32_t SerialService::SetRtsSignal(const std::string& portName, bool rts)
+{
+    const TestScenario& scenario = GetCurrentTestScenario();
+    SERIAL_HILOGI(MODULE_SERVICE, "[TEST] SetRtsSignal returning %{public}d", scenario.setRtsRet);
+    return scenario.setRtsRet;
+}
+
+int32_t SerialService::GetCtsSignal(const std::string& portName, bool& cts)
+{
+    const TestScenario& scenario = GetCurrentTestScenario();
+    SERIAL_HILOGI(MODULE_SERVICE, "[TEST] GetCtsSignal returning %{public}d", scenario.getCtsRet);
+    cts = false;
+    return scenario.getCtsRet;
+}
+
+int32_t SerialService::AddPortAuthorization(const std::string& tokenId, const std::string& deviceId)
+{
+    const TestScenario& scenario = GetCurrentTestScenario();
+    SERIAL_HILOGI(MODULE_SERVICE, "[TEST] AddPortAuthorization returning %{public}d", scenario.addAuthRet);
+    return scenario.addAuthRet;
+}
+
+}
+}

@@ -31,6 +31,9 @@ constexpr int32_t SERIAL_ERR_DEVICE_NOT_OPENED = -5;
 constexpr int32_t SERIAL_ERR_TIMEOUT = -6;
 constexpr int32_t SERIAL_ERR_PERMISSION_DENIED = -7;
 constexpr int32_t SERIAL_ERR_NOT_ALLOWED = -8;
+constexpr int32_t SERIAL_ERR_NOT_SYSTEM_APP = -9;
+constexpr int32_t SERIAL_ERR_ENTERPRISE_POLICY = -10;
+constexpr int32_t SERIAL_ERR_PARAM_ERROR = -11;
 
 constexpr int32_t SERIAL_JS_ERR_SERVICE = 35700001;
 constexpr int32_t SERIAL_JS_ERR_INVALID_PARAM = 35700002;
@@ -40,6 +43,9 @@ constexpr int32_t SERIAL_JS_ERR_DEVICE_NOT_OPENED = 35700005;
 constexpr int32_t SERIAL_JS_ERR_TIMEOUT = 35700006;
 constexpr int32_t SERIAL_JS_ERR_PERMISSION_DENIED = 35700007;
 constexpr int32_t SERIAL_JS_ERR_NOT_ALLOWED = 35700008;
+constexpr int32_t SERIAL_JS_ERR_NOT_SYSTEM_APP = 202;
+constexpr int32_t SERIAL_JS_ERR_ENTERPRISE_POLICY = 203;
+constexpr int32_t SERIAL_JS_ERR_PARAM_ERROR = 401;
 
 int32_t SerialInternalToJsCode(int32_t internalCode);
 const char* SerialJsErrorMessage(int32_t jsCode);
