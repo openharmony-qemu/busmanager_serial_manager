@@ -21,12 +21,13 @@ namespace Serial {
 
 ErrCode SerialServiceCallback::onDataRead(const std::string& portName, const std::vector<uint8_t>& buffer)
 {
-    SERIAL_HILOGD(MODULE_INNERKIT, "onDataRead portName=%{public}s, size=%{public}zu", portName.c_str(), buffer.size());
+    SERIAL_HILOGD(
+        MODULE_INNERKIT, "[onDataRead] portName=%{public}s, size=%{public}zu", portName.c_str(), buffer.size());
 
     std::lock_guard<std::mutex> lock(listenerMutex_);
     auto it = listeners_.find(portName);
     if (it == listeners_.end() || it->second.empty()) {
-        SERIAL_HILOGW(MODULE_INNERKIT, "No listener for portName=%{public}s", portName.c_str());
+        SERIAL_HILOGW(MODULE_INNERKIT, "[onDataRead] No listener for portName=%{public}s", portName.c_str());
         return ERR_OK;
     }
 
@@ -42,16 +43,15 @@ ErrCode SerialServiceCallback::onDataRead(const std::string& portName, const std
 ListenerHandle SerialServiceCallback::AddListener(const std::string& portName, const DataReceivedCallback& callback)
 {
     if (!callback) {
-        SERIAL_HILOGE(MODULE_INNERKIT, "Invalid callback");
+        SERIAL_HILOGE(MODULE_INNERKIT, "[AddListener] Invalid callback");
         return 0;
     }
 
     std::lock_guard<std::mutex> lock(listenerMutex_);
     ListenerHandle listenerHandle = nextListenerHandle_++;
     listeners_[portName][listenerHandle] = callback;
-    SERIAL_HILOGI(MODULE_INNERKIT,
-        "Add listener for portName=%{public}s, listenerHandle=%{public}llu, count=%{public}zu", portName.c_str(),
-        (unsigned long long)listenerHandle, listeners_[portName].size());
+    SERIAL_HILOGI(MODULE_INNERKIT, "[AddListener] portName=%{public}s, listenerHandle=%{public}llu, count=%{public}zu",
+        portName.c_str(), (unsigned long long)listenerHandle, listeners_[portName].size());
     return listenerHandle;
 }
 
@@ -60,21 +60,22 @@ bool SerialServiceCallback::RemoveListener(const std::string& portName, Listener
     std::lock_guard<std::mutex> lock(listenerMutex_);
     auto portIt = listeners_.find(portName);
     if (portIt == listeners_.end()) {
-        SERIAL_HILOGW(MODULE_INNERKIT, "No listeners for portName=%{public}s", portName.c_str());
+        SERIAL_HILOGW(MODULE_INNERKIT, "[RemoveListener] No listeners for portName=%{public}s", portName.c_str());
         return false;
     }
 
     auto& listenerMap = portIt->second;
     auto it = listenerMap.find(listenerHandle);
     if (it == listenerMap.end()) {
-        SERIAL_HILOGW(MODULE_INNERKIT, "Listener not found for portName=%{public}s, listenerHandle=%{public}llu",
+        SERIAL_HILOGW(MODULE_INNERKIT,
+            "[RemoveListener] Listener not found for portName=%{public}s, listenerHandle=%{public}llu",
             portName.c_str(), (unsigned long long)listenerHandle);
         return false;
     }
 
     listenerMap.erase(it);
     SERIAL_HILOGI(MODULE_INNERKIT,
-        "Remove listener for portName=%{public}s, listenerHandle=%{public}llu, remaining=%{public}zu", portName.c_str(),
+        "[RemoveListener] portName=%{public}s, listenerHandle=%{public}llu, remaining=%{public}zu", portName.c_str(),
         (unsigned long long)listenerHandle, listenerMap.size());
 
     if (listenerMap.empty()) {
@@ -89,8 +90,8 @@ void SerialServiceCallback::RemoveAllListeners(const std::string& portName)
     std::lock_guard<std::mutex> lock(listenerMutex_);
     auto it = listeners_.find(portName);
     if (it != listeners_.end()) {
-        SERIAL_HILOGI(MODULE_INNERKIT, "Remove all listeners for portName=%{public}s, count=%{public}zu",
-            portName.c_str(), it->second.size());
+        SERIAL_HILOGI(MODULE_INNERKIT, "[RemoveAllListeners] portName=%{public}s, count=%{public}zu", portName.c_str(),
+            it->second.size());
         listeners_.erase(it);
     }
 }

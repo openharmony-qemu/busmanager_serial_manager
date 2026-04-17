@@ -29,10 +29,13 @@ ohos_shared_library("serialsrv_client") {
     boundary_sanitize = true
   }
   output_values = get_target_outputs(":serial_server_interface")
-  sources = [
-    "native/src/serial_service_callback.cpp",
-    "native/src/serial_srv_client.cpp",
-  ]
+  if (serial_manager_enable_service) {
+    client_impl_sources = [ "native/src/serial_srv_client.cpp" ]
+  } else {
+    client_impl_sources = [ "native/src/serial_srv_client_without_service.cpp" ]
+  }
+  sources = [ "native/src/serial_service_callback.cpp" ]
+  sources += client_impl_sources
   sources += filter_include(output_values,
                             [
                               "*_proxy.cpp",

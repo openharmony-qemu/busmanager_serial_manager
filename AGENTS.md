@@ -51,7 +51,7 @@ JS 应用 → NAPI (libserial.z.so) → InnerAPI Client (libserialsrv_client.z.s
 | `interfaces/innerkits/native/src/serial_srv_client.cpp` | 客户端单例，SA 4202 连接管理 + 死亡通知重连 |
 | `interfaces/innerkits/native/src/serial_service_callback.cpp` | 监听器管理，`onDataRead` 分发到多个 JS 回调 |
 | `interfaces/kits/js/napi/src/serial_info.cpp` | NAPI 完整实现（~1395行），所有 JS API + SerialPort 对象 |
-| `interfaces/kits/js/napi/@ohos.busManager.serial.d.ts` | TypeScript API 声明 |
+| `interfaces/kits/js/@ohos.busManager.serial.d.ts` | ArkTS API 声明 |
 | `services/native/src/serial_service.cpp` | SA 服务实现，模拟设备列表 + 环回读线程 |
 | `services/native/include/serial_service.h` | `SerialService` 类 + `ReadContext` 结构体 |
 | `sa_profile/4202.json` | SA 配置，run-on-create=true，auto-restart=true |
