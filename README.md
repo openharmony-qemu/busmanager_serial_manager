@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-Serial Manager 是一个基于OpenHarmony系统的串口设备管理服务组件，提供串口设备的发现、打开、关闭、读写、流控制等完整管理功能。该组件实现了完整的Native到JavaScript的NAPI绑定层，并通过IDL驱动的IPC机制实现Client-Server间通信。
+Serial Manager 是一个基于OpenHarmony系统的串口设备管理服务组件，提供串口设备的发现、打开、关闭、读写、流控制等完整管理功能。该组件实现了完整的Native到ArkTS的NAPI绑定层，并通过IDL驱动的IPC机制实现Client-Server间通信。
 
 ## 主要功能
 
@@ -19,7 +19,7 @@ Serial Manager 是一个基于OpenHarmony系统的串口设备管理服务组件
 
 ```
 ┌──────────────────────────────────────────────┐
-│            JavaScript 应用层                   │
+│            ArkTS 应用层                         │
 │  import serial from '@ohos.busManager.serial' │
 └────────────────────┬─────────────────────────┘
                      │
@@ -63,7 +63,7 @@ serial_manager/
 │   │           ├── serial_srv_client.cpp        # 客户端实现
 │   │           └── serial_service_callback.cpp  # 回调分发 + 监听器管理实现
 │   └── kits/js/
-│       ├── @ohos.busManager.serial.d.ts         # TypeScript API 声明
+│       ├── @ohos.busManager.serial.d.ts         # ArkTS API 声明
 │       └── napi/
 │           ├── BUILD.gn                         # NAPI构建配置
 │           ├── include/
@@ -148,7 +148,7 @@ struct SerialConfig {
 }
 ```
 
-## JavaScript API
+## ArkTS API
 
 ### 使用示例
 
@@ -341,14 +341,14 @@ out/rk3568/gen/base/busmanager/serial_manager/interfaces/innerkits/
 
 ## 技术特点
 
-1. **遵循OpenHarmony规范**：标准IDL接口定义、System Ability框架、NAPI JavaScript绑定
+1. **遵循OpenHarmony规范**：标准IDL接口定义、System Ability框架、NAPI ArkTS绑定
 2. **子系统架构**：子系统名 `busmanager`，部件名 `serial_manager`，可独立编译集成
 3. **完整日志系统**：`SERIAL_HILOGI/E/W/D` 宏，支持 CLIENT / SERVICE / NAPI 三模块独立域
 4. **回调驱动架构**：`ISerialServiceCallback` 使用 `[oneway]` 异步回调，服务端主动推送数据到客户端
 5. **监听器多路复用**：单端口支持注册多个JS回调，自动管理底层读取线程生命周期
 6. **统一错误码体系**：内部负数错误码通过 `SerialInternalToJsCode()` 映射为JS层正数错误码，NAPI统一通过 `BusinessError` 抛出
 
-## TypeScript API 声明
+## ArkTS API 声明
 
 API声明文件位于 `interfaces/kits/js/@ohos.busManager.serial.d.ts`，模块名为 `@ohos.busManager.serial`，syscap 为 `SystemCapability.BusManager.Serial`。
 
@@ -369,7 +369,7 @@ API声明文件位于 `interfaces/kits/js/@ohos.busManager.serial.d.ts`，模块
 - 完整NAPI绑定层（12个JS API + 3个枚举 + SerialPort对象 + Promise模式）
 - SA配置和注册（SA 4202 + Init配置）
 - 编译系统集成，成功编译通过
-- TypeScript API声明文件
+- ArkTS API声明文件
 - 错误码映射模块（内部码↔JS码 + 消息查询）
 - 测试服务变体：错误码测试（errcodetest）+ 生命周期测试（lifecycle_test）
 

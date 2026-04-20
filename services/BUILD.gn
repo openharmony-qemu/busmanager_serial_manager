@@ -28,44 +28,52 @@ config("serialsrv_public_config") {
   ]
 }
 
-ohos_shared_library("serialservice") {
-  sanitize = {
-    integer_overflow = true
-    ubsan = true
-    boundary_sanitize = true
-    cfi = true
-    cfi_cross_dso = true
-    debug = false
+if (serial_manager_enable_service) {
+  ohos_shared_library("serialservice") {
+    sanitize = {
+      integer_overflow = true
+      ubsan = true
+      boundary_sanitize = true
+      cfi = true
+      cfi_cross_dso = true
+      debug = false
+    }
+    branch_protector_ret = "pac_ret"
+
+    install_enable = true
+    sources = [ "native/src/serial_service.cpp" ]
+
+    configs = [ ":serialsrv_private_config" ]
+
+    public_configs = [ ":serialsrv_public_config" ]
+    deps = [
+      "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
+      "${serial_manager_path}/utils:serial_error_code",
+    ]
+
+    external_deps = [
+      "c_utils:utils",
+      "hilog:libhilog",
+      "ipc:ipc_single",
+      "safwk:system_ability_fwk",
+      "samgr:samgr_proxy",
+    ]
+
+    shlib_type = "sa"
+    subsystem_name = "busmanager"
+    part_name = "serial_manager"
   }
-  branch_protector_ret = "pac_ret"
 
-  install_enable = true
-  sources = [ "native/src/serial_service.cpp" ]
+  ohos_prebuilt_etc("serial_service.init") {
+    source = "serial_service.cfg"
+    relative_install_dir = "init"
+    subsystem_name = "busmanager"
+    part_name = "serial_manager"
+  }
+} else {
+  group("serialservice") {
+  }
 
-  configs = [ ":serialsrv_private_config" ]
-
-  public_configs = [ ":serialsrv_public_config" ]
-  deps = [
-    "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
-    "${serial_manager_path}/utils:serial_error_code",
-  ]
-
-  external_deps = [
-    "c_utils:utils",
-    "hilog:libhilog",
-    "ipc:ipc_single",
-    "safwk:system_ability_fwk",
-    "samgr:samgr_proxy",
-  ]
-
-  shlib_type = "sa"
-  subsystem_name = "busmanager"
-  part_name = "serial_manager"
-}
-
-ohos_prebuilt_etc("serial_service.init") {
-  source = "serial_service.cfg"
-  relative_install_dir = "init"
-  subsystem_name = "busmanager"
-  part_name = "serial_manager"
+  group("serial_service.init") {
+  }
 }

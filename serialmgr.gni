@@ -15,3 +15,7 @@ import("//build/ohos.gni")
 
 serial_manager_path = "//base/busmanager/serial_manager"
 serial_manager_part_name = "serial_manager"
+
+declare_args() {
+  serial_manager_enable_service = true
+}

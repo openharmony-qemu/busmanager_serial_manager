@@ -53,7 +53,7 @@ private:
     SerialSrvClient();
     ~SerialSrvClient();
 
-    int32_t Connect(bool force = false);
+    sptr<ISerialServer> GetProxy();
     int32_t ConnectUnLocked(bool force = false);
     void ResetProxy(const wptr<IRemoteObject>& remote);
 
