@@ -31,7 +31,8 @@
         "ipc",
         "safwk",
         "c_utils",
-        "samgr"
+        "samgr",
+        "runtime_core"
       ]
     },
     "build": {
@@ -39,7 +40,8 @@
         "base_group": [],
         "fwk_group": [
           "//base/busmanager/serial_manager/interfaces/innerkits:serialsrv_client",
-          "//base/busmanager/serial_manager/interfaces/kits/js/napi:serial"
+          "//base/busmanager/serial_manager/interfaces/kits/js/napi:serial",
+          "//base/busmanager/serial_manager/interfaces/kits/js/taihe:serial_manager_taihe"
         ],
         "service_group": [
           "//base/busmanager/serial_manager/sa_profile:serialmgr_sa_profile",

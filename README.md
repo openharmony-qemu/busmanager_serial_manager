@@ -17,29 +17,55 @@ Serial Manager 是一个基于OpenHarmony系统的串口设备管理服务组件
 
 ## 技术架构
 
+### NAPI 路径
+
 ```
 ┌──────────────────────────────────────────────┐
 │            ArkTS 应用层                         │
 │  import serial from '@ohos.busManager.serial' │
 └────────────────────┬─────────────────────────┘
-                     │
+                      │
 ┌────────────────────▼─────────────────────────┐
 │            NAPI 绑定层 (libserial.z.so)        │
 │  getSerialPortList / SerialPort 对象方法        │
 │  DataBits / StopBits / Parity 枚举             │
 └────────────────────┬─────────────────────────┘
-                     │
+                      │
 ┌────────────────────▼─────────────────────────┐
 │        InnerAPI 客户端 (libserialsrv_client.z.so) │
 │  SerialSrvClient (单例)                        │
 │  SerialServiceCallback (接收服务端数据回调)       │
 └────────────────────┬─────────────────────────┘
-                     │ IPC (Binder) SA ID: 4202
+                      │ IPC (Binder) SA ID: 4202
 ┌────────────────────▼─────────────────────────┐
 │        System Ability 服务 (libserialservice.z.so) │
 │  SerialService extends SystemAbility + Stub    │
 │  ReadContext (每端口读线程 + 回调代理)            │
 │  当前为桩实现：所有方法记录日志后返回成功            │
+└──────────────────────────────────────────────┘
+```
+
+### Taihe 路径（ArkTS-Static）
+
+```
+┌──────────────────────────────────────────────┐
+│            ArkTS 应用层                         │
+│  import serial from '@ohos.busManager.serial' │
+└────────────────────┬─────────────────────────┘
+                      │
+┌────────────────────▼─────────────────────────┐
+│     Taihe ABC (serial_manager_abc.abc)         │
+│  interface SerialPort + 枚举/结构体             │
+└────────────────────┬─────────────────────────┘
+                      │
+┌────────────────────▼─────────────────────────┐
+│   ANI Bridge (serial_manager_taihe_native.z.so)│
+│  SerialPortHolder 类，持有端口状态               │
+│  所有方法委托到 SerialSrvClient                  │
+└────────────────────┬─────────────────────────┘
+                      │
+┌────────────────────▼─────────────────────────┐
+│        InnerAPI 客户端 → IPC → SA 服务           │
 └──────────────────────────────────────────────┘
 ```
 
@@ -64,12 +90,19 @@ serial_manager/
 │   │           └── serial_service_callback.cpp  # 回调分发 + 监听器管理实现
 │   └── kits/js/
 │       ├── @ohos.busManager.serial.d.ts         # ArkTS API 声明
-│       └── napi/
-│           ├── BUILD.gn                         # NAPI构建配置
-│           ├── include/
-│           │   └── napi_common.h                # NAPI模块初始化声明
+│       ├── napi/
+│       │   ├── BUILD.gn                         # NAPI构建配置
+│       │   ├── include/
+│       │   │   └── napi_common.h                # NAPI模块初始化声明
+│       │   └── src/
+│       │       └── serial_info.cpp              # NAPI完整实现
+│       └── taihe/
+│           ├── BUILD.gn                         # Taihe构建配置（IDL→ANI→共享库→ABC→安装）
+│           ├── idl/
+│           │   └── ohos.busManager.serial.taihe # Taihe IDL（interface SerialPort + struct/enum）
 │           └── src/
-│               └── serial_info.cpp              # NAPI完整实现
+│               ├── ani_constructor.cpp          # ANI入口，注册Taihe模块
+│               └── ohos.busManager.serial.impl.cpp # Taihe C++实现（SerialPortHolder）
 ├── services/
 │   ├── BUILD.gn                                 # 服务构建配置
 │   ├── serial_service.cfg                       # Init进程服务配置
@@ -85,16 +118,11 @@ serial_manager/
 │   ├── BUILD.gn                                 # 工具库构建配置
 │   └── native/
 │       ├── include/
-│       │   ├── hilog_wrapper.h                  # 日志宏（CLIENT/SERVICE/NAPI三模块）
+│       │   ├── hilog_wrapper.h                  # 日志宏（CLIENT/SERVICE/NAPI/TAIHE四模块）
 │       │   └── serial_error_code.h              # 错误码定义 + 内部码↔JS码映射
 │       └── src/
 │           └── serial_error_code.cpp            # 错误码映射 + 消息查询实现
-└── test/
-    ├── BUILD.gn                                 # group("serial_manager_tests") 汇总测试目标
-    └── develop/
-        ├── BUILD.gn                             # 测试服务变体构建配置
-        ├── serial_service_errcodetest.cpp       # 错误码测试服务（轮次返回预设错误码）
-        └── serial_service_lifecycle_test.cpp    # 生命周期测试服务（模拟设备+环回+端口管理）
+└── test/                                        # 测试（develop/ 服务变体 + unittest/ 单元测试）
 ```
 
 ## IDL 接口定义
@@ -289,6 +317,8 @@ enum Parity    { NONE = 'none', EVEN = 'even', ODD = 'odd', MARK = 'mark', SPACE
 | `libserialsrv_client.z.so` | InnerAPI客户端库 |
 | `libserialservice.z.so` | System Ability服务库 |
 | `libserial.z.so` | NAPI绑定库（安装路径 `module/busmanager`） |
+| `serial_manager_taihe_native.z.so` | Taihe原生库（ANI桥接 + 接口实现） |
+| `serial_manager_abc.abc` | Taihe生成ArkTS字节码（安装路径 `/system/framework/`） |
 
 ### 测试编译产物
 
@@ -343,7 +373,7 @@ out/rk3568/gen/base/busmanager/serial_manager/interfaces/innerkits/
 
 1. **遵循OpenHarmony规范**：标准IDL接口定义、System Ability框架、NAPI ArkTS绑定
 2. **子系统架构**：子系统名 `busmanager`，部件名 `serial_manager`，可独立编译集成
-3. **完整日志系统**：`SERIAL_HILOGI/E/W/D` 宏，支持 CLIENT / SERVICE / NAPI 三模块独立域
+3. **完整日志系统**：`SERIAL_HILOGI/E/W/D` 宏，支持 CLIENT / SERVICE / NAPI / TAIHE 四模块独立域
 4. **回调驱动架构**：`ISerialServiceCallback` 使用 `[oneway]` 异步回调，服务端主动推送数据到客户端
 5. **监听器多路复用**：单端口支持注册多个JS回调，自动管理底层读取线程生命周期
 6. **统一错误码体系**：内部负数错误码通过 `SerialInternalToJsCode()` 映射为JS层正数错误码，NAPI统一通过 `BusinessError` 抛出
@@ -367,11 +397,12 @@ API声明文件位于 `interfaces/kits/js/@ohos.busManager.serial.d.ts`，模块
 - InnerAPI客户端实现（12个方法 + 监听器管理 + 死亡通知重连）
 - System Ability服务实现（12个方法，当前为桩实现）
 - 完整NAPI绑定层（12个JS API + 3个枚举 + SerialPort对象 + Promise模式）
+- 完整Taihe绑定层（interface SerialPort + 枚举/结构体 + ANI桥接）
 - SA配置和注册（SA 4202 + Init配置）
 - 编译系统集成，成功编译通过
 - ArkTS API声明文件
 - 错误码映射模块（内部码↔JS码 + 消息查询）
-- 测试服务变体：错误码测试（errcodetest）+ 生命周期测试（lifecycle_test）
+- 测试：服务变体（develop/ 错误码/生命周期/参数校验）+ 单元测试（unittest/ 客户端/回调/无服务）
 
 ## 常见问题
 

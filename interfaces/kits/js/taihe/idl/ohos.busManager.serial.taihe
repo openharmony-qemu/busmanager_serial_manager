@@ -1,0 +1,109 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ * Licensed under the Apache License, Version 2.0 (the "License"),
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+@!namespace("@ohos.busManager.serial", "serial")
+@!sts_inject("""loadLibraryWithPermissionCheck("serial_manager_taihe_native.z", "@ohos.busManager.serial")""")
+
+@gen_promise("getSerialPortList")
+function getSerialPortListSync(): Array<SerialPort>;
+
+@gen_promise("addPortAuthorization")
+function addPortAuthorizationSync(tokenId: String, deviceId: String): void;
+
+interface SerialPort {
+
+  @get getPortInfo(): SerialPortInfo;
+
+  @promise open(@optional config: Optional<SerialConfigs>): void;
+
+  @promise close(): void;
+
+  @promise write(data: @typedarray Array<u8>, @optional timeout: Optional<i32>): i32;
+
+  onDataRead(callback: (data: @typedarray Array<u8>) => void): void;
+
+  offDataRead(@optional callback: Optional<(data: @typedarray Array<u8>) => void>): void;
+
+  @promise flush(): void;
+
+  @promise drain(): void;
+
+  @promise setRts(enable: bool): void;
+
+  @promise getCts(): bool;
+
+  @promise sendBrk(): void;
+}
+
+struct SerialPortInfo {
+
+  portName: String;
+
+  @optional productId: Optional<i32>;
+
+  @optional vendorId: Optional<i32>;
+
+  @optional manufacturer: Optional<String>;
+}
+
+struct SerialConfigs {
+
+  @optional baudRate: Optional<i32>;
+
+  @optional dataBits: Optional<DataBits>;
+
+  @optional stopBits: Optional<StopBits>;
+
+  @optional parity: Optional<Parity>;
+
+  @optional rtscts: Optional<bool>;
+
+  @optional xon: Optional<bool>;
+
+  @optional xoff: Optional<bool>;
+
+  @optional xany: Optional<bool>;
+}
+
+enum DataBits : i32 {
+
+  FIVE = 5,
+
+  SIX = 6,
+
+  SEVEN = 7,
+
+  EIGHT = 8
+}
+
+enum StopBits : i32 {
+
+  ONE = 1,
+
+  TWO = 2
+}
+
+enum Parity : String {
+
+  NONE = "none",
+
+  EVEN = "even",
+
+  ODD = "odd",
+
+  MARK = "mark",
+
+  SPACE = "space"
+}

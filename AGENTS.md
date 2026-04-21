@@ -28,6 +28,14 @@
 | `libserialsrv_client.z.so` | InnerAPI 客户端库 |
 | `libserialservice.z.so` | SA 服务库 |
 | `libserial.z.so` | NAPI 绑定库，安装路径 `module/busmanager` |
+| `serial_manager_taihe_native.z.so` | Taihe 原生库（ANI 桥接 + 接口实现） |
+| `serial_manager_abc.abc` | Taihe 生成 ArkTS 字节码，安装路径 `/system/framework/` |
+
+### Taihe 编译
+
+```bash
+./build.sh --product-name rk3568 --ccache --build-target serial_manager_taihe
+```
 
 ## 项目定位
 
@@ -35,10 +43,18 @@ OpenHarmony 串口设备管理服务组件（SA 4202），参考 USB Manager 架
 
 当前服务端为**模拟实现**（硬编码3个设备 + 环回回显），未接入真实硬件。
 
-## 架构四层
+## 架构
+
+### NAPI 路径
 
 ```
 JS 应用 → NAPI (libserial.z.so) → InnerAPI Client (libserialsrv_client.z.so) → IPC/Binder → SA Service (libserialservice.z.so)
+```
+
+### Taihe 路径
+
+```
+JS 应用 → Taihe ABC (serial_manager_abc.abc) → ANI Bridge (serial_manager_taihe_native.z.so) → InnerAPI Client → IPC/Binder → SA Service
 ```
 
 ## 关键文件速查
@@ -52,6 +68,10 @@ JS 应用 → NAPI (libserial.z.so) → InnerAPI Client (libserialsrv_client.z.s
 | `interfaces/innerkits/native/src/serial_service_callback.cpp` | 监听器管理，`onDataRead` 分发到多个 JS 回调 |
 | `interfaces/kits/js/napi/src/serial_info.cpp` | NAPI 完整实现（~1395行），所有 JS API + SerialPort 对象 |
 | `interfaces/kits/js/@ohos.busManager.serial.d.ts` | ArkTS API 声明 |
+| `interfaces/kits/js/taihe/idl/ohos.busManager.serial.taihe` | Taihe IDL 定义（interface SerialPort + struct/enum） |
+| `interfaces/kits/js/taihe/src/ohos.busManager.serial.impl.cpp` | Taihe C++ 实现（SerialPortHolder 类，持有端口状态） |
+| `interfaces/kits/js/taihe/src/ani_constructor.cpp` | ANI 入口，注册 Taihe 模块 |
+| `interfaces/kits/js/taihe/BUILD.gn` | Taihe 编译配置（IDL→ANI→共享库→ABC→安装） |
 | `services/native/src/serial_service.cpp` | SA 服务实现，模拟设备列表 + 环回读线程 |
 | `services/native/include/serial_service.h` | `SerialService` 类 + `ReadContext` 结构体 |
 | `sa_profile/4202.json` | SA 配置，run-on-create=true，auto-restart=true |
@@ -92,6 +112,17 @@ JS 应用 → NAPI (libserial.z.so) → InnerAPI Client (libserialsrv_client.z.s
 - `getSerialPortList` 支持 Callback 和 Promise 双模式
 - `SerialPort` JS 对象通过 `napi_wrap` 绑定 `SerialPortNative*`，支持缓存复用/失效/恢复/GC 回收
 - `onDataRead` 注册时创建 C++ lambda，通过 `napi_async_work` 调度到 JS 线程
+
+## Taihe 关键模式
+
+- `interface SerialPort` 与 d.ts 完全对齐，`@promise` 生成 Promise 方法，`@get` 映射属性
+- `SerialPortHolder` 持有 `portName_/productId_/vendorId_/manufacturer_`，所有方法委托到 `SerialSrvClient`
+- `GetSerialPortListSync()` 通过 `make_holder<SerialPortHolder, SerialPort>(...)` 创建接口实例
+- `@gen_promise("getSerialPortList")` 生成 sync + Promise 两个版本，sync 版本在 JS 线程创建 Taihe 对象
+- `onDataRead`/`offDataRead` 全局回调管理：`g_callbacks` map + mutex，首个 listener 注册 innerkit 回调
+- `close()` 自动清除所有 `onDataRead` 回调
+- 仅两个顶层函数（`getSerialPortListSync`/`addPortAuthorizationSync`）需要 `TH_EXPORT_CPP_API` 宏
+- 类型别名避免命名冲突：`TaiheSerialPortInfo`/`TaiheSerialPort`/`TaiheSerialConfigs`
 
 ### 错误码规范
 
@@ -146,10 +177,11 @@ serial.Parity { NONE='none', EVEN='even', ODD='odd', MARK='mark', SPACE='space' 
 
 ## 日志
 
-三模块独立域：
+四模块独立域：
 - `SERIAL_HILOGI/E/W/D(MODULE_INNERKIT, ...)` — 域 `0xD002A08`，tag `SerialSrvClient`
 - `SERIAL_HILOGI/E/W/D(MODULE_SERVICE, ...)` — 域 `0xD002A08`，tag `SerialService`
 - `SERIAL_HILOGI/E/W/D(MODULE_JS_NAPI, ...)` — 域 `0xD002A08`，tag `SerialNapi`
+- `SERIAL_HILOGI/E/W/D(MODULE_TAIHE, ...)` — 域 `0xD002A08`，tag `SerialTaihe`
 
 ## 扩展新接口流程
 
@@ -158,7 +190,9 @@ serial.Parity { NONE='none', EVEN='even', ODD='odd', MARK='mark', SPACE='space' 
 3. `serial_service.h/cpp` 添加 override 实现
 4. `serial_srv_client.h/cpp` 添加客户端代理方法
 5. `serial_info.cpp` 添加 NAPI 绑定 + 导出
-6. `@ohos.busManager.serial.d.ts` 更新类型声明
+6. `ohos.busManager.serial.taihe` 添加 Taihe IDL 方法声明
+7. `ohos.busManager.serial.impl.cpp` 添加 Taihe C++ 实现
+8. `@ohos.busManager.serial.d.ts` 更新类型声明
 
 ## 测试构建
 
@@ -167,9 +201,8 @@ serial.Parity { NONE='none', EVEN='even', ODD='odd', MARK='mark', SPACE='space' 
 ```
 test/
 ├── BUILD.gn                           # group("serial_manager_tests") 汇总所有测试目标
-└── develop/
-    ├── BUILD.gn                       # serialservice_errcodetest 编译目标
-    └── serial_service_errcodetest.cpp # 错误码测试服务，独立编译（不依赖正式 serial_service.cpp）
+├── develop/                           # 开发调试用测试服务变体（错误码/生命周期/参数校验）
+└── unittest/                          # 单元测试（客户端、回调、无服务场景）
 ```
 
 ### 关键目标
@@ -177,7 +210,9 @@ test/
 | 目标 | 路径 | 说明 |
 |------|------|------|
 | `serial_manager_tests` | `test:serial_manager_tests` | 汇总所有测试子目标的 group，已注册到 `bundle.json` 的 `test` 字段 |
-| `serialservice_errcodetest` | `test/develop:serialservice_errcodetest` | 错误码测试服务变体，编译独立的 `serial_service_errcodetest.cpp` |
+| `serialservice_errcodetest` | `test/develop:serialservice_errcodetest` | 错误码测试服务变体 |
+| `serialservice_lifecycle_test` | `test/develop:serialservice_lifecycle_test` | 生命周期测试服务变体 |
+| `serialservice_paramtest` | `test/develop:serialservice_paramtest` | 参数校验测试服务变体 |
 
 ### 编译命令
 
