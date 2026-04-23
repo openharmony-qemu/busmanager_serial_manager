@@ -40,7 +40,6 @@ Serial Manager 是一个基于OpenHarmony系统的串口设备管理服务组件
 ┌────────────────────▼─────────────────────────┐
 │        System Ability 服务 (libserialservice.z.so) │
 │  SerialService extends SystemAbility + Stub    │
-│  ReadContext (每端口读线程 + 回调代理)            │
 │  当前为桩实现：所有方法记录日志后返回成功            │
 └──────────────────────────────────────────────┘
 ```
@@ -108,7 +107,7 @@ serial_manager/
 │   ├── serial_service.cfg                       # Init进程服务配置
 │   └── native/
 │       ├── include/
-│       │   └── serial_service.h                 # 服务头文件（含ReadContext）
+│       │   └── serial_service.h                 # 服务头文件
 │       └── src/
 │           └── serial_service.cpp               # 服务实现（桩）
 ├── sa_profile/
@@ -259,17 +258,16 @@ enum Parity    { NONE = 'none', EVEN = 'even', ODD = 'odd', MARK = 'mark', SPACE
 ### 2. 服务端（SerialService）
 
 - **SA注册**：`REGISTER_SYSTEM_ABILITY_BY_ID(SerialService, SERIAL_SYSTEM_ABILITY_ID, true)`，run-on-create=true
-- **每端口上下文**：`ReadContext` 包含回调代理、读线程、原子运行标志、条件变量、最后写入数据
 - **当前桩实现**（`serial_service.cpp`）：
   - 所有12个IDL方法仅记录日志后返回 `SERIAL_OK`，无真实硬件I/O
   - `QuerySerialDevices` 返回空设备列表（不填充 devices）
   - `WriteSerial` 记录数据并返回 `data.size()`
   - `GetCtsSignal` 固定返回 `cts=false`
   - `Flush` / `Drain` / `SendBrkSignal` / `SetRtsSignal` / `AddPortAuthorization` 为空操作桩
-  - `ReadThreadFunc` 在头文件中声明但主服务未调用
 - **测试变体实现**（`test/develop/`）：
-  - `serial_service_lifecycle_test.cpp`：模拟设备枚举（多场景轮替）+ 端口占用检测 + ReadContext 管理 + 环回读线程
+  - `serial_service_lifecycle_test.cpp`：模拟设备枚举（多场景轮替）+ 端口占用检测 + 环回读线程
   - `serial_service_errcodetest.cpp`：基于 `TestScenario` 按轮次返回预设错误码，覆盖全部错误码场景
+  - `serial_service_paramtest.cpp`：参数校验测试，含环回读线程
 
 ### 3. NAPI绑定层
 

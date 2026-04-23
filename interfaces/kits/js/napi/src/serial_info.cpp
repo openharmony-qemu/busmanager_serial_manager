@@ -170,14 +170,20 @@ static bool IsSerialPortInfoEqual(const SerialPortInfo& a, const SerialPortInfo&
 
 static void RemoveAllListenersForPort(napi_env env, const std::string& portName)
 {
-    std::lock_guard<std::mutex> lock(g_callbackMutex);
-    auto portIt = g_dataCallbacks.find(portName);
-    if (portIt != g_dataCallbacks.end()) {
-        for (auto& pair : portIt->second) {
-            napi_delete_reference(env, pair.second.callbackRef);
-            g_serialClient.UnregisterDataListener(portName, pair.second.listenerHandle);
+    std::vector<ListenerHandle> handles;
+    {
+        std::lock_guard<std::mutex> lock(g_callbackMutex);
+        auto portIt = g_dataCallbacks.find(portName);
+        if (portIt != g_dataCallbacks.end()) {
+            for (auto& pair : portIt->second) {
+                napi_delete_reference(env, pair.second.callbackRef);
+                handles.push_back(pair.second.listenerHandle);
+            }
+            g_dataCallbacks.erase(portIt);
         }
-        g_dataCallbacks.erase(portIt);
+    }
+    for (ListenerHandle handle : handles) {
+        g_serialClient.UnregisterDataListener(portName, handle);
     }
 }
 
@@ -510,13 +516,13 @@ static void CreateAndQueueAsyncWork(napi_env env, napi_value resourceName, napi_
 
 static void SerialGetSerialPortListExecute(napi_env env, void* data)
 {
-    SerialPortListAsyncContext* context = (SerialPortListAsyncContext*)data;
+    auto* context = static_cast<SerialPortListAsyncContext*>(data);
     context->ret = g_serialClient.QuerySerialDevices(context->deviceList);
 }
 
 static void SerialGetSerialPortListComplete(napi_env env, napi_status status, void* data)
 {
-    SerialPortListAsyncContext* context = (SerialPortListAsyncContext*)data;
+    auto* context = static_cast<SerialPortListAsyncContext*>(data);
 
     if (context->ret == SERIAL_OK) {
         napi_value result = CreateDeviceListArray(env, context->deviceList);
@@ -563,13 +569,13 @@ static napi_value SerialGetSerialPortListNapi(napi_env env, napi_callback_info i
 
 static void SerialOpenExecute(napi_env env, void* data)
 {
-    SerialOpenAsyncContext* context = (SerialOpenAsyncContext*)data;
+    auto* context = static_cast<SerialOpenAsyncContext*>(data);
     context->ret = g_serialClient.OpenSerial(context->portInfo, context->config);
 }
 
 static void SerialOpenComplete(napi_env env, napi_status status, void* data)
 {
-    SerialOpenAsyncContext* context = (SerialOpenAsyncContext*)data;
+    auto* context = static_cast<SerialOpenAsyncContext*>(data);
     napi_value result = nullptr;
 
     if (context->ret == SERIAL_OK) {
@@ -795,13 +801,13 @@ static napi_value SerialOpenNapi(napi_env env, napi_callback_info info)
 
 static void SerialCloseExecute(napi_env env, void* data)
 {
-    SerialCloseAsyncContext* context = (SerialCloseAsyncContext*)data;
+    auto* context = static_cast<SerialCloseAsyncContext*>(data);
     context->ret = g_serialClient.CloseSerial(context->portName);
 }
 
 static void SerialCloseComplete(napi_env env, napi_status status, void* data)
 {
-    SerialCloseAsyncContext* context = (SerialCloseAsyncContext*)data;
+    auto* context = static_cast<SerialCloseAsyncContext*>(data);
     napi_value result = nullptr;
 
     if (context->ret == SERIAL_OK) {
@@ -858,14 +864,14 @@ static napi_value SerialCloseNapi(napi_env env, napi_callback_info info)
 
 static void SerialWriteExecute(napi_env env, void* data)
 {
-    SerialWriteAsyncContext* context = (SerialWriteAsyncContext*)data;
+    auto* context = static_cast<SerialWriteAsyncContext*>(data);
     context->ret =
         g_serialClient.WriteSerial(context->portName, context->data, context->timeout, context->bytesWritten);
 }
 
 static void SerialWriteComplete(napi_env env, napi_status status, void* data)
 {
-    SerialWriteAsyncContext* context = (SerialWriteAsyncContext*)data;
+    auto* context = static_cast<SerialWriteAsyncContext*>(data);
     napi_value result = nullptr;
 
     if (context->ret == SERIAL_OK) {
@@ -1195,13 +1201,13 @@ static napi_value SerialOffDataReadNapi(napi_env env, napi_callback_info info)
 
 static void SerialFlushExecute(napi_env env, void* data)
 {
-    SerialFlushAsyncContext* context = (SerialFlushAsyncContext*)data;
+    auto* context = static_cast<SerialFlushAsyncContext*>(data);
     context->ret = g_serialClient.Flush(context->portName);
 }
 
 static void SerialFlushComplete(napi_env env, napi_status status, void* data)
 {
-    SerialFlushAsyncContext* context = (SerialFlushAsyncContext*)data;
+    auto* context = static_cast<SerialFlushAsyncContext*>(data);
     napi_value result = nullptr;
 
     if (context->ret == SERIAL_OK) {
@@ -1260,13 +1266,13 @@ static napi_value SerialFlushNapi(napi_env env, napi_callback_info info)
 
 static void SerialDrainExecute(napi_env env, void* data)
 {
-    SerialDrainAsyncContext* context = (SerialDrainAsyncContext*)data;
+    auto* context = static_cast<SerialDrainAsyncContext*>(data);
     context->ret = g_serialClient.Drain(context->portName);
 }
 
 static void SerialDrainComplete(napi_env env, napi_status status, void* data)
 {
-    SerialDrainAsyncContext* context = (SerialDrainAsyncContext*)data;
+    auto* context = static_cast<SerialDrainAsyncContext*>(data);
     napi_value result = nullptr;
 
     if (context->ret == SERIAL_OK) {
@@ -1325,13 +1331,13 @@ static napi_value SerialDrainNapi(napi_env env, napi_callback_info info)
 
 static void SerialSetRtsExecute(napi_env env, void* data)
 {
-    SerialSetRtsAsyncContext* context = (SerialSetRtsAsyncContext*)data;
+    auto* context = static_cast<SerialSetRtsAsyncContext*>(data);
     context->ret = g_serialClient.SetRtsSignal(context->portName, context->rts);
 }
 
 static void SerialSetRtsComplete(napi_env env, napi_status status, void* data)
 {
-    SerialSetRtsAsyncContext* context = (SerialSetRtsAsyncContext*)data;
+    auto* context = static_cast<SerialSetRtsAsyncContext*>(data);
     napi_value result = nullptr;
 
     if (context->ret == SERIAL_OK) {
@@ -1406,13 +1412,13 @@ static napi_value SerialSetRtsNapi(napi_env env, napi_callback_info info)
 
 static void SerialSendBrkExecute(napi_env env, void* data)
 {
-    SerialSendBrkAsyncContext* context = (SerialSendBrkAsyncContext*)data;
+    auto* context = static_cast<SerialSendBrkAsyncContext*>(data);
     context->ret = g_serialClient.SendBrkSignal(context->portName);
 }
 
 static void SerialSendBrkComplete(napi_env env, napi_status status, void* data)
 {
-    SerialSendBrkAsyncContext* context = (SerialSendBrkAsyncContext*)data;
+    auto* context = static_cast<SerialSendBrkAsyncContext*>(data);
     napi_value result = nullptr;
 
     if (context->ret == SERIAL_OK) {
@@ -1471,13 +1477,13 @@ static napi_value SerialSendBrkNapi(napi_env env, napi_callback_info info)
 
 static void SerialGetCtsExecute(napi_env env, void* data)
 {
-    SerialGetCtsAsyncContext* context = (SerialGetCtsAsyncContext*)data;
+    auto* context = static_cast<SerialGetCtsAsyncContext*>(data);
     context->ret = g_serialClient.GetCtsSignal(context->portName, context->cts);
 }
 
 static void SerialGetCtsComplete(napi_env env, napi_status status, void* data)
 {
-    SerialGetCtsAsyncContext* context = (SerialGetCtsAsyncContext*)data;
+    auto* context = static_cast<SerialGetCtsAsyncContext*>(data);
     napi_value result = nullptr;
 
     if (context->ret == SERIAL_OK) {
@@ -1605,13 +1611,13 @@ static napi_value CreateParityEnum(napi_env env)
 
 static void SerialAddPortAuthExecute(napi_env env, void* data)
 {
-    SerialAddPortAuthAsyncContext* context = (SerialAddPortAuthAsyncContext*)data;
+    auto* context = static_cast<SerialAddPortAuthAsyncContext*>(data);
     context->ret = g_serialClient.AddPortAuthorization(context->tokenId, context->deviceId);
 }
 
 static void SerialAddPortAuthComplete(napi_env env, napi_status status, void* data)
 {
-    SerialAddPortAuthAsyncContext* context = (SerialAddPortAuthAsyncContext*)data;
+    auto* context = static_cast<SerialAddPortAuthAsyncContext*>(data);
     napi_value result = nullptr;
 
     if (context->ret == SERIAL_OK) {
@@ -1719,7 +1725,7 @@ static napi_module g_serialModule = {
     .nm_filename = "busManager.serial",
     .nm_register_func = SerialInit,
     .nm_modname = "busManager.serial",
-    .nm_priv = ((void*)0),
+    .nm_priv = nullptr,
     .reserved = {0},
 };
 

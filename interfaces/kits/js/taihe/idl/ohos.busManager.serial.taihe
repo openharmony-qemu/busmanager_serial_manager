@@ -16,7 +16,20 @@
 @!namespace("@ohos.busManager.serial", "serial")
 @!sts_inject("""loadLibraryWithPermissionCheck("serial_manager_taihe_native.z", "@ohos.busManager.serial")""")
 
-@gen_promise("getSerialPortList")
+@!sts_inject("""
+export function getSerialPortList(): Promise<Array<SerialPort>> {
+    return new Promise<Array<SerialPort>>((resolve, reject): void => {
+        try {
+            let res: Array<SerialPort> = _taihe_getSerialPortListSync_native();
+            resolve(res);
+        }
+        catch(err) {
+            reject(err as Error);
+        };
+    });
+}
+""")
+
 function getSerialPortListSync(): Array<SerialPort>;
 
 @gen_promise("addPortAuthorization")
@@ -47,15 +60,15 @@ interface SerialPort {
   @promise sendBrk(): void;
 }
 
-struct SerialPortInfo {
+interface SerialPortInfo {
 
-  portName: String;
+  @get getPortName(): String;
 
-  @optional productId: Optional<i32>;
+  @get getProductId(): Optional<i32>;
 
-  @optional vendorId: Optional<i32>;
+  @get getVendorId(): Optional<i32>;
 
-  @optional manufacturer: Optional<String>;
+  @get getManufacturer(): Optional<String>;
 }
 
 struct SerialConfigs {

@@ -16,28 +16,12 @@
 #ifndef SERIAL_SERVICE_H
 #define SERIAL_SERVICE_H
 
-#include <atomic>
-#include <condition_variable>
-#include <map>
-#include <mutex>
-#include <thread>
-#include <vector>
-
 #include "iserial_service_callback.h"
 #include "serial_server_stub.h"
 #include "system_ability.h"
 
 namespace OHOS {
 namespace Serial {
-
-struct ReadContext {
-    sptr<ISerialServiceCallback> callback;
-    std::thread readThread;
-    std::atomic<bool> running {false};
-    std::condition_variable cv;
-    std::mutex mutex;
-    std::vector<uint8_t> lastWrittenData;
-};
 
 class SerialService : public SystemAbility, public SerialServerStub {
     DECLARE_SYSTEM_ABILITY(SerialService);
@@ -65,11 +49,7 @@ public:
     int32_t AddPortAuthorization(const std::string& tokenId, const std::string& deviceId) override;
 
 private:
-    void ReadThreadFunc(const std::string& portName);
-
     bool registerToService_ = false;
-    std::mutex serviceMutex_;
-    std::map<std::string, std::shared_ptr<ReadContext>> readContexts_;
 };
 
 } // namespace Serial

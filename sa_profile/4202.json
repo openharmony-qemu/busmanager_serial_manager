@@ -7,15 +7,6 @@
             "run-on-create": true,
             "auto-restart": true,
             "distributed": false,
-            "start-on-demand": {
-                "allow-update": true,
-                "param": [
-                    {
-                        "name": "bootevent.boot.completed",
-                        "value": "true"
-                    }
-                ]
-            },
             "dump_level": 1
         }
     ]
