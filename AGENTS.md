@@ -19,7 +19,7 @@
 
 ### 何时用完整编译
 
-修改了以下文件必须完整编译：`bundle.json`、任何 `BUILD.gn`、新增/删除源文件、首次编译。
+修改了以下文件必须完整编译：`bundle.json`、任何 `BUILD.gn`、新增/删除源文件、首次编译。仅改 `.cpp`/`.h`/`.idl` 等源文件可用 `--fast-rebuild`。
 
 ### 编译产物
 
@@ -28,17 +28,33 @@
 | `libserialsrv_client.z.so` | InnerAPI 客户端库 |
 | `libserialservice.z.so` | SA 服务库 |
 | `libserial.z.so` | NAPI 绑定库，安装路径 `module/busmanager` |
+| `serial_manager_taihe_native.z.so` | Taihe 原生库（ANI 桥接 + 接口实现） |
+| `serial_manager_abc.abc` | Taihe 生成 ArkTS 字节码，安装路径 `/system/framework/` |
+
+### Taihe 编译
+
+```bash
+./build.sh --product-name rk3568 --ccache --build-target serial_manager_taihe
+```
 
 ## 项目定位
 
 OpenHarmony 串口设备管理服务组件（SA 4202），参考 USB Manager 架构。子系统 `busmanager`，部件 `serial_manager`。
 
-当前服务端为**模拟实现**（硬编码3个设备 + 环回回显），未接入真实硬件。
+当前服务端为**桩实现**（所有 IDL 方法仅记录日志后返回 `SERIAL_OK`），未接入真实硬件。环回读线程仅在测试变体（`test/develop/`）中实现。
 
-## 架构四层
+## 架构
+
+### NAPI 路径
 
 ```
 JS 应用 → NAPI (libserial.z.so) → InnerAPI Client (libserialsrv_client.z.so) → IPC/Binder → SA Service (libserialservice.z.so)
+```
+
+### Taihe 路径
+
+```
+JS 应用 → Taihe ABC (serial_manager_abc.abc) → ANI Bridge (serial_manager_taihe_native.z.so) → InnerAPI Client → IPC/Binder → SA Service
 ```
 
 ## 关键文件速查
@@ -52,8 +68,12 @@ JS 应用 → NAPI (libserial.z.so) → InnerAPI Client (libserialsrv_client.z.s
 | `interfaces/innerkits/native/src/serial_service_callback.cpp` | 监听器管理，`onDataRead` 分发到多个 JS 回调 |
 | `interfaces/kits/js/napi/src/serial_info.cpp` | NAPI 完整实现（~1395行），所有 JS API + SerialPort 对象 |
 | `interfaces/kits/js/@ohos.busManager.serial.d.ts` | ArkTS API 声明 |
-| `services/native/src/serial_service.cpp` | SA 服务实现，模拟设备列表 + 环回读线程 |
-| `services/native/include/serial_service.h` | `SerialService` 类 + `ReadContext` 结构体 |
+| `interfaces/kits/js/taihe/idl/ohos.busManager.serial.taihe` | Taihe IDL 定义（interface SerialPort + struct/enum） |
+| `interfaces/kits/js/taihe/src/ohos.busManager.serial.impl.cpp` | Taihe C++ 实现（SerialPortHolder 类，持有端口状态） |
+| `interfaces/kits/js/taihe/src/ani_constructor.cpp` | ANI 入口，注册 Taihe 模块 |
+| `interfaces/kits/js/taihe/BUILD.gn` | Taihe 编译配置（IDL→ANI→共享库→ABC→安装） |
+| `services/native/src/serial_service.cpp` | SA 服务实现，桩实现（仅记录日志返回成功） |
+| `services/native/include/serial_service.h` | `SerialService` 类定义 |
 | `sa_profile/4202.json` | SA 配置，run-on-create=true，auto-restart=true |
 | `services/serial_service.cfg` | Init 进程配置，uid=serial，ondemand |
 | `bundle.json` | 组件定义，syscap `SystemCapability.USB.SerialManager` |
@@ -72,12 +92,15 @@ JS 应用 → NAPI (libserial.z.so) → InnerAPI Client (libserialsrv_client.z.s
 
 | 方法 | 行为 |
 |------|------|
-| `QuerySerialDevices` | 返回3个硬编码设备：`/dev/ttyS0`、`/dev/ttyS1`、`/dev/ttyUSB0` |
-| `OpenSerial` | 创建 `ReadContext`，存储回调 |
-| `WriteSerial` | 记录数据到 `lastWrittenData`，返回 `data.size()`，无真实I/O |
-| `ReadThreadFunc` | 每5秒检查 `lastWrittenData`，非空则通过 `onDataRead` 回显（环回模拟） |
-| `Flush`/`Drain`/`SendBrkSignal`/`SetRtsSignal`/`AddPortAuthorization` | 空操作，返回0 |
+| `QuerySerialDevices` | 返回空设备列表（不填充 devices） |
+| `OpenSerial` | 仅记录日志，存储回调参数，返回 `SERIAL_OK` |
+| `CloseSerial` | 仅记录日志，返回 `SERIAL_OK` |
+| `WriteSerial` | 记录数据（十六进制+可打印字符），返回 `data.size()`，无真实I/O |
+| `StartRead` / `StopRead` | 仅记录日志，返回 `SERIAL_OK` |
+| `Flush`/`Drain`/`SendBrkSignal`/`SetRtsSignal`/`AddPortAuthorization` | 空操作，返回 `SERIAL_OK` |
 | `GetCtsSignal` | 固定返回 `cts=false` |
+
+> **注意**：`ReadContext`、`ReadThreadFunc`、`readContexts_`、`serviceMutex_` 等成员在正式服务中未使用，仅供 `test/develop/` 下的测试变体（lifecycle_test、errcodetest、paramtest）使用。
 
 ## 客户端关键模式
 
@@ -92,6 +115,17 @@ JS 应用 → NAPI (libserial.z.so) → InnerAPI Client (libserialsrv_client.z.s
 - `getSerialPortList` 支持 Callback 和 Promise 双模式
 - `SerialPort` JS 对象通过 `napi_wrap` 绑定 `SerialPortNative*`，支持缓存复用/失效/恢复/GC 回收
 - `onDataRead` 注册时创建 C++ lambda，通过 `napi_async_work` 调度到 JS 线程
+
+## Taihe 关键模式
+
+- `interface SerialPort` 与 d.ts 完全对齐，`@promise` 生成 Promise 方法，`@get` 映射属性
+- `SerialPortHolder` 持有 `portName_/productId_/vendorId_/manufacturer_`，所有方法委托到 `SerialSrvClient`
+- `GetSerialPortListSync()` 通过 `make_holder<SerialPortHolder, SerialPort>(...)` 创建接口实例
+- `@gen_promise("getSerialPortList")` 生成 sync + Promise 两个版本，sync 版本在 JS 线程创建 Taihe 对象
+- `onDataRead`/`offDataRead` 全局回调管理：`g_callbacks` map + mutex，首个 listener 注册 innerkit 回调
+- `close()` 自动清除所有 `onDataRead` 回调
+- 仅两个顶层函数（`getSerialPortListSync`/`addPortAuthorizationSync`）需要 `TH_EXPORT_CPP_API` 宏
+- 类型别名避免命名冲突：`TaiheSerialPortInfo`/`TaiheSerialPort`/`TaiheSerialConfigs`
 
 ### 错误码规范
 
@@ -146,10 +180,11 @@ serial.Parity { NONE='none', EVEN='even', ODD='odd', MARK='mark', SPACE='space' 
 
 ## 日志
 
-三模块独立域：
+四模块独立域：
 - `SERIAL_HILOGI/E/W/D(MODULE_INNERKIT, ...)` — 域 `0xD002A08`，tag `SerialSrvClient`
 - `SERIAL_HILOGI/E/W/D(MODULE_SERVICE, ...)` — 域 `0xD002A08`，tag `SerialService`
 - `SERIAL_HILOGI/E/W/D(MODULE_JS_NAPI, ...)` — 域 `0xD002A08`，tag `SerialNapi`
+- `SERIAL_HILOGI/E/W/D(MODULE_TAIHE, ...)` — 域 `0xD002A08`，tag `SerialTaihe`
 
 ## 扩展新接口流程
 
@@ -158,7 +193,9 @@ serial.Parity { NONE='none', EVEN='even', ODD='odd', MARK='mark', SPACE='space' 
 3. `serial_service.h/cpp` 添加 override 实现
 4. `serial_srv_client.h/cpp` 添加客户端代理方法
 5. `serial_info.cpp` 添加 NAPI 绑定 + 导出
-6. `@ohos.busManager.serial.d.ts` 更新类型声明
+6. `ohos.busManager.serial.taihe` 添加 Taihe IDL 方法声明
+7. `ohos.busManager.serial.impl.cpp` 添加 Taihe C++ 实现
+8. `@ohos.busManager.serial.d.ts` 更新类型声明
 
 ## 测试构建
 
@@ -167,9 +204,8 @@ serial.Parity { NONE='none', EVEN='even', ODD='odd', MARK='mark', SPACE='space' 
 ```
 test/
 ├── BUILD.gn                           # group("serial_manager_tests") 汇总所有测试目标
-└── develop/
-    ├── BUILD.gn                       # serialservice_errcodetest 编译目标
-    └── serial_service_errcodetest.cpp # 错误码测试服务，独立编译（不依赖正式 serial_service.cpp）
+├── develop/                           # 开发调试用测试服务变体（错误码/生命周期/参数校验）
+└── unittest/                          # 单元测试（客户端、回调、无服务场景）
 ```
 
 ### 关键目标
@@ -177,7 +213,9 @@ test/
 | 目标 | 路径 | 说明 |
 |------|------|------|
 | `serial_manager_tests` | `test:serial_manager_tests` | 汇总所有测试子目标的 group，已注册到 `bundle.json` 的 `test` 字段 |
-| `serialservice_errcodetest` | `test/develop:serialservice_errcodetest` | 错误码测试服务变体，编译独立的 `serial_service_errcodetest.cpp` |
+| `serialservice_errcodetest` | `test/develop:serialservice_errcodetest` | 错误码测试服务变体 |
+| `serialservice_lifecycle_test` | `test/develop:serialservice_lifecycle_test` | 生命周期测试服务变体 |
+| `serialservice_paramtest` | `test/develop:serialservice_paramtest` | 参数校验测试服务变体 |
 
 ### 编译命令
 
@@ -192,7 +230,7 @@ test/
 ### 错误码测试（serialservice_errcodetest）
 
 - **独立源文件** `test/develop/serial_service_errcodetest.cpp`，不依赖 `#ifdef` 宏分支
-- 包含与正式 `serial_service.cpp` 相同的 SA 框架代码（构造/析构/OnStart/OnStop）和读线程逻辑（ReadThreadFunc），仅 12 个 IDL 方法使用 `TestScenario` 按轮次返回预设错误码
+- 包含与正式 `serial_service.cpp` 相同的 SA 框架代码（构造/析构/OnStart/OnStop）和独立的读线程逻辑（本地 `ReadContext` + `ReadThreadFunc`），仅 12 个 IDL 方法使用 `TestScenario` 按轮次返回预设错误码
 - `install_enable = false`，不会随系统安装
 - 编译时抑制 `-Wno-unused-variable` / `-Wno-unused-function`（测试代码存在未使用的场景字段）
 - 覆盖所有错误码场景：`SERIAL_OK`、`SERIAL_ERR_SERVICE`、`SERIAL_ERR_INVALID_PARAM`、`SERIAL_ERR_DEVICE_DISCONNECTED`、`SERIAL_ERR_DEVICE_BUSY`、`SERIAL_ERR_DEVICE_NOT_OPENED`、`SERIAL_ERR_TIMEOUT`、`SERIAL_ERR_PERMISSION_DENIED`、`SERIAL_ERR_NOT_ALLOWED`、未知错误码
@@ -265,7 +303,7 @@ if (data[i] >= 32 && data[i] <= 126) { ... }
 
 1. **改了 BUILD.gn 用 --fast-rebuild** → "Duplicate definition" 错误，改用完整编译
 2. **改了 IDL 未同步签名** → override 不匹配编译错误，先检查生成文件签名
-3. **onDataRead 不触发** → 确认已 open + write，模拟模式5秒后才回显
+3. **onDataRead 不触发** → 正式服务为桩实现不产生数据，需部署测试变体（lifecycle_test/errcodetest/paramtest）才有环回回显
 4. **delayed_sp_singleton.h 未使用** — 客户端用的是 static 局部变量单例，非此模板
 5. **RECYCLE(GC) 不触发** — `g_activePorts` 持有强引用(ref=1)阻止 GC，必须先 INVALIDATE(ref→0)后 GC 才能回收
 

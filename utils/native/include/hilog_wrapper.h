@@ -48,6 +48,7 @@ enum SerialMgrSubModule {
     MODULE_INNERKIT = 0,
     MODULE_SERVICE,
     MODULE_JS_NAPI,
+    MODULE_TAIHE,
     SERIALMGR_MODULE_BUTT,
 };
 
@@ -57,6 +58,7 @@ enum SerialMgrDomainId {
     SERIALMGR_INNERKIT_DOMAIN = BASE_SERIAL_DOMAIN_ID,
     SERIALMGR_SERVICE_DOMAIN = BASE_SERIAL_DOMAIN_ID,
     SERIALMGR_JS_NAPI = BASE_SERIAL_DOMAIN_ID,
+    SERIALMGR_TAIHE = BASE_SERIAL_DOMAIN_ID,
     SERIALMGR_BUTT,
 };
 
@@ -67,6 +69,7 @@ static const struct {
     {SERIALMGR_INNERKIT_DOMAIN, "SerialSrvClient"},
     {SERIALMGR_SERVICE_DOMAIN, "SerialService"},
     {SERIALMGR_JS_NAPI, "SerialNapi"},
+    {SERIALMGR_TAIHE, "SerialTaihe"},
 };
 
 #define SERIAL_HILOGF(module, ...) \

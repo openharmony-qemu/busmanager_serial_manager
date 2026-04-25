@@ -28,7 +28,7 @@
 namespace OHOS {
 namespace Serial {
 namespace {
-constexpr int32_t SERIAL_SERVICE_ID = 4202;
+constexpr int32_t SERIAL_SERVICE_ID = SERIAL_SYSTEM_ABILITY_ID;
 constexpr uint32_t MAX_WAIT_LOAD_SA_SECONDS = 4;
 constexpr size_t WRITE_DATA_MAX_SIZE = 4096;
 constexpr int32_t WRITE_TIMEOUT_MAX_MS = 300000;

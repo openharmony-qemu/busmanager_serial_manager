@@ -14,6 +14,8 @@
  */
 
 #include <chrono>
+#include <condition_variable>
+#include <thread>
 
 #include "hilog_wrapper.h"
 #include "if_system_ability_manager.h"
@@ -25,9 +27,33 @@
 namespace OHOS {
 namespace Serial {
 
+struct ReadContext {
+    sptr<ISerialServiceCallback> callback;
+    std::thread readThread;
+    std::atomic<bool> running {false};
+    std::condition_variable cv;
+    std::mutex mutex;
+    std::vector<uint8_t> lastWrittenData;
+};
+
+static std::mutex g_serviceMutex;
+static std::map<std::string, std::shared_ptr<ReadContext>> g_readContexts;
+
 namespace {
 constexpr int32_t READ_POLL_INTERVAL_SEC = 5;
+
+static void DetachReadThread(std::shared_ptr<ReadContext>& ctx)
+{
+    if (!ctx) {
+        return;
+    }
+    ctx->running = false;
+    ctx->cv.notify_all();
+    if (ctx->readThread.joinable()) {
+        ctx->readThread.detach();
+    }
 }
+} // namespace
 
 REGISTER_SYSTEM_ABILITY_BY_ID(SerialService, SERIAL_SYSTEM_ABILITY_ID, true);
 
@@ -39,17 +65,11 @@ SerialService::SerialService(int32_t systemAbilityId, bool runOnCreate) : System
 SerialService::~SerialService()
 {
     SERIAL_HILOGI(MODULE_SERVICE, "SerialService destroyed");
-    std::lock_guard<std::mutex> lock(serviceMutex_);
-    for (auto& pair : readContexts_) {
-        if (pair.second && pair.second->running) {
-            pair.second->running = false;
-            pair.second->cv.notify_all();
-            if (pair.second->readThread.joinable()) {
-                pair.second->readThread.join();
-            }
-        }
+    std::lock_guard<std::mutex> lock(g_serviceMutex);
+    for (auto& pair : g_readContexts) {
+        DetachReadThread(pair.second);
     }
-    readContexts_.clear();
+    g_readContexts.clear();
 }
 
 void SerialService::OnStart()
@@ -72,31 +92,25 @@ void SerialService::OnStart()
 void SerialService::OnStop()
 {
     SERIAL_HILOGI(MODULE_SERVICE, "SerialService OnStop");
-    std::lock_guard<std::mutex> lock(serviceMutex_);
-    for (auto& pair : readContexts_) {
-        if (pair.second && pair.second->running) {
-            pair.second->running = false;
-            pair.second->cv.notify_all();
-            if (pair.second->readThread.joinable()) {
-                pair.second->readThread.join();
-            }
-        }
+    std::lock_guard<std::mutex> lock(g_serviceMutex);
+    for (auto& pair : g_readContexts) {
+        DetachReadThread(pair.second);
     }
-    readContexts_.clear();
+    g_readContexts.clear();
     registerToService_ = false;
     SERIAL_HILOGI(MODULE_SERVICE, "SerialService OnStop success");
 }
 
-void SerialService::ReadThreadFunc(const std::string& portName)
+static void ReadThreadFunc(const std::string& portName)
 {
     SERIAL_HILOGI(MODULE_SERVICE, "ReadThreadFunc started, portName=%{public}s", portName.c_str());
 
     sptr<ISerialServiceCallback> callback;
     std::shared_ptr<ReadContext> context;
     {
-        std::lock_guard<std::mutex> lock(serviceMutex_);
-        auto it = readContexts_.find(portName);
-        if (it == readContexts_.end() || !it->second) {
+        std::lock_guard<std::mutex> lock(g_serviceMutex);
+        auto it = g_readContexts.find(portName);
+        if (it == g_readContexts.end() || !it->second) {
             SERIAL_HILOGE(MODULE_SERVICE, "ReadThreadFunc: portName %{public}s not found", portName.c_str());
             return;
         }
@@ -138,35 +152,27 @@ int32_t SerialService::OpenSerial(
         return SERIAL_ERR_SERVICE;
     }
 
-    std::lock_guard<std::mutex> lock(serviceMutex_);
-    if (readContexts_.find(portInfo.portName) != readContexts_.end()) {
+    std::lock_guard<std::mutex> lock(g_serviceMutex);
+    if (g_readContexts.find(portInfo.portName) != g_readContexts.end()) {
         return SERIAL_ERR_DEVICE_BUSY;
     }
 
     auto context = std::make_shared<ReadContext>();
     context->callback = token;
-    readContexts_[portInfo.portName] = context;
+    g_readContexts[portInfo.portName] = context;
     return SERIAL_OK;
 }
 
 int32_t SerialService::CloseSerial(const std::string& portName)
 {
     SERIAL_HILOGI(MODULE_SERVICE, "[PARAMTEST] CloseSerial portName=%{public}s", portName.c_str());
-    std::lock_guard<std::mutex> lock(serviceMutex_);
-    auto it = readContexts_.find(portName);
-    if (it == readContexts_.end()) {
+    std::lock_guard<std::mutex> lock(g_serviceMutex);
+    auto it = g_readContexts.find(portName);
+    if (it == g_readContexts.end()) {
         return SERIAL_ERR_DEVICE_NOT_OPENED;
     }
-    if (it->second) {
-        if (it->second->running) {
-            it->second->running = false;
-            it->second->cv.notify_all();
-            if (it->second->readThread.joinable()) {
-                it->second->readThread.join();
-            }
-        }
-        readContexts_.erase(it);
-    }
+    DetachReadThread(it->second);
+    g_readContexts.erase(it);
     return SERIAL_OK;
 }
 
@@ -175,9 +181,9 @@ int32_t SerialService::WriteSerial(
 {
     SERIAL_HILOGI(MODULE_SERVICE, "[PARAMTEST] WriteSerial portName=%{public}s, dataSize=%{public}zu", portName.c_str(),
         data.size());
-    std::lock_guard<std::mutex> lock(serviceMutex_);
-    auto it = readContexts_.find(portName);
-    if (it == readContexts_.end() || !it->second) {
+    std::lock_guard<std::mutex> lock(g_serviceMutex);
+    auto it = g_readContexts.find(portName);
+    if (it == g_readContexts.end() || !it->second) {
         bytesWritten = 0;
         return SERIAL_ERR_DEVICE_NOT_OPENED;
     }
@@ -189,35 +195,32 @@ int32_t SerialService::WriteSerial(
 int32_t SerialService::StartRead(const std::string& portName)
 {
     SERIAL_HILOGI(MODULE_SERVICE, "[PARAMTEST] StartRead portName=%{public}s", portName.c_str());
-    std::lock_guard<std::mutex> lock(serviceMutex_);
-    auto it = readContexts_.find(portName);
-    if (it == readContexts_.end() || !it->second) {
+    std::lock_guard<std::mutex> lock(g_serviceMutex);
+    auto it = g_readContexts.find(portName);
+    if (it == g_readContexts.end() || !it->second) {
         return SERIAL_ERR_DEVICE_NOT_OPENED;
     }
     if (it->second->running) {
         return SERIAL_OK;
     }
     it->second->running = true;
-    it->second->readThread = std::thread(&SerialService::ReadThreadFunc, this, portName);
+    it->second->readThread = std::thread(ReadThreadFunc, portName);
     return SERIAL_OK;
 }
 
 int32_t SerialService::StopRead(const std::string& portName)
 {
     SERIAL_HILOGI(MODULE_SERVICE, "[PARAMTEST] StopRead portName=%{public}s", portName.c_str());
-    std::lock_guard<std::mutex> lock(serviceMutex_);
-    auto it = readContexts_.find(portName);
-    if (it == readContexts_.end() || !it->second) {
+    std::lock_guard<std::mutex> lock(g_serviceMutex);
+    auto it = g_readContexts.find(portName);
+    if (it == g_readContexts.end() || !it->second) {
         return SERIAL_ERR_DEVICE_NOT_OPENED;
     }
     if (!it->second->running) {
         return SERIAL_OK;
     }
-    it->second->running = false;
-    it->second->cv.notify_all();
-    if (it->second->readThread.joinable()) {
-        it->second->readThread.join();
-    }
+    DetachReadThread(it->second);
+    SERIAL_HILOGI(MODULE_SERVICE, "[PARAMTEST] StopRead signaled stop, portName=%{public}s", portName.c_str());
     return SERIAL_OK;
 }
 
