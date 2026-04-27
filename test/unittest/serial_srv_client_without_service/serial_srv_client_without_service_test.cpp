@@ -201,7 +201,9 @@ HWTEST_F(SerialSrvClientWithoutServiceTest, RegisterDataListener_ValidCallback_R
 {
     auto& client = SerialSrvClient::GetInstance();
     auto callback = [](const std::vector<uint8_t>& data) {};
-    ListenerHandle handle = client.RegisterDataListener("/dev/ttyS0", callback);
+    ListenerHandle handle = 0;
+    int32_t ret = client.RegisterDataListener("/dev/ttyS0", callback, handle);
+    EXPECT_EQ(ret, SERIAL_OK);
     EXPECT_NE(handle, static_cast<ListenerHandle>(0));
 }
 
@@ -209,7 +211,9 @@ HWTEST_F(SerialSrvClientWithoutServiceTest, RegisterDataListener_NullCallback_Re
 {
     auto& client = SerialSrvClient::GetInstance();
     DataReceivedCallback nullCallback;
-    ListenerHandle handle = client.RegisterDataListener("/dev/ttyS0", nullCallback);
+    ListenerHandle handle = 0;
+    int32_t ret = client.RegisterDataListener("/dev/ttyS0", nullCallback, handle);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_INVALID_PARAM);
     EXPECT_EQ(handle, static_cast<ListenerHandle>(0));
 }
 
@@ -257,7 +261,9 @@ HWTEST_F(SerialSrvClientWithoutServiceTest, AllSuccessMethods_DoNotReturn801, Te
     EXPECT_EQ(client.AddPortAuthorization("t", "d"), SERIAL_OK);
 
     auto callback = [](const std::vector<uint8_t>& data) {};
-    ListenerHandle handle = client.RegisterDataListener("/dev/ttyS0", callback);
+    ListenerHandle handle = 0;
+    int32_t ret = client.RegisterDataListener("/dev/ttyS0", callback, handle);
+    EXPECT_EQ(ret, SERIAL_OK);
     EXPECT_NE(handle, static_cast<ListenerHandle>(0));
 
     EXPECT_EQ(client.UnregisterDataListener("/dev/ttyS0", handle), SERIAL_OK);

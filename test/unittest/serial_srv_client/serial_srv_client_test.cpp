@@ -314,7 +314,9 @@ HWTEST_F(SerialSrvClientTest, OpenSerial_RemovesListeners_001, TestSize.Level1)
 
     auto& client = SerialSrvClient::GetInstance();
     auto callback = [](const std::vector<uint8_t>& data) {};
-    ListenerHandle handle = client.RegisterDataListener("/dev/ttyS0", callback);
+    ListenerHandle handle = 0;
+    int32_t regRet = client.RegisterDataListener("/dev/ttyS0", callback, handle);
+    ASSERT_EQ(regRet, SERIAL_OK);
     ASSERT_NE(handle, static_cast<ListenerHandle>(0));
     ASSERT_NE(client.callback_, nullptr);
     EXPECT_TRUE(client.callback_->HasListeners("/dev/ttyS0"));
@@ -332,7 +334,9 @@ HWTEST_F(SerialSrvClientTest, OpenSerial_NotRemovesListenersOnFailure_001, TestS
 
     auto& client = SerialSrvClient::GetInstance();
     auto callback = [](const std::vector<uint8_t>& data) {};
-    ListenerHandle handle = client.RegisterDataListener("/dev/ttyS0", callback);
+    ListenerHandle handle = 0;
+    int32_t regRet = client.RegisterDataListener("/dev/ttyS0", callback, handle);
+    ASSERT_EQ(regRet, SERIAL_OK);
     ASSERT_NE(handle, static_cast<ListenerHandle>(0));
     ASSERT_NE(client.callback_, nullptr);
     EXPECT_TRUE(client.callback_->HasListeners("/dev/ttyS0"));
@@ -870,7 +874,9 @@ HWTEST_F(SerialSrvClientTest, RegisterDataListener_001, TestSize.Level1)
         callbackCalled = true;
     };
 
-    ListenerHandle handle = client.RegisterDataListener("/dev/ttyS0", callback);
+    ListenerHandle handle = 0;
+    int32_t ret = client.RegisterDataListener("/dev/ttyS0", callback, handle);
+    EXPECT_EQ(ret, SERIAL_OK);
     EXPECT_NE(handle, static_cast<ListenerHandle>(0));
 }
 
@@ -878,7 +884,9 @@ HWTEST_F(SerialSrvClientTest, RegisterDataListener_002, TestSize.Level1)
 {
     auto& client = SerialSrvClient::GetInstance();
     DataReceivedCallback nullCallback;
-    ListenerHandle handle = client.RegisterDataListener("/dev/ttyS0", nullCallback);
+    ListenerHandle handle = 0;
+    int32_t ret = client.RegisterDataListener("/dev/ttyS0", nullCallback, handle);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_INVALID_PARAM);
     EXPECT_EQ(handle, static_cast<ListenerHandle>(0));
 }
 
@@ -888,7 +896,9 @@ HWTEST_F(SerialSrvClientTest, RegisterDataListener_003, TestSize.Level1)
 
     auto& client = SerialSrvClient::GetInstance();
     auto callback = [](const std::vector<uint8_t>& data) {};
-    ListenerHandle handle = client.RegisterDataListener("/dev/ttyS1", callback);
+    ListenerHandle handle = 0;
+    int32_t ret = client.RegisterDataListener("/dev/ttyS1", callback, handle);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_SERVICE);
     EXPECT_EQ(handle, static_cast<ListenerHandle>(0));
 }
 
@@ -899,7 +909,9 @@ HWTEST_F(SerialSrvClientTest, RegisterDataListener_004, TestSize.Level1)
     auto& client = SerialSrvClient::GetInstance();
     auto callback = [](const std::vector<uint8_t>& data) {};
 
-    ListenerHandle handle1 = client.RegisterDataListener("/dev/ttyUSB0", callback);
+    ListenerHandle handle1 = 0;
+    int32_t ret1 = client.RegisterDataListener("/dev/ttyUSB0", callback, handle1);
+    EXPECT_EQ(ret1, SERIAL_OK);
     EXPECT_NE(handle1, static_cast<ListenerHandle>(0));
 
     EXPECT_CALL(*mockProxy_, StopRead(testing::_)).WillOnce(testing::Return(SERIAL_OK));
@@ -914,10 +926,14 @@ HWTEST_F(SerialSrvClientTest, RegisterDataListener_005, TestSize.Level1)
     auto& client = SerialSrvClient::GetInstance();
     auto callback = [](const std::vector<uint8_t>& data) {};
 
-    ListenerHandle handle1 = client.RegisterDataListener("/dev/ttyS0", callback);
+    ListenerHandle handle1 = 0;
+    int32_t ret1 = client.RegisterDataListener("/dev/ttyS0", callback, handle1);
+    EXPECT_EQ(ret1, SERIAL_OK);
     EXPECT_NE(handle1, static_cast<ListenerHandle>(0));
 
-    ListenerHandle handle2 = client.RegisterDataListener("/dev/ttyS0", callback);
+    ListenerHandle handle2 = 0;
+    int32_t ret2 = client.RegisterDataListener("/dev/ttyS0", callback, handle2);
+    EXPECT_EQ(ret2, SERIAL_OK);
     EXPECT_NE(handle2, static_cast<ListenerHandle>(0));
     EXPECT_NE(handle1, handle2);
 }
@@ -928,7 +944,9 @@ HWTEST_F(SerialSrvClientTest, UnregisterDataListener_001, TestSize.Level1)
 
     auto& client = SerialSrvClient::GetInstance();
     auto callback = [](const std::vector<uint8_t>& data) {};
-    ListenerHandle handle = client.RegisterDataListener("/dev/ttyS0", callback);
+    ListenerHandle handle = 0;
+    int32_t regRet = client.RegisterDataListener("/dev/ttyS0", callback, handle);
+    ASSERT_EQ(regRet, SERIAL_OK);
     ASSERT_NE(handle, static_cast<ListenerHandle>(0));
 
     EXPECT_CALL(*mockProxy_, StopRead(testing::_)).WillOnce(testing::Return(SERIAL_OK));
@@ -956,7 +974,9 @@ HWTEST_F(SerialSrvClientTest, UnregisterDataListener_004, TestSize.Level1)
 
     auto& client = SerialSrvClient::GetInstance();
     auto callback = [](const std::vector<uint8_t>& data) {};
-    ListenerHandle handle = client.RegisterDataListener("/dev/ttyS0", callback);
+    ListenerHandle handle = 0;
+    int32_t regRet = client.RegisterDataListener("/dev/ttyS0", callback, handle);
+    ASSERT_EQ(regRet, SERIAL_OK);
     ASSERT_NE(handle, static_cast<ListenerHandle>(0));
 
     EXPECT_CALL(*mockProxy_, StopRead(testing::_)).WillOnce(testing::Return(SERIAL_ERR_SERVICE));
@@ -971,8 +991,12 @@ HWTEST_F(SerialSrvClientTest, UnregisterDataListener_005, TestSize.Level1)
     auto& client = SerialSrvClient::GetInstance();
     auto callback = [](const std::vector<uint8_t>& data) {};
 
-    ListenerHandle handle1 = client.RegisterDataListener("/dev/ttyS0", callback);
-    ListenerHandle handle2 = client.RegisterDataListener("/dev/ttyS0", callback);
+    ListenerHandle handle1 = 0;
+    ListenerHandle handle2 = 0;
+    int32_t regRet1 = client.RegisterDataListener("/dev/ttyS0", callback, handle1);
+    int32_t regRet2 = client.RegisterDataListener("/dev/ttyS0", callback, handle2);
+    ASSERT_EQ(regRet1, SERIAL_OK);
+    ASSERT_EQ(regRet2, SERIAL_OK);
     ASSERT_NE(handle1, static_cast<ListenerHandle>(0));
     ASSERT_NE(handle2, static_cast<ListenerHandle>(0));
 
@@ -1046,7 +1070,9 @@ HWTEST_F(SerialSrvClientTest, DeathReconnect_OpenSerial_001, TestSize.Level1)
 
     EXPECT_CALL(*mockProxy_, StartRead(testing::_)).WillOnce(testing::Return(SERIAL_OK));
     auto callback = [](const std::vector<uint8_t>& data) {};
-    ListenerHandle handle = client.RegisterDataListener("/dev/ttyS0", callback);
+    ListenerHandle handle = 0;
+    int32_t regRet = client.RegisterDataListener("/dev/ttyS0", callback, handle);
+    ASSERT_EQ(regRet, SERIAL_OK);
     ASSERT_NE(handle, static_cast<ListenerHandle>(0));
     ASSERT_NE(client.callback_, nullptr);
     EXPECT_TRUE(client.callback_->HasListeners("/dev/ttyS0"));
@@ -1136,7 +1162,9 @@ HWTEST_F(SerialSrvClientTest, CallbackNull_001, TestSize.Level1)
     client.callback_ = nullptr;
 
     auto callback = [](const std::vector<uint8_t>& data) {};
-    ListenerHandle handle = client.RegisterDataListener("/dev/ttyS0", callback);
+    ListenerHandle handle = 0;
+    int32_t ret = client.RegisterDataListener("/dev/ttyS0", callback, handle);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_SERVICE);
     EXPECT_EQ(handle, static_cast<ListenerHandle>(0));
 
     client.callback_ = savedCallback;
@@ -1149,7 +1177,9 @@ HWTEST_F(SerialSrvClientTest, CloseSerial_RemovesListeners_001, TestSize.Level1)
 
     auto& client = SerialSrvClient::GetInstance();
     auto callback = [](const std::vector<uint8_t>& data) {};
-    ListenerHandle handle = client.RegisterDataListener("/dev/ttyS0", callback);
+    ListenerHandle handle = 0;
+    int32_t regRet = client.RegisterDataListener("/dev/ttyS0", callback, handle);
+    ASSERT_EQ(regRet, SERIAL_OK);
     ASSERT_NE(handle, static_cast<ListenerHandle>(0));
     ASSERT_NE(client.callback_, nullptr);
     EXPECT_TRUE(client.callback_->HasListeners("/dev/ttyS0"));

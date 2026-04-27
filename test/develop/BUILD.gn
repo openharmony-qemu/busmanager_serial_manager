@@ -137,3 +137,38 @@ ohos_shared_library("serial_service_lifecycle_test") {
   subsystem_name = "busmanager"
   part_name = "serial_manager"
 }
+
+ohos_shared_library("serial_service_twodevice_test") {
+  sanitize = {
+    integer_overflow = true
+    ubsan = true
+    boundary_sanitize = true
+    cfi = true
+    cfi_cross_dso = true
+    debug = false
+  }
+  branch_protector_ret = "pac_ret"
+
+  install_enable = false
+  sources = [ "serial_service_twodevice_test.cpp" ]
+
+  configs = [ ":serialsrv_errcode_private_config" ]
+
+  public_configs = [ ":serialsrv_errcode_public_config" ]
+  deps = [
+    "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
+    "${serial_manager_path}/utils:serial_error_code",
+  ]
+
+  external_deps = [
+    "c_utils:utils",
+    "hilog:libhilog",
+    "ipc:ipc_single",
+    "safwk:system_ability_fwk",
+    "samgr:samgr_proxy",
+  ]
+
+  shlib_type = "sa"
+  subsystem_name = "busmanager"
+  part_name = "serial_manager"
+}
