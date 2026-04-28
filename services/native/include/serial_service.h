@@ -17,25 +17,25 @@
 #define SERIAL_SERVICE_H
 
 #include <atomic>
+#include <chrono>
 #include <map>
 #include <mutex>
 #include <string>
 #include <vector>
-#include <chrono>
 
+#include "iremote_object.h"
 #include "iserial_service_callback.h"
-#include "serial_server_stub.h"
 #include "serial_right_manager.h"
+#include "serial_server_stub.h"
 #include "system_ability.h"
 #include "system_ability_ondemand_reason.h"
-#include "iremote_object.h"
 #include "timer.h"
 
-#include "v1_0/iserials.h"
+#include "serial_hdi_stub.h"
 #include "v1_0/iserial_device.h"
 #include "v1_0/iserial_device_callback.h"
+#include "v1_0/iserials.h"
 #include "v1_0/serial_types.h"
-#include "serial_hdi_stub.h"
 
 namespace OHOS {
 namespace Serial {
@@ -138,8 +138,7 @@ private:
     int32_t OpenHdiDevice(const std::string& portName, const SerialConfig& config,
         const sptr<ISerialServiceCallback>& token, sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& hdiDevice);
     std::shared_ptr<DeviceContext> BuildDeviceContext(const std::string& portName, const SerialConfig& config,
-        const sptr<ISerialServiceCallback>& token,
-        const sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& hdiDevice,
+        const sptr<ISerialServiceCallback>& token, const sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& hdiDevice,
         const sptr<SerialHdiCallback>& hdiCallback);
     void DumpPhysicalDevices(int fd);
     void DumpOpenedDevices(int fd);

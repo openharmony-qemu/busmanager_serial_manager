@@ -39,12 +39,12 @@ constexpr int64_t SERIAL_RIGHT_VALID_PERIOD_MAX = 0xFFFFFFFFL;
 constexpr uint64_t SERIAL_RIGHT_VALID_PERIOD_SET = 0x0FFFFFFFL;
 
 struct SerialRightAppInfo {
-    uint32_t primaryKeyId;  /* table primary key */
-    int32_t uid;            /* app install user id */
-    uint64_t installTime;   /* app install time */
-    uint64_t updateTime;    /* app update time */
-    uint64_t requestTime;   /* app request permission time */
-    uint64_t validPeriod;   /* app permission valid period */
+    uint32_t primaryKeyId; /* table primary key */
+    int32_t uid;           /* app install user id */
+    uint64_t installTime;  /* app install time */
+    uint64_t updateTime;   /* app update time */
+    uint64_t requestTime;  /* app request permission time */
+    uint64_t validPeriod;  /* app permission valid period */
 };
 
 struct SerialRightTableInfo {
@@ -72,26 +72,24 @@ public:
         const std::string& tokenId, uint64_t expiredTime);
     bool IsRecordExpired(const SerialRightAppInfo& info, uint64_t expiredTime);
 
-    int32_t AddRightRecord(const std::string& portName, const std::string& bundleName,
-        const std::string& tokenId, SerialRightAppInfo& info);
+    int32_t AddRightRecord(const std::string& portName, const std::string& bundleName, const std::string& tokenId,
+        SerialRightAppInfo& info);
 
     int32_t QueryUserRightRecord(int32_t uid, std::vector<SerialRightAppInfo>& infos);
-    int32_t QueryPortRightRecord(int32_t uid, const std::string& portName,
-        std::vector<SerialRightAppInfo>& infos);
-    int32_t QueryAppRightRecord(int32_t uid, const std::string& bundleName,
-        std::vector<SerialRightAppInfo>& infos);
+    int32_t QueryPortRightRecord(int32_t uid, const std::string& portName, std::vector<SerialRightAppInfo>& infos);
+    int32_t QueryAppRightRecord(int32_t uid, const std::string& bundleName, std::vector<SerialRightAppInfo>& infos);
     int32_t QueryRightRecord(int32_t uid, const std::string& portName, const std::string& bundleName,
         const std::string& tokenId, std::vector<SerialRightAppInfo>& infos);
     int32_t QueryRightRecordUids(std::vector<std::string>& uids);
     int32_t QueryRightRecordApps(int32_t uid, std::vector<std::string>& apps);
 
-    int32_t UpdateRightRecord(int32_t uid, const std::string& portName, const std::string& bundleName,
-        SerialRightAppInfo& info);
+    int32_t UpdateRightRecord(
+        int32_t uid, const std::string& portName, const std::string& bundleName, SerialRightAppInfo& info);
     int32_t AddOrUpdateRightRecord(int32_t uid, const std::string& portName, const std::string& bundleName,
         const std::string& tokenId, SerialRightAppInfo& info);
 
-    int32_t DeleteRightRecord(int32_t uid, const std::string& portName, const std::string& bundleName,
-        const std::string& tokenId);
+    int32_t DeleteRightRecord(
+        int32_t uid, const std::string& portName, const std::string& bundleName, const std::string& tokenId);
     int32_t DeletePortRightRecord(int32_t uid, const std::string& portName);
     int32_t DeleteAppRightRecord(int32_t uid, const std::string& bundleName);
     int32_t DeleteAppsRightRecord(int32_t uid, const std::vector<std::string>& bundleNames);
@@ -100,20 +98,16 @@ public:
     int32_t DeleteValidPeriodRightRecord(long validPeriod, const std::string& portName);
 
 private:
-
-    int32_t CheckIfNeedUpdateEx(bool& isUpdate, int32_t uid, const std::string& portName,
-        const std::string& bundleName, const std::string& tokenId);
+    int32_t CheckIfNeedUpdateEx(bool& isUpdate, int32_t uid, const std::string& portName, const std::string& bundleName,
+        const std::string& tokenId);
     int32_t AddOrUpdateRightRecordEx(bool isUpdate, int32_t uid, const std::string& portName,
         const std::string& bundleName, const std::string& tokenId, SerialRightAppInfo& info);
-    int32_t GetResultSetTableInfo(const std::shared_ptr<ResultSet>& resultSet,
-        SerialRightTableInfo& table);
-    int32_t GetResultRightRecordEx(const std::shared_ptr<ResultSet>& resultSet,
+    int32_t GetResultSetTableInfo(const std::shared_ptr<ResultSet>& resultSet, SerialRightTableInfo& table);
+    int32_t GetResultRightRecordEx(const std::shared_ptr<ResultSet>& resultSet, std::vector<SerialRightAppInfo>& infos);
+    int32_t QueryAndGetResult(const RdbPredicates& rdbPredicates, const std::vector<std::string>& columns,
         std::vector<SerialRightAppInfo>& infos);
-    int32_t QueryAndGetResult(const RdbPredicates& rdbPredicates,
-        const std::vector<std::string>& columns, std::vector<SerialRightAppInfo>& infos);
-    int32_t QueryAndGetResultColumnValues(const RdbPredicates& rdbPredicates,
-        const std::vector<std::string>& columns, const std::string& columnName,
-        std::vector<std::string>& columnValues);
+    int32_t QueryAndGetResultColumnValues(const RdbPredicates& rdbPredicates, const std::vector<std::string>& columns,
+        const std::string& columnName, std::vector<std::string>& columnValues);
     int32_t DeleteAndNoOtherOperation(const std::string& whereClause, const std::vector<std::string>& whereArgs);
     int32_t DeleteAndNoOtherOperation(const RdbPredicates& rdbPredicates);
 

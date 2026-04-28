@@ -312,8 +312,7 @@ int32_t SerialRightManager::ConnectAbility(const int32_t userId)
 
 // 辅助函数：验证 tokenIdStr 并获取 HapTokenInfo
 bool SerialRightManager::ValidateTokenAndGetHapInfo(const std::string& tokenIdStr,
-    Security::AccessToken::AccessTokenID& tokenId,
-    Security::AccessToken::HapTokenInfo& hapTokenInfoRes, int32_t& uid)
+    Security::AccessToken::AccessTokenID& tokenId, Security::AccessToken::HapTokenInfo& hapTokenInfoRes, int32_t& uid)
 {
     if (!IsAllDigits(tokenIdStr)) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d tokenIdStr invalid", __func__, __LINE__);
@@ -329,8 +328,8 @@ bool SerialRightManager::ValidateTokenAndGetHapInfo(const std::string& tokenIdSt
 
     int32_t ret = AccessTokenKit::GetHapTokenInfo(tokenId, hapTokenInfoRes);
     if (ret != RET_SUCCESS) {
-        SERIAL_HILOGE(MODULE_SERVICE,
-            "%{public}s:%{public}d GetHapTokenInfo failed:ret:%{public}d", __func__, __LINE__, ret);
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d GetHapTokenInfo failed:ret:%{public}d", __func__, __LINE__, ret);
         return false;
     }
     uid = hapTokenInfoRes.userID;
@@ -338,14 +337,14 @@ bool SerialRightManager::ValidateTokenAndGetHapInfo(const std::string& tokenIdSt
 }
 
 // 辅助函数：构建 SerialRightAppInfo 并写入数据库
-bool SerialRightManager::BuildInfoAndSaveRight(int32_t uid, const std::string& portName,
-    const std::string& bundleName, const std::string& tokenIdStr)
+bool SerialRightManager::BuildInfoAndSaveRight(
+    int32_t uid, const std::string& portName, const std::string& bundleName, const std::string& tokenIdStr)
 {
     uint64_t installTime = GetCurrentTimestamp();
     uint64_t updateTime = GetCurrentTimestamp();
     if (!GetBundleInstallAndUpdateTime(uid, bundleName, installTime, updateTime)) {
-        SERIAL_HILOGE(MODULE_SERVICE,
-            "%{public}s:%{public}d get app install time failed: %{public}d", __func__, __LINE__, uid);
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d get app install time failed: %{public}d", __func__, __LINE__, uid);
     }
 
     struct SerialRightAppInfo info;

@@ -117,7 +117,7 @@ int SerialService::Dump(int fd, const std::vector<std::u16string>& args)
 int32_t SerialService::OnRemoteRequest(uint32_t code, MessageParcel& data, MessageParcel& reply, MessageOption& option)
 {
     SERIAL_HILOGI(MODULE_SERVICE, "SerialService OnRemoteRequest");
-    return IPCObjectStub::OnRemoteRequest(code, data, reply, option);
+    return SerialServerStub::OnRemoteRequest(code, data, reply, option);
 }
 
 static void ReadThreadFunc(const std::string& portName)

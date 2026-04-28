@@ -25,8 +25,8 @@
 #include "ability_connect_callback_stub.h"
 #include "bundle_mgr_interface.h"
 #include "bundle_resource_interface.h"
-#include "common_event_subscriber.h"
 #include "common_event_subscribe_info.h"
+#include "common_event_subscriber.h"
 #include "serial_right_db_helper.h"
 
 // 前向声明，避免头文件依赖
@@ -73,16 +73,16 @@ public:
 
     int32_t Init();
 
-    bool HasRight(const std::string& portName, const std::string& bundleName,
-        const std::string& tokenId, const int32_t& userId);
+    bool HasRight(
+        const std::string& portName, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
     int32_t RequestRight(const SerialDeviceInfoForDialog& deviceInfo, const int32_t& userId);
     bool AddDeviceRight(const std::string& portName, const std::string& tokenIdStr);
-    bool AddDeviceRight(const std::string& portName, const std::string& bundleName,
-        const std::string& tokenId, const int32_t& userId);
-    bool RemoveDeviceRight(const std::string& portName, const std::string& bundleName,
-        const std::string& tokenId, const int32_t& userId);
-    int32_t CancelDeviceRight(const std::string& portName, const std::string& bundleName,
-        const std::string& tokenId, const int32_t& userId);
+    bool AddDeviceRight(
+        const std::string& portName, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
+    bool RemoveDeviceRight(
+        const std::string& portName, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
+    int32_t CancelDeviceRight(
+        const std::string& portName, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
     bool RemoveDeviceAllRight(const std::string& portName);
     bool IsSystemAppOrSa();
     int32_t CleanUpRightExpired(std::vector<std::string>& ports);
@@ -112,11 +112,14 @@ private:
         SerialAbilityConn() = default;
         ~SerialAbilityConn() override = default;
 
-        void OnAbilityConnectDone(const ElementName& element,
-            const sptr<IRemoteObject>& remoteObject, int32_t resultCode) override;
+        void OnAbilityConnectDone(
+            const ElementName& element, const sptr<IRemoteObject>& remoteObject, int32_t resultCode) override;
         void OnAbilityDisconnectDone(const ElementName& element, int32_t resultCode) override;
         void CloseDialog();
-        int32_t GetLastResultCode() const { return lastResultCode_; }
+        int32_t GetLastResultCode() const
+        {
+            return lastResultCode_;
+        }
 
     private:
         std::mutex remoteMutex_;
@@ -134,8 +137,8 @@ private:
     sptr<IBundleResource> GetBundleResMgr();
     bool GetAppName(const std::string& bundleName, std::string& appName);
     bool IsAppInstalled(int32_t uid, const std::string& bundleName);
-    bool GetBundleInstallAndUpdateTime(int32_t uid, const std::string& bundleName,
-        uint64_t& installTime, uint64_t& updateTime);
+    bool GetBundleInstallAndUpdateTime(
+        int32_t uid, const std::string& bundleName, uint64_t& installTime, uint64_t& updateTime);
     void GetCurrentUserId(int32_t& uid);
     uint64_t GetCurrentTimestamp();
     bool IsAllDigits(const std::string& str);
@@ -147,11 +150,10 @@ private:
     int32_t CleanUpRightAppReinstalled(int32_t uid, uint32_t& totalApps, uint32_t& deleteApps);
 
     // Internal helper functions for function decomposition
-    bool ValidateTokenAndGetHapInfo(const std::string& tokenIdStr,
-        Security::AccessToken::AccessTokenID& tokenId,
+    bool ValidateTokenAndGetHapInfo(const std::string& tokenIdStr, Security::AccessToken::AccessTokenID& tokenId,
         Security::AccessToken::HapTokenInfo& hapTokenInfoRes, int32_t& uid);
-    bool BuildInfoAndSaveRight(int32_t uid, const std::string& portName,
-        const std::string& bundleName, const std::string& tokenIdStr);
+    bool BuildInfoAndSaveRight(
+        int32_t uid, const std::string& portName, const std::string& bundleName, const std::string& tokenIdStr);
     bool AddDeviceRightInternal(const std::string& portName, const std::string& actualBundleName,
         const std::string& tokenId, int32_t userId, bool isCliMode);
     std::vector<std::string> FindReinstalledBundleNames(int32_t uid, const std::vector<std::string>& apps);

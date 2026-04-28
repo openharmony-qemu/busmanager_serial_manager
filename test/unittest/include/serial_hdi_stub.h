@@ -16,13 +16,13 @@
 #ifndef SERIAL_HDI_STUB_H
 #define SERIAL_HDI_STUB_H
 
-#include <vector>
-#include <string>
-#include "v1_0/iserials.h"
+#include "hdf_base.h"
 #include "v1_0/iserial_device.h"
 #include "v1_0/iserial_device_callback.h"
+#include "v1_0/iserials.h"
 #include "v1_0/serial_types.h"
-#include "hdf_base.h"
+#include <string>
+#include <vector>
 
 namespace OHOS {
 namespace Serial {
@@ -112,10 +112,9 @@ public:
         return HDF_SUCCESS; // Return empty list successfully
     }
 
-    int32_t OpenDevice(const std::string& portName,
-                       const OHOS::HDI::Serials::V1_0::SerialConfig& config,
-                       const sptr<OHOS::HDI::Serials::V1_0::ISerialDeviceCallback>& cb,
-                       sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& device) override
+    int32_t OpenDevice(const std::string& portName, const OHOS::HDI::Serials::V1_0::SerialConfig& config,
+        const sptr<OHOS::HDI::Serials::V1_0::ISerialDeviceCallback>& cb,
+        sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& device) override
     {
         device = nullptr;
         return HDF_ERR_NOT_READY;

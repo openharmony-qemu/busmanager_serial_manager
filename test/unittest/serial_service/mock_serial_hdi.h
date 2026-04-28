@@ -24,16 +24,16 @@
 #ifndef MOCK_SERIAL_HDI_H
 #define MOCK_SERIAL_HDI_H
 
-#include <vector>
-#include <string>
-#include <map>
-#include <mutex>
-#include <gmock/gmock.h>
-#include "v1_0/iserials.h"
+#include "hdf_base.h"
 #include "v1_0/iserial_device.h"
 #include "v1_0/iserial_device_callback.h"
+#include "v1_0/iserials.h"
 #include "v1_0/serial_types.h"
-#include "hdf_base.h"
+#include <gmock/gmock.h>
+#include <map>
+#include <mutex>
+#include <string>
+#include <vector>
 
 namespace OHOS {
 namespace Serial {
@@ -75,11 +75,12 @@ public:
     ~MockSerials() override;
 
     // gmock 方法声明
-    MOCK_METHOD(int32_t, QueryDevices, (std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices), (override));
-    MOCK_METHOD(int32_t, OpenDevice, (const std::string& portName,
-                                      const OHOS::HDI::Serials::V1_0::SerialConfig& config,
-                                      const sptr<OHOS::HDI::Serials::V1_0::ISerialDeviceCallback>& cb,
-                                      sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& device), (override));
+    MOCK_METHOD(int32_t, QueryDevices, (std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo> & devices), (override));
+    MOCK_METHOD(int32_t, OpenDevice,
+        (const std::string& portName, const OHOS::HDI::Serials::V1_0::SerialConfig& config,
+            const sptr<OHOS::HDI::Serials::V1_0::ISerialDeviceCallback>& cb,
+            sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& device),
+        (override));
     MOCK_METHOD(bool, IsProxy, (), (override));
 
     /**
@@ -119,10 +120,9 @@ public:
      * @return int32_t HDF_SUCCESS 或 HDF_FAILURE
      * @details 根据设置返回成功（创建 MockSerialDevice）或失败
      */
-    int32_t DefaultOpenDevice(const std::string& portName,
-                              const OHOS::HDI::Serials::V1_0::SerialConfig& config,
-                              const sptr<OHOS::HDI::Serials::V1_0::ISerialDeviceCallback>& cb,
-                              sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& device);
+    int32_t DefaultOpenDevice(const std::string& portName, const OHOS::HDI::Serials::V1_0::SerialConfig& config,
+        const sptr<OHOS::HDI::Serials::V1_0::ISerialDeviceCallback>& cb,
+        sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& device);
 
 private:
     std::mutex mockMutex_;

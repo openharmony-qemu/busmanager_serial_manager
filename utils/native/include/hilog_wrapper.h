@@ -19,6 +19,7 @@
 #define CONFIG_HILOG
 #ifdef CONFIG_HILOG
 #include "hilog/log.h"
+#include <cstdint>
 namespace OHOS {
 namespace Serial {
 
