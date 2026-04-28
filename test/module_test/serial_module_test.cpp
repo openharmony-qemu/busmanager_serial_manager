@@ -284,7 +284,7 @@ int LoopbackOpenSerial(SerialSrvClient& client, const std::string& portName, Ser
 int LoopbackWriteData(SerialSrvClient& client, const std::string& portName, ListenerHandle& handle)
 {
     std::cout << "\n[Step 3] Registering data listener..." << std::endl;
-    handle = client.RegisterDataListener(portName, OnLoopbackDataReceived);
+    int32_t ret = client.RegisterDataListener(portName, OnLoopbackDataReceived, handle);
     if (handle == 0) {
         std::cerr << "RegisterDataListener failed!" << std::endl;
         client.CloseSerial(portName);
@@ -298,7 +298,7 @@ int LoopbackWriteData(SerialSrvClient& client, const std::string& portName, List
     writeData.push_back('\n');
 
     int32_t bytesWritten = 0;
-    int32_t ret = client.WriteSerial(portName, writeData, LOOPBACK_WRITE_TIMEOUT_MS, bytesWritten);
+    ret = client.WriteSerial(portName, writeData, LOOPBACK_WRITE_TIMEOUT_MS, bytesWritten);
     if (ret != SERIAL_OK) {
         std::cerr << "WriteSerial failed: " << ret << std::endl;
         client.UnregisterDataListener(portName, handle);

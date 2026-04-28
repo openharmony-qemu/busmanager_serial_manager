@@ -467,12 +467,15 @@ public:
         RemoveAllCallbacksForPort(portName_);
         isOpened_ = false;
         int32_t ret = g_serialClient.CloseSerial(portName_);
-        if (ret == SERIAL_OK || ret == SERIAL_JS_ERR_DEVICE_DISCONNECTED) {
+        if (ret == SERIAL_OK) {
             SERIAL_HILOGI(MODULE_TAIHE, "close finish.");
             return;
         }
         SERIAL_HILOGE(MODULE_TAIHE, "close failed, ret=%{public}d", ret);
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
+        int32_t errCode = (ret == SERIAL_JS_ERR_DEVICE_NOT_OPENED || ret == SERIAL_JS_ERR_DEVICE_DISCONNECTED) ?
+            SERIAL_JS_ERR_DEVICE_NOT_OPENED :
+            SERIAL_JS_ERR_SERVICE;
+        taihe::set_business_error(errCode, SerialJsErrorMessage(errCode));
     }
 
     int32_t write(array_view<uint8_t> data, optional_view<int32_t> timeout)
@@ -507,6 +510,45 @@ public:
         return bytesWritten;
     }
 
+    ListenerHandle DoRegisterListener(
+        bool needRegister, ListenerHandle existingHandle, taihe::callback<void(array_view<uint8_t>)> callback)
+    {
+        ListenerHandle finalHandle = existingHandle;
+        if (needRegister) {
+            ListenerHandle newHandle = 0;
+            std::string name = portName_;
+            int32_t regRet = g_serialClient.RegisterDataListener(
+                name,
+                [name](const std::vector<uint8_t>& data) {
+                    InvokeCallbacks(name, data);
+                },
+                newHandle);
+            if (regRet != SERIAL_OK || newHandle == 0) {
+                SERIAL_HILOGE(MODULE_TAIHE, "RegisterDataListener failed for %{public}s, ret=%{public}d",
+                    portName_.c_str(), regRet);
+                taihe::set_business_error(regRet, SerialJsErrorMessage(regRet));
+                return 0;
+            }
+            {
+                std::lock_guard<std::mutex> lock(g_callbackMutex);
+                if (g_innerkitHandles.find(portName_) != g_innerkitHandles.end()) {
+                    g_serialClient.UnregisterDataListener(portName_, newHandle);
+                    finalHandle = g_innerkitHandles[portName_];
+                } else {
+                    g_innerkitHandles[portName_] = newHandle;
+                    finalHandle = newHandle;
+                }
+                CallbackEntry entry {callback, finalHandle};
+                g_callbacks[portName_].push_back(entry);
+            }
+        } else {
+            std::lock_guard<std::mutex> lock(g_callbackMutex);
+            CallbackEntry entry {callback, finalHandle};
+            g_callbacks[portName_].push_back(entry);
+        }
+        return finalHandle;
+    }
+
     void onDataRead(taihe::callback<void(array_view<uint8_t>)> callback)
     {
         SERIAL_HILOGI(MODULE_TAIHE, "onDataRead start, portName=%{public}s", portName_.c_str());
@@ -529,38 +571,9 @@ public:
             return;
         }
 
-        ListenerHandle finalHandle = existingHandle;
-        if (needRegister) {
-            ListenerHandle newHandle = 0;
-            std::string name = portName_;
-            int32_t regRet = g_serialClient.RegisterDataListener(
-                name,
-                [name](const std::vector<uint8_t>& data) {
-                    InvokeCallbacks(name, data);
-                },
-                newHandle);
-            if (regRet != SERIAL_OK || newHandle == 0) {
-                SERIAL_HILOGE(MODULE_TAIHE, "RegisterDataListener failed for %{public}s, ret=%{public}d",
-                    portName_.c_str(), regRet);
-                taihe::set_business_error(regRet, SerialJsErrorMessage(regRet));
-                return;
-            }
-            {
-                std::lock_guard<std::mutex> lock(g_callbackMutex);
-                if (g_innerkitHandles.find(portName_) != g_innerkitHandles.end()) {
-                    g_serialClient.UnregisterDataListener(portName_, newHandle);
-                    finalHandle = g_innerkitHandles[portName_];
-                } else {
-                    g_innerkitHandles[portName_] = newHandle;
-                    finalHandle = newHandle;
-                }
-                CallbackEntry entry {callback, finalHandle};
-                g_callbacks[portName_].push_back(entry);
-            }
-        } else {
-            std::lock_guard<std::mutex> lock(g_callbackMutex);
-            CallbackEntry entry {callback, finalHandle};
-            g_callbacks[portName_].push_back(entry);
+        ListenerHandle finalHandle = DoRegisterListener(needRegister, existingHandle, callback);
+        if (finalHandle == 0) {
+            return;
         }
 
         SERIAL_HILOGI(

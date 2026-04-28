@@ -20,12 +20,12 @@
  * @since 2026-04-24
  */
 
-#include <gtest/gtest.h>
-#include <gmock/gmock.h>
+#include "hilog_wrapper.h"
 #include "mock_serial_hdi.h"
 #include "serial_error_code.h"
-#include "hilog_wrapper.h"
 #include "serial_hdi_stub.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 using namespace testing;
 using namespace testing::ext;
@@ -214,8 +214,7 @@ HWTEST_F(SerialServiceTest, TestMockSerialDeviceWrite, TestSize.Level1)
 
     std::vector<uint8_t> testData = {0x01, 0x02, 0x03, 0x04, 0x05};
 
-    EXPECT_CALL(*mockDevice, Write(_, _, _))
-        .WillOnce(DoAll(SetArgReferee<2>(5), Return(HDF_SUCCESS)));
+    EXPECT_CALL(*mockDevice, Write(_, _, _)).WillOnce(DoAll(SetArgReferee<2>(5), Return(HDF_SUCCESS)));
 
     int32_t bytesWritten = 0;
     int32_t result = mockDevice->Write(testData, 1000, bytesWritten);
@@ -238,8 +237,7 @@ HWTEST_F(SerialServiceTest, TestMockSerialDeviceSignals, TestSize.Level1)
 
     EXPECT_CALL(*mockDevice, SetRtsSignal(true)).WillOnce(Return(HDF_SUCCESS));
     EXPECT_CALL(*mockDevice, SetRtsSignal(false)).WillOnce(Return(HDF_SUCCESS));
-    EXPECT_CALL(*mockDevice, GetCtsSignal(_))
-        .WillOnce(DoAll(SetArgReferee<0>(true), Return(HDF_SUCCESS)));
+    EXPECT_CALL(*mockDevice, GetCtsSignal(_)).WillOnce(DoAll(SetArgReferee<0>(true), Return(HDF_SUCCESS)));
     EXPECT_CALL(*mockDevice, SendBrkSignal()).WillOnce(Return(HDF_SUCCESS));
 
     EXPECT_EQ(mockDevice->SetRtsSignal(true), HDF_SUCCESS);
@@ -351,9 +349,7 @@ HWTEST_F(SerialServiceTest, TestDeviceOfflineMultipleClose, TestSize.Level1)
     ASSERT_NE(mockDevice, nullptr);
 
     // 设置多次 Close 调用 - 第一次成功，后续可能失败或成功取决于实现
-    EXPECT_CALL(*mockDevice, Close())
-        .WillOnce(Return(HDF_SUCCESS))
-        .WillOnce(Return(HDF_SUCCESS));
+    EXPECT_CALL(*mockDevice, Close()).WillOnce(Return(HDF_SUCCESS)).WillOnce(Return(HDF_SUCCESS));
 
     EXPECT_EQ(mockDevice->Close(), HDF_SUCCESS);
     EXPECT_EQ(mockDevice->Close(), HDF_SUCCESS);

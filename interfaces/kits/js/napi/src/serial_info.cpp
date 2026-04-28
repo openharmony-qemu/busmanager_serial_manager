@@ -1098,6 +1098,30 @@ static bool IsCallbackAlreadyRegistered(napi_env env, const std::string& portNam
     return false;
 }
 
+static bool RegisterOnDataReadListener(napi_env env, const std::string& portName, napi_ref callbackRef)
+{
+    auto callback = CreateDataReadCallback(portName, callbackRef, env);
+
+    ListenerHandle listenerHandle = INVALID_LISTENER_HANDLE;
+    int32_t regRet = g_serialClient.RegisterDataListener(portName, callback, listenerHandle);
+    if (regRet != SERIAL_OK || listenerHandle == INVALID_LISTENER_HANDLE) {
+        SERIAL_HILOGE(MODULE_JS_NAPI, "[SerialOnDataRead] RegisterDataListener failed, ret=%{public}d", regRet);
+        napi_delete_reference(env, callbackRef);
+        ThrowBusinessError(env, regRet, SerialJsErrorMessage(regRet));
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_callbackMutex);
+        CallbackInfo cbInfo = {callbackRef, env, listenerHandle};
+        g_dataCallbacks[portName][callbackRef] = cbInfo;
+    }
+
+    SERIAL_HILOGI(MODULE_JS_NAPI, "onDataRead success, portName=%{public}s, listenerHandle=%{public}llu",
+        portName.c_str(), (unsigned long long)listenerHandle);
+    return true;
+}
+
 static napi_value SerialOnDataReadNapi(napi_env env, napi_callback_info info)
 {
     SERIAL_HILOGI(MODULE_JS_NAPI, "onDataRead start");
@@ -1109,8 +1133,8 @@ static napi_value SerialOnDataReadNapi(napi_env env, napi_callback_info info)
     napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
 
     if (IsPortInvalidated(env, thisVar)) {
-        ThrowBusinessError(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED,
-            SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+        ThrowBusinessError(
+            env, SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
         return nullptr;
     }
 
@@ -1135,25 +1159,9 @@ static napi_value SerialOnDataReadNapi(napi_env env, napi_callback_info info)
     napi_ref callbackRef = nullptr;
     napi_create_reference(env, argv[0], NAPI_REF_COUNT_STRONG, &callbackRef);
 
-    auto callback = CreateDataReadCallback(portName, callbackRef, env);
-
-    ListenerHandle listenerHandle = INVALID_LISTENER_HANDLE;
-    int32_t regRet = g_serialClient.RegisterDataListener(portName, callback, listenerHandle);
-    if (regRet != SERIAL_OK || listenerHandle == INVALID_LISTENER_HANDLE) {
-        SERIAL_HILOGE(MODULE_JS_NAPI, "[SerialOnDataRead] RegisterDataListener failed, ret=%{public}d", regRet);
-        napi_delete_reference(env, callbackRef);
-        ThrowBusinessError(env, regRet, SerialJsErrorMessage(regRet));
+    if (!RegisterOnDataReadListener(env, portName, callbackRef)) {
         return nullptr;
     }
-
-    {
-        std::lock_guard<std::mutex> lock(g_callbackMutex);
-        CallbackInfo cbInfo = {callbackRef, env, listenerHandle};
-        g_dataCallbacks[portName][callbackRef] = cbInfo;
-    }
-
-    SERIAL_HILOGI(MODULE_JS_NAPI, "onDataRead success, portName=%{public}s, listenerHandle=%{public}llu",
-        portName.c_str(), (unsigned long long)listenerHandle);
 
     napi_value undefined = nullptr;
     napi_get_undefined(env, &undefined);
