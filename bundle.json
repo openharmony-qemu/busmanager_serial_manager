@@ -32,6 +32,16 @@
         "safwk",
         "c_utils",
         "samgr",
+        "drivers_interface_serial",
+        "ability_runtime",
+        "ability_base",
+        "bundle_framework",
+        "common_event_service",
+        "os_account",
+        "relational_store",
+        "access_token",
+        "cJSON",
+        "hicollie",
         "runtime_core"
       ]
     },

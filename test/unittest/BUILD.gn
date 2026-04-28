@@ -16,6 +16,7 @@ import("//build/ohos.gni")
 group("unittest") {
   testonly = true
   deps = [
+    "serial_service:SerialServiceTest",
     "serial_srv_client:SerialSrvClientTest",
     "serial_srv_client_without_service:SerialSrvClientWithoutServiceTest",
   ]
