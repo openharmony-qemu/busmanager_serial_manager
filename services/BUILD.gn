@@ -17,6 +17,7 @@ config("serialsrv_private_config") {
   include_dirs = [
     "${serial_manager_path}/interfaces/innerkits/native/include",
     "${serial_manager_path}/utils/native/include",
+    "${serial_manager_path}/test/unittest/include",
   ]
 }
 
