@@ -56,9 +56,15 @@ ohos_shared_library("serialservice_errcodetest") {
   ]
 
   external_deps = [
+    "ability_runtime:ability_connect_callback_stub",
+    "bundle_framework:appexecfwk_base",
+    "bundle_framework:appexecfwk_core",
     "c_utils:utils",
+    "drivers_interface_serial:libserials_proxy_1.0",
+    "drivers_interface_serial:serials_idl_headers",
     "hilog:libhilog",
     "ipc:ipc_single",
+    "relational_store:native_rdb",
     "safwk:system_ability_fwk",
     "samgr:samgr_proxy",
   ]
@@ -91,9 +97,15 @@ ohos_shared_library("serialservice_paramtest") {
   ]
 
   external_deps = [
+    "ability_runtime:ability_connect_callback_stub",
+    "bundle_framework:appexecfwk_base",
+    "bundle_framework:appexecfwk_core",
     "c_utils:utils",
+    "drivers_interface_serial:libserials_proxy_1.0",
+    "drivers_interface_serial:serials_idl_headers",
     "hilog:libhilog",
     "ipc:ipc_single",
+    "relational_store:native_rdb",
     "safwk:system_ability_fwk",
     "samgr:samgr_proxy",
   ]
@@ -126,9 +138,15 @@ ohos_shared_library("serial_service_lifecycle_test") {
   ]
 
   external_deps = [
+    "ability_runtime:ability_connect_callback_stub",
+    "bundle_framework:appexecfwk_base",
+    "bundle_framework:appexecfwk_core",
     "c_utils:utils",
+    "drivers_interface_serial:libserials_proxy_1.0",
+    "drivers_interface_serial:serials_idl_headers",
     "hilog:libhilog",
     "ipc:ipc_single",
+    "relational_store:native_rdb",
     "safwk:system_ability_fwk",
     "samgr:samgr_proxy",
   ]

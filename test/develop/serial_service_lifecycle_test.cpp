@@ -63,7 +63,8 @@ static void DetachReadThread(std::shared_ptr<ReadContext>& ctx)
 
 REGISTER_SYSTEM_ABILITY_BY_ID(SerialService, SERIAL_SYSTEM_ABILITY_ID, true);
 
-SerialService::SerialService(int32_t systemAbilityId, bool runOnCreate) : SystemAbility(systemAbilityId, runOnCreate)
+SerialService::SerialService(int32_t systemAbilityId, bool runOnCreate)
+    : SystemAbility(systemAbilityId, runOnCreate), unloadTimer_("SerialServiceUnload")
 {
     SERIAL_HILOGI(MODULE_SERVICE, "SerialService constructed");
 }
@@ -105,6 +106,24 @@ void SerialService::OnStop()
     g_readContexts.clear();
     registerToService_ = false;
     SERIAL_HILOGI(MODULE_SERVICE, "SerialService OnStop success");
+}
+
+int32_t SerialService::OnIdle(const SystemAbilityOnDemandReason& idleReason)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "SerialService OnIdle");
+    return 0;
+}
+
+int SerialService::Dump(int fd, const std::vector<std::u16string>& args)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "SerialService Dump");
+    return 0;
+}
+
+int32_t SerialService::OnRemoteRequest(uint32_t code, MessageParcel& data, MessageParcel& reply, MessageOption& option)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "SerialService OnRemoteRequest");
+    return IPCObjectStub::OnRemoteRequest(code, data, reply, option);
 }
 
 static void ReadThreadFunc(const std::string& portName)

@@ -41,7 +41,11 @@ if (serial_manager_enable_service) {
     branch_protector_ret = "pac_ret"
 
     install_enable = true
-    sources = [ "native/src/serial_service.cpp" ]
+    sources = [
+      "native/src/serial_service.cpp",
+      "native/src/serial_right_manager.cpp",
+      "native/src/serial_right_db_helper.cpp",
+    ]
 
     configs = [ ":serialsrv_private_config" ]
 
@@ -52,11 +56,25 @@ if (serial_manager_enable_service) {
     ]
 
     external_deps = [
+      "ability_runtime:ability_manager",
+      "ability_runtime:ability_connect_callback_stub",
+      "ability_base:want",
+      "bundle_framework:appexecfwk_base",
+      "bundle_framework:appexecfwk_core",
       "c_utils:utils",
+      "cJSON:cjson",
+      "common_event_service:cesfwk_innerkits",
       "hilog:libhilog",
+      "hicollie:libhicollie",
       "ipc:ipc_single",
+      "os_account:os_account_innerkits",
+      "relational_store:native_rdb",
       "safwk:system_ability_fwk",
       "samgr:samgr_proxy",
+      "drivers_interface_serial:libserials_proxy_1.0",
+      "drivers_interface_serial:serials_idl_headers",
+      "access_token:libaccesstoken_sdk",
+      "access_token:libtokenid_sdk",
     ]
 
     shlib_type = "sa"

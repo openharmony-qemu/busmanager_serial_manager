@@ -16,12 +16,69 @@
 #ifndef SERIAL_SERVICE_H
 #define SERIAL_SERVICE_H
 
+#include <atomic>
+#include <map>
+#include <mutex>
+#include <string>
+#include <vector>
+#include <chrono>
+
 #include "iserial_service_callback.h"
 #include "serial_server_stub.h"
+#include "serial_right_manager.h"
 #include "system_ability.h"
+#include "system_ability_ondemand_reason.h"
+#include "iremote_object.h"
+#include "timer.h"
+
+#include "v1_0/iserials.h"
+#include "v1_0/iserial_device.h"
+#include "v1_0/iserial_device_callback.h"
+#include "v1_0/serial_types.h"
+#include "serial_hdi_stub.h"
 
 namespace OHOS {
 namespace Serial {
+
+class SerialService;
+
+class SerialHdiCallback : public OHOS::HDI::Serials::V1_0::ISerialDeviceCallback {
+public:
+    explicit SerialHdiCallback(const sptr<ISerialServiceCallback>& serviceCallback, const std::string& portName);
+    ~SerialHdiCallback() override = default;
+
+    int32_t OnReadData(const std::vector<int8_t>& data, uint32_t dataLen) override;
+    int32_t OnDeviceOffline() override;
+
+private:
+    sptr<ISerialServiceCallback> serviceCallback_;
+    std::string portName_;
+};
+
+class SerialClientDeathRecipient : public IRemoteObject::DeathRecipient {
+public:
+    SerialClientDeathRecipient(const std::string& portName, SerialService* service);
+    ~SerialClientDeathRecipient() override = default;
+
+    void OnRemoteDied(const wptr<IRemoteObject>& object) override;
+
+private:
+    std::string portName_;
+    SerialService* service_;
+};
+
+struct DeviceContext {
+    sptr<OHOS::HDI::Serials::V1_0::ISerialDevice> hdiDevice;
+    sptr<SerialHdiCallback> hdiCallback;
+    sptr<ISerialServiceCallback> serviceCallback;
+    sptr<SerialClientDeathRecipient> deathRecipient;
+    std::string portName;
+    std::string bundleName;
+    std::string tokenId;
+    int32_t userId;
+    SerialConfig config;
+    std::chrono::steady_clock::time_point openTime;
+};
 
 class SerialService : public SystemAbility, public SerialServerStub {
     DECLARE_SYSTEM_ABILITY(SerialService);
@@ -32,6 +89,8 @@ public:
 
     void OnStart() override;
     void OnStop() override;
+    int32_t OnIdle(const SystemAbilityOnDemandReason& idleReason) override;
+    int Dump(int fd, const std::vector<std::u16string>& args) override;
 
     int32_t QuerySerialDevices(std::vector<SerialPortInfo>& devices) override;
     int32_t OpenSerial(
@@ -48,10 +107,61 @@ public:
     int32_t GetCtsSignal(const std::string& portName, bool& cts) override;
     int32_t AddPortAuthorization(const std::string& tokenId, const std::string& deviceId) override;
 
+    void OnClientDied(const std::string& portName);
+    int32_t OnRemoteRequest(uint32_t code, MessageParcel& data, MessageParcel& reply, MessageOption& option) override;
+
 private:
+    void InitHdiProxy();
+    void InitCommonEventSubscriber();
+    OHOS::HDI::Serials::V1_0::SerialConfig ConvertConfig(const SerialConfig& serviceConfig);
+    SerialPortInfo ConvertDeviceInfo(const OHOS::HDI::Serials::V1_0::SerialDeviceInfo& hdiInfo);
+    DeviceContext* FindDeviceContext(const std::string& portName);
+    std::string FindPortNameForDevice(const SerialPortInfo& portInfo);
+
+    int32_t GetCallingUserId();
+    std::string GetCallingBundleName();
+    std::string GetCallingTokenId();
+    bool CheckSerialPortRight(const std::string& portName, const std::string& productName);
+    int32_t RequestSerialPortRight(const SerialPortInfo& portInfo);
+
+    void ScheduleUnloadSa();
+    void CancelUnloadSa();
+    void DoUnloadSa();
+    uint32_t GetDeviceCount();
+    std::string BuildDeviceId(const SerialPortInfo& portInfo);
+
+    void DumpHelp(int fd);
+    int DoDump(int fd, const std::vector<std::string>& argList);
+
+    // Internal helper functions for function decomposition
+    int32_t ValidateOpenSerialParams(const SerialPortInfo& portInfo, const sptr<ISerialServiceCallback>& token);
+    int32_t OpenHdiDevice(const std::string& portName, const SerialConfig& config,
+        const sptr<ISerialServiceCallback>& token, sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& hdiDevice);
+    std::shared_ptr<DeviceContext> BuildDeviceContext(const std::string& portName, const SerialConfig& config,
+        const sptr<ISerialServiceCallback>& token,
+        const sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& hdiDevice,
+        const sptr<SerialHdiCallback>& hdiCallback);
+    void DumpPhysicalDevices(int fd);
+    void DumpOpenedDevices(int fd);
+
+    void SetHdiProxyForTest(const sptr<OHOS::HDI::Serials::V1_0::ISerials>& proxy);
+    sptr<OHOS::HDI::Serials::V1_0::ISerials> GetHdiProxyForTest() const;
+
     bool registerToService_ = false;
+    std::mutex serviceMutex_;
+
+    sptr<OHOS::HDI::Serials::V1_0::ISerials> serialsProxy_;
+    bool hdiStubMode_ = false;
+
+    std::map<std::string, std::shared_ptr<DeviceContext>> deviceContexts_;
+    std::map<std::pair<int32_t, int32_t>, std::string> productIdVendorIdToPortName_;
+
+    Utils::Timer unloadTimer_;
+    uint32_t unloadTimerId_ = 0;
+    static constexpr uint32_t UNLOAD_SA_DELAY_MS = 30000;
 };
 
 } // namespace Serial
 } // namespace OHOS
-#endif
+
+#endif // SERIAL_SERVICE_H

@@ -1,0 +1,131 @@
+# Copyright (c) 2026 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import("//build/test.gni")
+import("../../../serialmgr.gni")
+
+config("serial_service_test_config") {
+  include_dirs = [
+    "${serial_manager_path}/services/native/include",
+    "${serial_manager_path}/interfaces/innerkits/native/include",
+    "${serial_manager_path}/utils/native/include",
+  ]
+}
+
+# MockSerialHdi - Mock HDI library for unit testing
+ohos_source_set("mock_serial_hdi_src") {
+  sanitize = {
+    integer_overflow = true
+    ubsan = true
+    boundary_sanitize = true
+    cfi = true
+    cfi_cross_dso = true
+    debug = false
+  }
+  branch_protector_ret = "pac_ret"
+
+  testonly = true
+
+  cflags_cc = [
+    "-Wno-unused-variable",
+    "-Wno-unused-function",
+  ]
+
+  sources = [
+    "mock_serial_hdi.cpp",
+  ]
+
+  include_dirs = [
+    "${serial_manager_path}/services/native/include",
+    "${serial_manager_path}/interfaces/innerkits/native/include",
+    "${serial_manager_path}/utils/native/include",
+  ]
+
+  external_deps = [
+    "c_utils:utils",
+    "drivers_interface_serial:libserials_proxy_1.0",
+    "drivers_interface_serial:serials_idl_headers",
+    "googletest:gmock",
+    "googletest:gtest",
+    "hilog:libhilog",
+    "ipc:ipc_core",
+  ]
+
+  subsystem_name = "busmanager"
+  part_name = "serial_manager"
+}
+
+# SerialServiceTest - Unit tests for SerialService using Mock HDI
+ohos_unittest("SerialServiceTest") {
+  module_out_path = "busmanager/serial_manager"
+
+  sanitize = {
+    integer_overflow = true
+    ubsan = true
+    boundary_sanitize = true
+    cfi = true
+    cfi_cross_dso = true
+    debug = false
+  }
+  branch_protector_ret = "pac_ret"
+
+  cflags_cc = [
+    "-Wno-unused-variable",
+    "-Wno-unused-function",
+  ]
+
+  sources = [
+    "serial_service_test.cpp",
+  ]
+
+  configs = [ ":serial_service_test_config" ]
+
+  deps = [
+    ":mock_serial_hdi_src",
+    "${serial_manager_path}/services:serialservice",
+    "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
+    "${serial_manager_path}/utils:serial_error_code",
+  ]
+
+  external_deps = [
+    "ability_runtime:ability_manager",
+    "ability_runtime:ability_connect_callback_stub",
+    "ability_base:want",
+    "bundle_framework:appexecfwk_base",
+    "bundle_framework:appexecfwk_core",
+    "c_utils:utils",
+    "cJSON:cjson",
+    "common_event_service:cesfwk_innerkits",
+    "drivers_interface_serial:libserials_proxy_1.0",
+    "drivers_interface_serial:serials_idl_headers",
+    "hilog:libhilog",
+    "hicollie:libhicollie",
+    "ipc:ipc_single",
+    "ipc:ipc_core",
+    "os_account:os_account_innerkits",
+    "relational_store:native_rdb",
+    "safwk:system_ability_fwk",
+    "samgr:samgr_proxy",
+    "access_token:libaccesstoken_sdk",
+    "access_token:libtokenid_sdk",
+    "googletest:gtest_main",
+    "googletest:gmock",
+  ]
+
+  defines = [ "private=public" ]
+}
+
+group("unittest") {
+  testonly = true
+  deps = [ ":SerialServiceTest" ]
+}

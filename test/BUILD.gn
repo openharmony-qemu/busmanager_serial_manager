@@ -20,6 +20,7 @@ group("serial_manager_tests") {
     "develop:serial_service_twodevice_test",
     "develop:serialservice_errcodetest",
     "develop:serialservice_paramtest",
+    "module_test:SerialModuleTest",
     "unittest:unittest",
   ]
 }
