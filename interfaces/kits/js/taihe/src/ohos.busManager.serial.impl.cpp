@@ -70,6 +70,11 @@ static std::mutex g_portCacheMutex;
 static std::map<std::string, CachedPortInfo> g_cachedPorts;
 static std::mutex g_napiEnvMutex;
 static napi_env g_napiEnv = nullptr;
+class SerialPortHolder;
+static std::mutex g_holderRegistryMutex;
+static std::multimap<std::string, SerialPortHolder*> g_holderRegistry;
+
+void InvalidateAllHoldersForPort(const std::string& portName);
 
 void EnsureNapiEnvStored()
 {
@@ -275,7 +280,12 @@ void ScheduleCallbackAsyncWork(napi_env env, CallbackWorkData* workData)
         workData, &asyncWork);
     if (asyncWork != nullptr) {
         workData->asyncWork = asyncWork;
-        napi_queue_async_work(env, asyncWork);
+        napi_status qStatus = napi_queue_async_work(env, asyncWork);
+        if (qStatus != napi_ok) {
+            SERIAL_HILOGE(MODULE_TAIHE, "ScheduleCallbackAsyncWork queue failed");
+            napi_delete_async_work(env, asyncWork);
+            delete workData;
+        }
     } else {
         SERIAL_HILOGE(MODULE_TAIHE, "ScheduleCallbackAsyncWork create work failed");
         delete workData;
@@ -335,42 +345,6 @@ bool CheckCallbackDuplicate(const std::string& portName, const taihe::callback<v
     return false;
 }
 
-ListenerHandle ResolveInnerkitHandle(
-    const std::string& portName, bool needRegister, ListenerHandle existingHandle, ListenerHandle& handleToUnregister)
-{
-    ListenerHandle newHandle = 0;
-    if (needRegister) {
-        std::string name = portName;
-        int32_t regRet = g_serialClient.RegisterDataListener(
-            name,
-            [name](const std::vector<uint8_t>& data) {
-                InvokeCallbacks(name, data);
-            },
-            newHandle);
-        if (regRet != SERIAL_OK || newHandle == 0) {
-            SERIAL_HILOGE(
-                MODULE_TAIHE, "RegisterDataListener failed for %{public}s, ret=%{public}d", portName.c_str(), regRet);
-            taihe::set_business_error(regRet, SerialJsErrorMessage(regRet));
-            return 0;
-        }
-    }
-    ListenerHandle finalHandle = existingHandle;
-    {
-        std::lock_guard<std::mutex> lock(g_callbackMutex);
-        if (newHandle != 0) {
-            auto ihIt = g_innerkitHandles.find(portName);
-            if (ihIt != g_innerkitHandles.end()) {
-                handleToUnregister = newHandle;
-                finalHandle = ihIt->second;
-            } else {
-                g_innerkitHandles[portName] = newHandle;
-                finalHandle = newHandle;
-            }
-        }
-    }
-    return finalHandle;
-}
-
 class SerialPortInfoHolder {
 public:
     SerialPortInfoHolder(std::string portName, int32_t productId, int32_t vendorId, std::string manufacturer)
@@ -424,8 +398,33 @@ public:
           productId_(productId),
           vendorId_(vendorId),
           manufacturer_(std::move(manufacturer)),
-          isOpened_(false)
+          isOpened_(false),
+          invalidated_(false)
     {
+        std::lock_guard<std::mutex> lock(g_holderRegistryMutex);
+        g_holderRegistry.emplace(portName_, this);
+    }
+
+    ~SerialPortHolder()
+    {
+        std::lock_guard<std::mutex> lock(g_holderRegistryMutex);
+        auto range = g_holderRegistry.equal_range(portName_);
+        for (auto it = range.first; it != range.second; ++it) {
+            if (it->second == this) {
+                g_holderRegistry.erase(it);
+                break;
+            }
+        }
+    }
+
+    void setInvalidated(bool value)
+    {
+        invalidated_ = value;
+    }
+
+    bool isInvalidated() const
+    {
+        return invalidated_;
     }
 
     TaiheSerialPortInfo getPortInfo() const
@@ -438,6 +437,11 @@ public:
     void open(optional_view<TaiheSerialConfigs> config)
     {
         SERIAL_HILOGI(MODULE_TAIHE, "open start, portName=%{public}s", portName_.c_str());
+        if (invalidated_) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+            return;
+        }
         OHOS::Serial::SerialConfig cfg;
         if (!BuildConfig(config, cfg)) {
             return;
@@ -474,6 +478,11 @@ public:
     int32_t write(array_view<uint8_t> data, optional_view<int32_t> timeout)
     {
         SERIAL_HILOGI(MODULE_TAIHE, "write start, portName=%{public}s", portName_.c_str());
+        if (invalidated_) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+            return 0;
+        }
         if (!CheckAndThrowOnError(data.size() > 0 && data.size() <= WRITE_DATA_MAX_SIZE, SERIAL_JS_ERR_INVALID_PARAM,
                 "data size must be in (0, 4096]")) {
             return 0;
@@ -501,6 +510,11 @@ public:
     void onDataRead(taihe::callback<void(array_view<uint8_t>)> callback)
     {
         SERIAL_HILOGI(MODULE_TAIHE, "onDataRead start, portName=%{public}s", portName_.c_str());
+        if (invalidated_) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+            return;
+        }
         if (!isOpened_) {
             SERIAL_HILOGE(MODULE_TAIHE, "onDataRead failed: port not opened, portName=%{public}s", portName_.c_str());
             taihe::set_business_error(
@@ -514,19 +528,41 @@ public:
             SERIAL_HILOGI(MODULE_TAIHE, "onDataRead callback already registered, skip");
             return;
         }
-        ListenerHandle handleToUnregister = 0;
-        ListenerHandle finalHandle = ResolveInnerkitHandle(portName_, needRegister, existingHandle, handleToUnregister);
-        if (finalHandle == 0 && needRegister) {
-            return;
-        }
-        {
+
+        ListenerHandle finalHandle = existingHandle;
+        if (needRegister) {
+            ListenerHandle newHandle = 0;
+            std::string name = portName_;
+            int32_t regRet = g_serialClient.RegisterDataListener(
+                name,
+                [name](const std::vector<uint8_t>& data) {
+                    InvokeCallbacks(name, data);
+                },
+                newHandle);
+            if (regRet != SERIAL_OK || newHandle == 0) {
+                SERIAL_HILOGE(MODULE_TAIHE, "RegisterDataListener failed for %{public}s, ret=%{public}d",
+                    portName_.c_str(), regRet);
+                taihe::set_business_error(regRet, SerialJsErrorMessage(regRet));
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(g_callbackMutex);
+                if (g_innerkitHandles.find(portName_) != g_innerkitHandles.end()) {
+                    g_serialClient.UnregisterDataListener(portName_, newHandle);
+                    finalHandle = g_innerkitHandles[portName_];
+                } else {
+                    g_innerkitHandles[portName_] = newHandle;
+                    finalHandle = newHandle;
+                }
+                CallbackEntry entry {callback, finalHandle};
+                g_callbacks[portName_].push_back(entry);
+            }
+        } else {
             std::lock_guard<std::mutex> lock(g_callbackMutex);
             CallbackEntry entry {callback, finalHandle};
             g_callbacks[portName_].push_back(entry);
         }
-        if (handleToUnregister != 0) {
-            g_serialClient.UnregisterDataListener(portName_, handleToUnregister);
-        }
+
         SERIAL_HILOGI(
             MODULE_TAIHE, "onDataRead finish, handle=%{public}llu", static_cast<unsigned long long>(finalHandle));
     }
@@ -581,6 +617,11 @@ public:
     void flush()
     {
         SERIAL_HILOGI(MODULE_TAIHE, "flush start, portName=%{public}s", portName_.c_str());
+        if (invalidated_) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+            return;
+        }
         int32_t ret = g_serialClient.Flush(portName_);
         if (ret != SERIAL_OK) {
             SERIAL_HILOGE(MODULE_TAIHE, "flush failed, ret=%{public}d", ret);
@@ -593,6 +634,11 @@ public:
     void drain()
     {
         SERIAL_HILOGI(MODULE_TAIHE, "drain start, portName=%{public}s", portName_.c_str());
+        if (invalidated_) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+            return;
+        }
         int32_t ret = g_serialClient.Drain(portName_);
         if (ret != SERIAL_OK) {
             SERIAL_HILOGE(MODULE_TAIHE, "drain failed, ret=%{public}d", ret);
@@ -605,6 +651,11 @@ public:
     void setRts(bool enable)
     {
         SERIAL_HILOGI(MODULE_TAIHE, "setRts start, portName=%{public}s", portName_.c_str());
+        if (invalidated_) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+            return;
+        }
         int32_t ret = g_serialClient.SetRtsSignal(portName_, enable);
         if (ret != SERIAL_OK) {
             SERIAL_HILOGE(MODULE_TAIHE, "setRts failed, ret=%{public}d", ret);
@@ -617,6 +668,11 @@ public:
     bool getCts()
     {
         SERIAL_HILOGI(MODULE_TAIHE, "getCts start, portName=%{public}s", portName_.c_str());
+        if (invalidated_) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+            return false;
+        }
         bool cts = false;
         int32_t ret = g_serialClient.GetCtsSignal(portName_, cts);
         if (ret != SERIAL_OK) {
@@ -631,6 +687,11 @@ public:
     void sendBrk()
     {
         SERIAL_HILOGI(MODULE_TAIHE, "sendBrk start, portName=%{public}s", portName_.c_str());
+        if (invalidated_) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+            return;
+        }
         int32_t ret = g_serialClient.SendBrkSignal(portName_);
         if (ret != SERIAL_OK) {
             SERIAL_HILOGE(MODULE_TAIHE, "sendBrk failed, ret=%{public}d", ret);
@@ -678,11 +739,21 @@ private:
     int32_t vendorId_;
     std::string manufacturer_;
     bool isOpened_;
+    bool invalidated_;
 };
+
+void InvalidateAllHoldersForPort(const std::string& portName)
+{
+    std::lock_guard<std::mutex> lock(g_holderRegistryMutex);
+    auto range = g_holderRegistry.equal_range(portName);
+    for (auto it = range.first; it != range.second; ++it) {
+        it->second->setInvalidated(true);
+    }
+}
 
 void UpdateCachedPorts(const std::vector<OHOS::Serial::SerialPortInfo>& devices,
     const std::set<std::string>& currentPorts, std::vector<std::string>& disappearedPorts,
-    std::vector<TaiheSerialPort>& ports)
+    std::vector<std::string>& invalidatedPorts, std::vector<TaiheSerialPort>& ports)
 {
     std::lock_guard<std::mutex> lock(g_portCacheMutex);
     for (auto it = g_cachedPorts.begin(); it != g_cachedPorts.end();) {
@@ -701,6 +772,7 @@ void UpdateCachedPorts(const std::vector<OHOS::Serial::SerialPortInfo>& devices,
                 continue;
             }
             SERIAL_HILOGI(MODULE_TAIHE, "GetSerialPortListSync info changed for %{public}s", dev.portName.c_str());
+            invalidatedPorts.push_back(dev.portName);
             g_cachedPorts.erase(cacheIt);
         }
         auto port = taihe::make_holder<SerialPortHolder, TaiheSerialPort>(
@@ -726,10 +798,17 @@ array<TaiheSerialPort> GetSerialPortListSync()
         currentPorts.insert(dev.portName);
     }
     std::vector<std::string> disappearedPorts;
+    std::vector<std::string> invalidatedPorts;
     std::vector<TaiheSerialPort> ports;
-    UpdateCachedPorts(devices, currentPorts, disappearedPorts, ports);
+    UpdateCachedPorts(devices, currentPorts, disappearedPorts, invalidatedPorts, ports);
     for (const auto& name : disappearedPorts) {
         SERIAL_HILOGI(MODULE_TAIHE, "GetSerialPortListSync port disappeared: %{public}s", name.c_str());
+        InvalidateAllHoldersForPort(name);
+        RemoveAllCallbacksForPort(name);
+    }
+    for (const auto& name : invalidatedPorts) {
+        SERIAL_HILOGI(MODULE_TAIHE, "GetSerialPortListSync port info changed: %{public}s", name.c_str());
+        InvalidateAllHoldersForPort(name);
         RemoveAllCallbacksForPort(name);
     }
     SERIAL_HILOGI(MODULE_TAIHE, "GetSerialPortListSync finish, count=%{public}zu", ports.size());
