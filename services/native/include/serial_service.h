@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 #include <chrono>
+#include <ipc_skeleton.h>
 
 #include "iserial_service_callback.h"
 #include "serial_server_stub.h"
@@ -30,6 +31,7 @@
 #include "system_ability_ondemand_reason.h"
 #include "iremote_object.h"
 #include "timer.h"
+#include "nlohmann/json.hpp"
 
 #include "v1_0/iserials.h"
 #include "v1_0/iserial_device.h"
@@ -39,6 +41,14 @@
 
 namespace OHOS {
 namespace Serial {
+constexpr int64_t SERIAL_OP_EVENT_ID = 0x030000100; // serial operation audit event id
+constexpr int64_t SERIAL_EDM_EVENT_ID = 0x030000101; // serial management audit event id
+constexpr const char *SERIAL_OP_EVENT_VERSION = "1.0"; // serial operation audit event version
+constexpr const char *SERIAL_EDM_EVENT_VERSION = "1.0"; // serial management audit event version
+constexpr const char *SERIAL_OPEN = "SerialOpen";
+constexpr const char *SERIAL_CLOSE = "SerialClose";
+constexpr const char *SERIAL_READ = "SerialRead";
+constexpr const char *SERIAL_WRITE = "SerialWrite";
 
 class SerialService;
 
@@ -118,6 +128,15 @@ private:
     DeviceContext* FindDeviceContext(const std::string& portName);
     std::string FindPortNameForDevice(const SerialPortInfo& portInfo);
 
+    bool IsUsbSerial(const std::string& portName);
+    void SetSerialManagePolicy(const std::string& portType, bool disable);
+    void ReportSerialOperationAudit(const std::string& portName, const std::string& operationType);
+
+    bool QueryAndRecordFirstRead(const std::string& portName);
+    bool QueryAndRecordFirstWrite(const std::string& portName);
+    void ResetFirstRead(const std::string& portName);
+    void ResetFirstWrite(const std::string& portName);
+
     int32_t GetCallingUserId();
     std::string GetCallingBundleName();
     std::string GetCallingTokenId();
@@ -159,6 +178,12 @@ private:
     Utils::Timer unloadTimer_;
     uint32_t unloadTimerId_ = 0;
     static constexpr uint32_t UNLOAD_SA_DELAY_MS = 30000;
+
+    bool isRs232Disabled_ = false;
+    std::unordered_set<std::string> portsHasBeenRead_;
+    std::unordered_set<std::string> portsHasBeenWritten_;
+    std::mutex readStatusMutex_;
+    std::mutex writeStatusMutex_;
 };
 
 } // namespace Serial

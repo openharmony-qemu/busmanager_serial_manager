@@ -121,6 +121,21 @@ void SerialService::OnStart()
         return;
     }
 
+    // Load & watch enterprise policy
+    auto watchRet = WatchParameter("persist.edm.rs232_serial_disable",
+        [](const char *key, const char *value, void *context) {
+            if (key == nullptr || value == nullptr) {
+                SERIAL_HILOGE(MODULE_SERVICE, "param null pointer");
+                return;
+            }
+            SERIAL_HILOGI(MODULE_SERVICE, "watch serial param: get %{public}s=%{public}s", key, value); 
+            bool disable = (std::string(value) == "1");
+            SetSerialManagePolicy(disable);
+        }, this);
+    if (watchRet != SERIAL_OK) {
+        SERIAL_HILOGE(MODULE_SERVICE, "failed to watch rs232_serial_disable parameter");
+    }
+
     // Initialize HDI proxy
     InitHdiProxy();
 
@@ -268,6 +283,10 @@ int32_t SerialService::QuerySerialDevices(std::vector<SerialPortInfo>& devices)
 {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d QuerySerialDevices called", __func__, __LINE__);
 
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
     if (serialsProxy_ == nullptr) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d HDI proxy not initialized", __func__, __LINE__);
         return SERIAL_ERR_SERVICE;
@@ -415,6 +434,11 @@ int32_t SerialService::OpenSerial(
         __func__, __LINE__, portInfo.portName.c_str(), portInfo.productId, portInfo.vendorId,
         portInfo.manufacturer.c_str(), config.baudRate, config.dataBits, config.stopBits, config.parity, config.rtscts,
         config.xon, config.xoff, config.xany, token.GetRefPtr());
+    ReportSerialOperationAudit(portInfo., SERIAL_OPEN);
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
 
     int32_t paramRet = ValidateOpenSerialParams(portInfo, token);
     if (paramRet != SERIAL_OK) {
@@ -470,6 +494,12 @@ int32_t SerialService::CloseSerial(const std::string& portName)
 {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d CloseSerial called, portName=%{public}s", __func__, __LINE__,
         portName.c_str());
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
+    ResetFirstRead(portName);
+    ResetFirstWrite(portName);
 
     std::lock_guard<std::mutex> lock(serviceMutex_);
 
@@ -581,6 +611,13 @@ int32_t SerialService::WriteSerial(
     SERIAL_HILOGI(MODULE_SERVICE,
         "%{public}s:%{public}d WriteSerial called, portName=%{public}s, dataSize=%{public}zu, timeout=%{public}d",
         __func__, __LINE__, portName.c_str(), data.size(), timeout);
+    if (QueryAndRecordFirstWrite(portName)) {
+        ReportSerialOperationAudit(portName, SERIAL_WRITE);
+    }
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
 
     std::lock_guard<std::mutex> lock(serviceMutex_);
 
@@ -632,6 +669,13 @@ int32_t SerialService::StartRead(const std::string& portName)
 {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d StartRead called, portName=%{public}s", __func__, __LINE__,
         portName.c_str());
+    if (QueryAndRecordFirstRead(portName)) {
+        ReportSerialOperationAudit(portName, SERIAL_READ);
+    }
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
 
     std::lock_guard<std::mutex> lock(serviceMutex_);
 
@@ -666,6 +710,10 @@ int32_t SerialService::StopRead(const std::string& portName)
         portName.c_str());
 
     std::lock_guard<std::mutex> lock(serviceMutex_);
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
 
     DeviceContext* context = FindDeviceContext(portName);
     if (context == nullptr) {
@@ -698,6 +746,10 @@ int32_t SerialService::Flush(const std::string& portName)
         portName.c_str());
 
     std::lock_guard<std::mutex> lock(serviceMutex_);
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
 
     DeviceContext* context = FindDeviceContext(portName);
     if (context == nullptr) {
@@ -730,6 +782,10 @@ int32_t SerialService::Drain(const std::string& portName)
         portName.c_str());
 
     std::lock_guard<std::mutex> lock(serviceMutex_);
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
 
     DeviceContext* context = FindDeviceContext(portName);
     if (context == nullptr) {
@@ -762,6 +818,10 @@ int32_t SerialService::SendBrkSignal(const std::string& portName)
         portName.c_str());
 
     std::lock_guard<std::mutex> lock(serviceMutex_);
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
 
     DeviceContext* context = FindDeviceContext(portName);
     if (context == nullptr) {
@@ -794,6 +854,10 @@ int32_t SerialService::SetRtsSignal(const std::string& portName, bool rts)
         __func__, __LINE__, portName.c_str(), rts);
 
     std::lock_guard<std::mutex> lock(serviceMutex_);
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
 
     DeviceContext* context = FindDeviceContext(portName);
     if (context == nullptr) {
@@ -826,6 +890,10 @@ int32_t SerialService::GetCtsSignal(const std::string& portName, bool& cts)
         portName.c_str());
 
     std::lock_guard<std::mutex> lock(serviceMutex_);
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
 
     DeviceContext* context = FindDeviceContext(portName);
     if (context == nullptr) {
@@ -857,6 +925,10 @@ int32_t SerialService::AddPortAuthorization(const std::string& tokenId, const st
     SERIAL_HILOGI(MODULE_SERVICE,
         "%{public}s:%{public}d AddPortAuthorization called, tokenId=%{public}s, deviceId=%{public}s", __func__,
         __LINE__, tokenId.c_str(), deviceId.c_str());
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
 
     // Get caller's real userId and tokenId for consistent database write
     int32_t userId = GetCallingUserId();
@@ -1012,6 +1084,10 @@ int32_t SerialService::OnIdle(const SystemAbilityOnDemandReason& idleReason)
 {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SerialService OnIdle, reasonId=%{public}d", __func__, __LINE__,
         static_cast<int>(idleReason.GetId()));
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
     return 0;
 }
 
@@ -1019,6 +1095,10 @@ int32_t SerialService::OnRemoteRequest(uint32_t code, MessageParcel& data, Messa
 {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SerialService OnRemoteRequest: code=%{public}u", __func__,
         __LINE__, code);
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
     return SerialServerStub::OnRemoteRequest(code, data, reply, option);
 }
 
@@ -1211,6 +1291,10 @@ int SerialService::Dump(int fd, const std::vector<std::u16string>& args)
         "%{public}s:%{public}d SerialService Dump called, fd=%{public}d, args.size=%{public}zu", __func__, __LINE__, fd,
         args.size());
 
+    if (isRs232Disabled_) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_ENTERPRISE_POLICY;
+    }
     // Validate file descriptor validity
     if (fd < 0) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Invalid fd: %{public}d", __func__, __LINE__, fd);
@@ -1233,6 +1317,80 @@ int SerialService::Dump(int fd, const std::vector<std::u16string>& args)
 
     // Delegate to DoDump for actual dump processing
     return DoDump(fd, argList);
+}
+
+bool SerialService::IsUsbSerial(const std::string& portName)
+{
+    return (portName.find("USB") != string::npos);
+}
+
+void SerialService::SetSerialManagePolicy(const std::string& portType, bool disable)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:serial policy set: %{public}d.", __func__);
+    isRs232Disabled_ = disable;
+
+    // report audit event
+    nlohmann::json auditJson {
+        {"portType", portType},
+        {"portStatus", disable? "Disabled" : "Enabled"},
+        {"userId", GetCallingUserId()},
+        {"happenTime", Serial::SerialSecurityReport::GetCurrentTime()},
+    };
+    Serial::SerialSecurityReport::ReportSecurityInfo(
+        SERIAL_EDM_EVENT_ID, std::string(SERIAL_EDM_EVENT_VERSION), auditJson);
+}
+
+void SerialService::ReportSerialOperationAudit(const std::string& portName, const std::string& operationType)
+{
+    if (IsUsbSerial(portName)) {
+        // skip: USB serial operation event is reported in usb_manager
+        return;
+    }
+
+    // Get port ID for report
+    int32_t portId = -1;
+    auto ret = std::from_chars(portName, portId);
+    if (ret != std::errc()) {
+        SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:convert portName %{public}s failed.", __func__, portName.c_str());
+    }
+
+    // Report Security Audit Event for serial operation
+    nlohmann::json operationJson {
+        {"happenTime", time},
+        {"portId", portId},
+        {"operationType", operationType},
+        {"uid", IPCSkeleton::GetCallingUid()},
+    };
+    Serial::SerialSecurityReport::ReportSecurityInfo(
+        SERIAL_OP_EVENT_ID, std::string(SERIAL_OP_EVENT_VERSION), operationJson);
+}
+
+bool SerialService::QueryAndRecordFirstRead(const std::string& portName)
+{
+    if (IsUsbSerial(portName)) {
+        std::lock_guard lock(readStatusMutex_);
+        return portsHasBeenRead_.insert(portName).second; // return true if not read before
+    }
+}
+
+bool SerialService::QueryAndRecordFirstWrite(const std::string& portName)
+{
+    if (IsUsbSerial(portName)) {
+        std::lock_guard lock(readStatusMutex_);
+        return portsHasBeenWritten_.insert(portName).second; // return true if not read before
+    }
+}
+
+void SerialService::ResetFirstRead(const std::string& portName)
+{
+    std::lock_guard lock(readStatusMutex_);
+    portsHasBeenRead_.erase(portId);
+}
+
+void SerialService::ResetFirstWrite(const std::string& portName)
+{
+    std::lock_guard lock(writeStatusMutex_);
+    portsHasBeenWritten_.erase(portId);
 }
 
 void SerialService::SetHdiProxyForTest(const sptr<ISerials>& proxy)

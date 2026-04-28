@@ -46,6 +46,7 @@ if (serial_manager_enable_service) {
       "native/src/serial_service.cpp",
       "native/src/serial_right_manager.cpp",
       "native/src/serial_right_db_helper.cpp",
+      "native/src/serial_security_report.cpp",
     ]
 
     configs = [ ":serialsrv_private_config" ]
@@ -77,6 +78,12 @@ if (serial_manager_enable_service) {
       "access_token:libaccesstoken_sdk",
       "access_token:libtokenid_sdk",
     ]
+
+    if (defined(global_parts_info) &&
+        defined(global_parts_info.security_security_guard)) {
+      external_deps += [ "security_guard:libsg_collect_sdk" ]
+      defines += [ "SECURITY_GUARD_ENABLE" ]
+    }
 
     shlib_type = "sa"
     subsystem_name = "busmanager"
