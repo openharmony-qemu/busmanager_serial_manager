@@ -355,25 +355,28 @@ int32_t SerialSrvClient::AddPortAuthorization(const std::string& tokenId, const 
     return jsRet;
 }
 
-ListenerHandle SerialSrvClient::RegisterDataListener(const std::string& portName, const DataReceivedCallback& callback)
+int32_t SerialSrvClient::RegisterDataListener(
+    const std::string& portName, const DataReceivedCallback& callback, ListenerHandle& listenerHandle)
 {
     SERIAL_HILOGI(MODULE_INNERKIT, "[RegisterDataListener] Enter, portName=%{public}s", portName.c_str());
+    listenerHandle = 0;
+
     if (!callback) {
         SERIAL_HILOGE(MODULE_INNERKIT, "[RegisterDataListener] Invalid callback");
-        return 0;
+        return SERIAL_JS_ERR_INVALID_PARAM;
     }
 
     if (callback_ == nullptr) {
         SERIAL_HILOGE(MODULE_INNERKIT, "[RegisterDataListener] Callback_ is nullptr");
-        return 0;
+        return SERIAL_JS_ERR_SERVICE;
     }
 
     bool wasFirstListener = !callback_->HasListeners(portName);
 
-    ListenerHandle listenerHandle = callback_->AddListener(portName, callback);
+    listenerHandle = callback_->AddListener(portName, callback);
     if (listenerHandle == 0) {
         SERIAL_HILOGE(MODULE_INNERKIT, "[RegisterDataListener] AddListener failed");
-        return 0;
+        return SERIAL_JS_ERR_SERVICE;
     }
     SERIAL_HILOGI(MODULE_INNERKIT, "[RegisterDataListener] Success, listenerHandle=%{public}llu, wasFirst=%{public}d",
         (unsigned long long)listenerHandle, wasFirstListener);
@@ -383,18 +386,22 @@ ListenerHandle SerialSrvClient::RegisterDataListener(const std::string& portName
         if (proxy == nullptr) {
             SERIAL_HILOGE(MODULE_INNERKIT, "[RegisterDataListener] Proxy is nullptr");
             callback_->RemoveListener(portName, listenerHandle);
-            return 0;
+            listenerHandle = 0;
+            return SERIAL_JS_ERR_SERVICE;
         }
 
         int32_t ret = proxy->StartRead(portName);
         SERIAL_HILOGI(MODULE_INNERKIT, "[RegisterDataListener] StartRead ret = %{public}d", ret);
         if (ret != SERIAL_OK) {
             callback_->RemoveListener(portName, listenerHandle);
-            return 0;
+            listenerHandle = 0;
+            int32_t jsRet = SerialInternalToJsCode(ret);
+            SERIAL_HILOGI(MODULE_INNERKIT, "[RegisterDataListener] StartRead failed, jsRet = %{public}d", jsRet);
+            return jsRet;
         }
     }
 
-    return listenerHandle;
+    return SERIAL_OK;
 }
 
 int32_t SerialSrvClient::UnregisterDataListener(const std::string& portName, ListenerHandle listenerHandle)

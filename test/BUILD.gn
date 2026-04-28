@@ -17,6 +17,7 @@ group("serial_manager_tests") {
   testonly = true
   deps = [
     "develop:serial_service_lifecycle_test",
+    "develop:serial_service_twodevice_test",
     "develop:serialservice_errcodetest",
     "develop:serialservice_paramtest",
     "unittest:unittest",

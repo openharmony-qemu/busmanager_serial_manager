@@ -99,14 +99,17 @@ int32_t SerialSrvClient::AddPortAuthorization(const std::string& tokenId, const 
     return SERIAL_OK;
 }
 
-ListenerHandle SerialSrvClient::RegisterDataListener(const std::string& portName, const DataReceivedCallback& callback)
+int32_t SerialSrvClient::RegisterDataListener(
+    const std::string& portName, const DataReceivedCallback& callback, ListenerHandle& listenerHandle)
 {
     SERIAL_HILOGI(MODULE_INNERKIT, "[RegisterDataListener] Stub: service not deployed, return success");
     if (!callback) {
         SERIAL_HILOGE(MODULE_INNERKIT, "[RegisterDataListener] Invalid callback");
-        return 0;
+        listenerHandle = 0;
+        return SERIAL_JS_ERR_INVALID_PARAM;
     }
-    return STUB_FIRST_LISTENER_HANDLE;
+    listenerHandle = STUB_FIRST_LISTENER_HANDLE;
+    return SERIAL_OK;
 }
 
 int32_t SerialSrvClient::UnregisterDataListener(const std::string& portName, ListenerHandle listenerHandle)

@@ -46,7 +46,8 @@ public:
     int32_t GetCtsSignal(const std::string& portName, bool& cts);
     int32_t AddPortAuthorization(const std::string& tokenId, const std::string& deviceId);
 
-    ListenerHandle RegisterDataListener(const std::string& portName, const DataReceivedCallback& callback);
+    int32_t RegisterDataListener(
+        const std::string& portName, const DataReceivedCallback& callback, ListenerHandle& listenerHandle);
     int32_t UnregisterDataListener(const std::string& portName, ListenerHandle listenerHandle);
 
 private:
