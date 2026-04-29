@@ -124,7 +124,19 @@ SerialRightDbHelper::SerialRightDbHelper()
     if (rdbStore_ == nullptr) {
         SERIAL_HILOGE(
             MODULE_SERVICE, "%{public}s:%{public}d GetRdbStore failed: %{public}d", __func__, __LINE__, errCode);
+        return;
     }
+
+    // Verify database is working by executing a simple query
+    std::shared_ptr<ResultSet> resultSet = rdbStore_->QuerySql("SELECT name FROM sqlite_master WHERE type='table'");
+    if (resultSet == nullptr) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d QuerySql failed, database may be corrupted", __func__,
+            __LINE__);
+        rdbStore_ = nullptr;
+        return;
+    }
+    resultSet->Close();
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d database verified successfully", __func__, __LINE__);
 }
 
 bool SerialRightDbHelper::IsRecordExpired(int32_t uid, const std::string& portName, const std::string& bundleName,

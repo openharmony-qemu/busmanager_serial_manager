@@ -68,6 +68,9 @@ public:
 
     static std::shared_ptr<SerialRightDbHelper> GetInstance();
 
+    // Check if database is valid and ready for operations
+    bool IsDatabaseValid() const { return rdbStore_ != nullptr; }
+
     bool IsRecordExpired(int32_t uid, const std::string& portName, const std::string& bundleName,
         const std::string& tokenId, uint64_t expiredTime);
     bool IsRecordExpired(const SerialRightAppInfo& info, uint64_t expiredTime);
