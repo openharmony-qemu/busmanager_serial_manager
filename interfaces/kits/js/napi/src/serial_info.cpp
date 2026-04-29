@@ -138,6 +138,7 @@ struct CallbackData {
     std::vector<uint8_t> data;
     napi_ref callbackRef;
     napi_env env;
+    napi_async_work asyncWork;
 };
 
 struct CallbackInfo {
@@ -950,7 +951,7 @@ static bool ValidateWriteParams(
     {
         uint8_t* dataPtr = nullptr;
         size_t length = 0;
-        napi_get_typedarray_info(env, argv[0], nullptr, &length, (void**)&dataPtr, nullptr, nullptr);
+        napi_get_typedarray_info(env, argv[0], nullptr, &length, reinterpret_cast<void**>(&dataPtr), nullptr, nullptr);
         outData.assign(dataPtr, dataPtr + length);
     }
 
@@ -1032,32 +1033,32 @@ static std::function<void(const std::vector<uint8_t>&)> CreateDataReadCallback(
         callbackData->callbackRef = callbackRef;
         callbackData->env = env;
 
-        CallbackData* asyncData = callbackData;
-        napi_env asyncEnv = env;
-
         napi_value resourceName = nullptr;
-        napi_create_string_utf8(asyncEnv, "dataReadCallback", NAPI_AUTO_LENGTH, &resourceName);
+        napi_create_string_utf8(env, "dataReadCallback", NAPI_AUTO_LENGTH, &resourceName);
 
         napi_async_work asyncWork = nullptr;
         napi_create_async_work(
-            asyncEnv, nullptr, resourceName, [](napi_env env, void* data) {},
+            env, nullptr, resourceName, [](napi_env env, void* data) {},
             [](napi_env env, napi_status status, void* data) {
                 CallbackData* callbackData = static_cast<CallbackData*>(data);
                 InvokeJsCallback(callbackData->env, callbackData->callbackRef, callbackData->data);
+                napi_delete_async_work(env, callbackData->asyncWork);
                 delete callbackData;
             },
-            asyncData, &asyncWork);
+            callbackData, &asyncWork);
+
+        callbackData->asyncWork = asyncWork;
 
         if (asyncWork != nullptr) {
-            napi_status qStatus = napi_queue_async_work(asyncEnv, asyncWork);
+            napi_status qStatus = napi_queue_async_work(env, asyncWork);
             if (qStatus != napi_ok) {
                 SERIAL_HILOGE(MODULE_JS_NAPI, "[DataReadCallback] queue async work failed");
-                napi_delete_async_work(asyncEnv, asyncWork);
-                delete asyncData;
+                napi_delete_async_work(env, asyncWork);
+                delete callbackData;
             }
         } else {
             SERIAL_HILOGE(MODULE_JS_NAPI, "[DataReadCallback] Failed to create async work");
-            delete asyncData;
+            delete callbackData;
         }
     };
 }
@@ -1118,7 +1119,7 @@ static bool RegisterOnDataReadListener(napi_env env, const std::string& portName
     }
 
     SERIAL_HILOGI(MODULE_JS_NAPI, "onDataRead success, portName=%{public}s, listenerHandle=%{public}llu",
-        portName.c_str(), (unsigned long long)listenerHandle);
+        portName.c_str(), static_cast<unsigned long long>(listenerHandle));
     return true;
 }
 

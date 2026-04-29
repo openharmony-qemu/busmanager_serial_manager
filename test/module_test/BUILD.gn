@@ -14,76 +14,85 @@
 import("//build/test.gni")
 import("../../serialmgr.gni")
 
-config("serialsrv_errcode_public_config") {
-  include_dirs = [
-    "${serial_manager_path}/services/native/include",
-    "${serial_manager_path}/interfaces/innerkits/native/include",
-    "${serial_manager_path}/utils/native/include",
-  ]
+if (serial_manager_enable_service) {
+  config("serialsrv_errcode_public_config") {
+    include_dirs = [
+      "${serial_manager_path}/services/native/include",
+      "${serial_manager_path}/interfaces/innerkits/native/include",
+      "${serial_manager_path}/utils/native/include",
+    ]
+  }
+
+  # SerialModuleTest - 统一模块测试入口
+  # 整合 loopback、db、dialog 三种测试
+  # 使用方法：
+  #   ./serial_module_test loopback [/dev/ttyUSB0]  回环测试
+  #   ./serial_module_test db                       数据库测试
+  #   ./serial_module_test dialog                   弹窗测试
+  #   ./serial_module_test all                      运行全部测试
+  #   ./serial_module_test help                     显示帮助
+  ohos_executable("SerialModuleTest") {
+    sanitize = {
+      integer_overflow = true
+      ubsan = true
+      boundary_sanitize = true
+      cfi = true
+      cfi_cross_dso = true
+      debug = false
+    }
+    branch_protector_ret = "pac_ret"
+
+    cflags_cc = [
+      "-Wno-unused-variable",
+      "-Wno-unused-function",
+      "-Wno-unused-but-set-variable",
+    ]
+
+    sources = [
+      "${serial_manager_path}/services/native/src/serial_right_db_helper.cpp",
+      "${serial_manager_path}/services/native/src/serial_right_manager.cpp",
+      "serial_module_test.cpp",
+    ]
+
+    configs = [ ":serialsrv_errcode_public_config" ]
+
+    deps = [
+      "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
+      "${serial_manager_path}/interfaces/innerkits:serialsrv_client",
+      "${serial_manager_path}/utils:serial_error_code",
+    ]
+
+    external_deps = [
+      "ability_base:want",
+      "ability_runtime:ability_connect_callback_stub",
+      "ability_runtime:ability_manager",
+      "access_token:libaccesstoken_sdk",
+      "access_token:libtokenid_sdk",
+      "bundle_framework:appexecfwk_base",
+      "bundle_framework:appexecfwk_core",
+      "cJSON:cjson",
+      "c_utils:utils",
+      "common_event_service:cesfwk_innerkits",
+      "hicollie:libhicollie",
+      "hilog:libhilog",
+      "ipc:ipc_core",
+      "ipc:ipc_single",
+      "os_account:os_account_innerkits",
+      "relational_store:native_rdb",
+      "safwk:system_ability_fwk",
+      "samgr:samgr_proxy",
+    ]
+
+    subsystem_name = "busmanager"
+    part_name = "serial_manager"
+    output_name = "serial_module_test"
+    install_images = [ "system" ]
+  }
 }
 
-# SerialModuleTest - 统一模块测试入口
-# 整合 loopback、db、dialog 三种测试
-# 使用方法：
-#   ./serial_module_test loopback [/dev/ttyUSB0]  回环测试
-#   ./serial_module_test db                       数据库测试
-#   ./serial_module_test dialog                   弹窗测试
-#   ./serial_module_test all                      运行全部测试
-#   ./serial_module_test help                     显示帮助
-ohos_executable("SerialModuleTest") {
-  sanitize = {
-    integer_overflow = true
-    ubsan = true
-    boundary_sanitize = true
-    cfi = true
-    cfi_cross_dso = true
-    debug = false
+group("module_test") {
+  testonly = true
+  if (serial_manager_enable_service) {
+    deps = [ ":SerialModuleTest" ]
   }
-  branch_protector_ret = "pac_ret"
-
-  cflags_cc = [
-    "-Wno-unused-variable",
-    "-Wno-unused-function",
-    "-Wno-unused-but-set-variable",
-  ]
-
-  sources = [
-    "${serial_manager_path}/services/native/src/serial_right_db_helper.cpp",
-    "${serial_manager_path}/services/native/src/serial_right_manager.cpp",
-    "serial_module_test.cpp",
-  ]
-
-  configs = [ ":serialsrv_errcode_public_config" ]
-
-  deps = [
-    "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
-    "${serial_manager_path}/interfaces/innerkits:serialsrv_client",
-    "${serial_manager_path}/utils:serial_error_code",
-  ]
-
-  external_deps = [
-    "ability_base:want",
-    "ability_runtime:ability_connect_callback_stub",
-    "ability_runtime:ability_manager",
-    "access_token:libaccesstoken_sdk",
-    "access_token:libtokenid_sdk",
-    "bundle_framework:appexecfwk_base",
-    "bundle_framework:appexecfwk_core",
-    "cJSON:cjson",
-    "c_utils:utils",
-    "common_event_service:cesfwk_innerkits",
-    "hicollie:libhicollie",
-    "hilog:libhilog",
-    "ipc:ipc_core",
-    "ipc:ipc_single",
-    "os_account:os_account_innerkits",
-    "relational_store:native_rdb",
-    "safwk:system_ability_fwk",
-    "samgr:samgr_proxy",
-  ]
-
-  subsystem_name = "busmanager"
-  part_name = "serial_manager"
-  output_name = "serial_module_test"
-  install_images = [ "system" ]
 }

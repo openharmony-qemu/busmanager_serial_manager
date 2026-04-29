@@ -285,6 +285,26 @@ void MyClass::MyMethod(int arg) {
 
 每个函数（含成员函数、lambda）的非空、非注释行数不得超过 **50 行**。超出时必须将逻辑拆分为子函数或辅助函数。
 
+### 禁止 C 风格类型转换
+
+代码中禁止使用 C 风格类型转换（如 `(int)x`、`(void**)&p`），必须使用 C++ 提供的类型转换操作符：
+
+| C++ 转换 | 用途 |
+|----------|------|
+| `static_cast<T>(expr)` | 相关类型间转换（数值、指针上下转型） |
+| `reinterpret_cast<T>(expr)` | 不相关类型间转换（如 `uint8_t**` → `void**`） |
+| `const_cast<T>(expr)` | 添加/移除 `const` 或 `volatile` |
+
+```cpp
+// 错误 — C 风格
+napi_get_typedarray_info(env, argv[0], nullptr, &length, (void**)&dataPtr, nullptr, nullptr);
+printf("%llu", (unsigned long long)handle);
+
+// 正确 — C++ 风格
+napi_get_typedarray_info(env, argv[0], nullptr, &length, reinterpret_cast<void**>(&dataPtr), nullptr, nullptr);
+printf("%llu", static_cast<unsigned long long>(handle));
+```
+
 ### 禁止魔鬼数字
 
 代码中禁止使用未命名的字面量数字（魔鬼数字）。所有数字常量必须定义为 `constexpr` 命名常量，并放在合理的词法作用域中：
