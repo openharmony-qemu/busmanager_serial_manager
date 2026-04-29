@@ -30,7 +30,7 @@ namespace Serial {
 using namespace NativeRdb;
 
 namespace {
-constexpr const char* DATABASE_DIR = "/data/service/el1/public/serial_manager/";
+constexpr const char* DATABASE_DIR = "/data/service/el1/public/database/serial_manager/";
 constexpr int DATABASE_DIR_MODE = 0755;
 constexpr const char* CREATE_TABLE_SQL = "CREATE TABLE IF NOT EXISTS serial_right("
                                          "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -46,6 +46,33 @@ constexpr const char* CREATE_TABLE_SQL = "CREATE TABLE IF NOT EXISTS serial_righ
 
 std::shared_ptr<SerialRightDbHelper> SerialRightDbHelper::instance_ = nullptr;
 
+static bool MakeDirRecursive(const std::string& path, mode_t mode)
+{
+    // Recursively create directory path (like mkdir -p)
+    size_t pos = 0;
+    while (pos < path.size()) {
+        pos = path.find('/', pos + 1);
+        if (pos == std::string::npos) {
+            pos = path.size();
+        }
+        std::string subPath = path.substr(0, pos);
+        if (subPath.empty() || subPath == "/") {
+            continue;
+        }
+        struct stat st;
+        if (stat(subPath.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+            continue;  // Directory already exists
+        }
+        if (mkdir(subPath.c_str(), mode) != 0 && errno != EEXIST) {
+            SERIAL_HILOGE(MODULE_SERVICE,
+                "%{public}s:%{public}d failed to create directory %{public}s, errno=%{public}d",
+                __func__, __LINE__, subPath.c_str(), errno);
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool EnsureDatabaseDirExists()
 {
     struct stat st;
@@ -55,11 +82,11 @@ static bool EnsureDatabaseDirExists()
         return true;
     }
 
-    int ret = mkdir(DATABASE_DIR, DATABASE_DIR_MODE);
-    if (ret != 0 && errno != EEXIST) {
+    // Recursively create the full directory path
+    if (!MakeDirRecursive(DATABASE_DIR, DATABASE_DIR_MODE)) {
         SERIAL_HILOGE(MODULE_SERVICE,
-            "%{public}s:%{public}d failed to create database directory %{public}s, errno=%{public}d", __func__,
-            __LINE__, DATABASE_DIR, errno);
+            "%{public}s:%{public}d failed to create database directory recursively %{public}s", __func__,
+            __LINE__, DATABASE_DIR);
         return false;
     }
 
@@ -100,19 +127,11 @@ SerialRightDbHelper::SerialRightDbHelper()
 {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d constructed", __func__, __LINE__);
 
-    // Ensure database directory exists with retry mechanism
+    // Ensure database directory exists (recursive creation)
     if (!EnsureDatabaseDirExists()) {
-        SERIAL_HILOGW(MODULE_SERVICE,
-            "%{public}s:%{public}d EnsureDatabaseDirExists failed, retrying with direct mkdir", __func__, __LINE__);
-        // Fallback: try direct mkdir if helper function failed (e.g. permission issue)
-        int ret = mkdir(DATABASE_DIR, DATABASE_DIR_MODE);
-        if (ret != 0 && errno != EEXIST) {
-            SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d direct mkdir also failed, errno=%{public}d", __func__,
-                __LINE__, errno);
-            return;
-        }
-        SERIAL_HILOGI(
-            MODULE_SERVICE, "%{public}s:%{public}d direct mkdir succeeded or directory exists", __func__, __LINE__);
+        SERIAL_HILOGE(MODULE_SERVICE,
+            "%{public}s:%{public}d EnsureDatabaseDirExists failed, database unavailable", __func__, __LINE__);
+        return;
     }
 
     RdbStoreConfig config(DATABASE_DIR + std::string(DATABASE_NAME));
