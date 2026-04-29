@@ -42,6 +42,7 @@
         "access_token",
         "cJSON",
         "hicollie",
+        "hdf_core",
         "runtime_core"
       ]
     },

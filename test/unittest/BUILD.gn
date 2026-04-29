@@ -12,12 +12,15 @@
 # limitations under the License.
 
 import("//build/ohos.gni")
+import("../../serialmgr.gni")
 
 group("unittest") {
   testonly = true
-  deps = [
-    "serial_service:SerialServiceTest",
-    "serial_srv_client:SerialSrvClientTest",
-    "serial_srv_client_without_service:SerialSrvClientWithoutServiceTest",
-  ]
+  deps = [ "serial_srv_client_without_service:unittest" ]
+  if (serial_manager_enable_service) {
+    deps += [
+      "serial_service:unittest",
+      "serial_srv_client:unittest",
+    ]
+  }
 }

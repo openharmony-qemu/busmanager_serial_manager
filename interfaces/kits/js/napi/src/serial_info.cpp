@@ -84,7 +84,6 @@ struct AsyncCallbackContext {
     napi_async_work asyncWork;
     napi_deferred deferred;
     int32_t ret;
-    napi_ref workRef;
 };
 
 struct SerialPortListAsyncContext : AsyncCallbackContext {
@@ -139,6 +138,7 @@ struct CallbackData {
     std::vector<uint8_t> data;
     napi_ref callbackRef;
     napi_env env;
+    napi_async_work asyncWork;
 };
 
 struct CallbackInfo {
@@ -171,20 +171,22 @@ static bool IsSerialPortInfoEqual(const SerialPortInfo& a, const SerialPortInfo&
 
 static void RemoveAllListenersForPort(napi_env env, const std::string& portName)
 {
-    std::vector<ListenerHandle> handles;
+    std::vector<std::pair<napi_ref, ListenerHandle>> refsAndHandles;
     {
         std::lock_guard<std::mutex> lock(g_callbackMutex);
         auto portIt = g_dataCallbacks.find(portName);
         if (portIt != g_dataCallbacks.end()) {
             for (auto& pair : portIt->second) {
-                napi_delete_reference(env, pair.second.callbackRef);
-                handles.push_back(pair.second.listenerHandle);
+                refsAndHandles.push_back({pair.second.callbackRef, pair.second.listenerHandle});
             }
             g_dataCallbacks.erase(portIt);
         }
     }
-    for (ListenerHandle handle : handles) {
-        g_serialClient.UnregisterDataListener(portName, handle);
+    for (auto& rh : refsAndHandles) {
+        g_serialClient.UnregisterDataListener(portName, rh.second);
+    }
+    for (auto& rh : refsAndHandles) {
+        napi_delete_reference(env, rh.first);
     }
 }
 
@@ -231,18 +233,27 @@ static void ThrowBusinessError(napi_env env, int32_t code, const char* message)
     napi_throw(env, error);
 }
 
-static bool CheckPortNotInvalidated(napi_env env, napi_value thisVar)
+static bool IsPortInvalidated(napi_env env, napi_value thisVar)
 {
     void* nativePtr = nullptr;
     napi_unwrap(env, thisVar, &nativePtr);
     SerialPortNative* native = static_cast<SerialPortNative*>(nativePtr);
     if (native != nullptr && native->invalidated) {
-        SERIAL_HILOGW(MODULE_JS_NAPI, "[CheckPortNotInvalidated] Operation on invalidated port: portName=%{public}s",
+        SERIAL_HILOGW(MODULE_JS_NAPI, "[IsPortInvalidated] Operation on invalidated port: portName=%{public}s",
             native->portName.c_str());
-        ThrowBusinessError(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED, "Device disconnected or info changed");
-        return false;
+        return true;
     }
-    return true;
+    return false;
+}
+
+static napi_value CreateRejectedPromise(napi_env env, int32_t errCode)
+{
+    napi_value promise = nullptr;
+    napi_deferred deferred = nullptr;
+    napi_create_promise(env, &deferred, &promise);
+    napi_value error = CreateBusinessError(env, errCode, SerialJsErrorMessage(errCode));
+    napi_reject_deferred(env, deferred, error);
+    return promise;
 }
 
 static bool CheckPortOpened(napi_env env, napi_value thisVar)
@@ -367,7 +378,10 @@ static napi_value SerialPortToJSObject(napi_env env, const SerialPortInfo& devic
     if (wrapStatus != napi_ok) {
         SERIAL_HILOGE(MODULE_JS_NAPI, "[SerialPortToJSObject] napi_wrap failed for portName=%{public}s",
             native->portName.c_str());
+        return serialPortObj;
     }
+
+    napi_create_reference(env, serialPortObj, NAPI_REF_COUNT_STRONG, &native->objectRef);
 
     return serialPortObj;
 }
@@ -472,7 +486,12 @@ static napi_value CreateNewPortObject(napi_env env, const SerialPortInfo& device
     native->env = env;
 
     napi_value serialPortObj = SerialPortToJSObject(env, deviceInfo, native);
-    napi_create_reference(env, serialPortObj, NAPI_REF_COUNT_STRONG, &native->objectRef);
+    if (native->objectRef == nullptr) {
+        SERIAL_HILOGE(MODULE_JS_NAPI, "[CreateNewPortObject] napi_wrap failed, cleanup portName=%{public}s",
+            native->portName.c_str());
+        delete native;
+        return serialPortObj;
+    }
     g_activePorts[deviceInfo.portName] = native;
     return serialPortObj;
 }
@@ -549,9 +568,6 @@ static void SerialGetSerialPortListComplete(napi_env env, napi_status status, vo
         napi_reject_deferred(env, context->deferred, error);
     }
 
-    if (context->workRef != nullptr) {
-        napi_delete_reference(env, context->workRef);
-    }
     napi_delete_async_work(env, context->asyncWork);
     delete context;
 }
@@ -568,7 +584,6 @@ static napi_value SerialGetSerialPortListNapi(napi_env env, napi_callback_info i
     SerialPortListAsyncContext* context = new SerialPortListAsyncContext();
     context->env = env;
     context->asyncWork = nullptr;
-    context->workRef = nullptr;
 
     napi_value promise = nullptr;
     napi_create_promise(env, &context->deferred, &promise);
@@ -612,9 +627,6 @@ static void SerialOpenComplete(napi_env env, napi_status status, void* data)
         }
     }
 
-    if (context->workRef != nullptr) {
-        napi_delete_reference(env, context->workRef);
-    }
     napi_delete_async_work(env, context->asyncWork);
     delete context;
 }
@@ -772,15 +784,14 @@ static napi_value SerialOpenNapi(napi_env env, napi_callback_info info)
 
     napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
 
-    if (!CheckPortNotInvalidated(env, thisVar)) {
-        return nullptr;
+    if (IsPortInvalidated(env, thisVar)) {
+        return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
     }
 
     SerialOpenAsyncContext* context = new SerialOpenAsyncContext();
     context->env = env;
     context->deferred = nullptr;
     context->asyncWork = nullptr;
-    context->workRef = nullptr;
 
     GetPortNameFromThisVar(env, thisVar, context->portInfo.portName);
 
@@ -838,12 +849,16 @@ static void SerialCloseComplete(napi_env env, napi_status status, void* data)
         }
     }
 
-    bool success = (context->ret == SERIAL_OK || context->ret == SERIAL_JS_ERR_DEVICE_DISCONNECTED);
+    bool success = (context->ret == SERIAL_OK);
     if (success) {
         napi_get_undefined(env, &result);
     } else {
         SERIAL_HILOGE(MODULE_JS_NAPI, "close failed, ret=%{public}d", context->ret);
-        result = CreateBusinessError(env, SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
+        int32_t errCode =
+            (context->ret == SERIAL_JS_ERR_DEVICE_NOT_OPENED || context->ret == SERIAL_JS_ERR_DEVICE_DISCONNECTED) ?
+            SERIAL_JS_ERR_DEVICE_NOT_OPENED :
+            SERIAL_JS_ERR_SERVICE;
+        result = CreateBusinessError(env, errCode, SerialJsErrorMessage(errCode));
     }
 
     if (context->deferred != nullptr) {
@@ -854,9 +869,6 @@ static void SerialCloseComplete(napi_env env, napi_status status, void* data)
         }
     }
 
-    if (context->workRef != nullptr) {
-        napi_delete_reference(env, context->workRef);
-    }
     napi_delete_async_work(env, context->asyncWork);
     delete context;
 }
@@ -875,7 +887,6 @@ static napi_value SerialCloseNapi(napi_env env, napi_callback_info info)
     context->env = env;
     context->deferred = nullptr;
     context->asyncWork = nullptr;
-    context->workRef = nullptr;
 
     GetPortNameFromThisVar(env, thisVar, context->portName);
 
@@ -918,9 +929,6 @@ static void SerialWriteComplete(napi_env env, napi_status status, void* data)
         }
     }
 
-    if (context->workRef != nullptr) {
-        napi_delete_reference(env, context->workRef);
-    }
     napi_delete_async_work(env, context->asyncWork);
     delete context;
 }
@@ -943,7 +951,7 @@ static bool ValidateWriteParams(
     {
         uint8_t* dataPtr = nullptr;
         size_t length = 0;
-        napi_get_typedarray_info(env, argv[0], nullptr, &length, (void**)&dataPtr, nullptr, nullptr);
+        napi_get_typedarray_info(env, argv[0], nullptr, &length, reinterpret_cast<void**>(&dataPtr), nullptr, nullptr);
         outData.assign(dataPtr, dataPtr + length);
     }
 
@@ -984,8 +992,8 @@ static napi_value SerialWriteNapi(napi_env env, napi_callback_info info)
 
     napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
 
-    if (!CheckPortNotInvalidated(env, thisVar)) {
-        return nullptr;
+    if (IsPortInvalidated(env, thisVar)) {
+        return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
     }
 
     std::vector<uint8_t> writeData;
@@ -998,7 +1006,6 @@ static napi_value SerialWriteNapi(napi_env env, napi_callback_info info)
     context->env = env;
     context->deferred = nullptr;
     context->asyncWork = nullptr;
-    context->workRef = nullptr;
     context->timeout = timeout;
     context->bytesWritten = 0;
     context->data = std::move(writeData);
@@ -1026,27 +1033,32 @@ static std::function<void(const std::vector<uint8_t>&)> CreateDataReadCallback(
         callbackData->callbackRef = callbackRef;
         callbackData->env = env;
 
-        CallbackData* asyncData = callbackData;
-        napi_env asyncEnv = env;
-
         napi_value resourceName = nullptr;
-        napi_create_string_utf8(asyncEnv, "dataReadCallback", NAPI_AUTO_LENGTH, &resourceName);
+        napi_create_string_utf8(env, "dataReadCallback", NAPI_AUTO_LENGTH, &resourceName);
 
         napi_async_work asyncWork = nullptr;
         napi_create_async_work(
-            asyncEnv, nullptr, resourceName, [](napi_env env, void* data) {},
+            env, nullptr, resourceName, [](napi_env env, void* data) {},
             [](napi_env env, napi_status status, void* data) {
                 CallbackData* callbackData = static_cast<CallbackData*>(data);
                 InvokeJsCallback(callbackData->env, callbackData->callbackRef, callbackData->data);
+                napi_delete_async_work(env, callbackData->asyncWork);
                 delete callbackData;
             },
-            asyncData, &asyncWork);
+            callbackData, &asyncWork);
+
+        callbackData->asyncWork = asyncWork;
 
         if (asyncWork != nullptr) {
-            napi_queue_async_work(asyncEnv, asyncWork);
+            napi_status qStatus = napi_queue_async_work(env, asyncWork);
+            if (qStatus != napi_ok) {
+                SERIAL_HILOGE(MODULE_JS_NAPI, "[DataReadCallback] queue async work failed");
+                napi_delete_async_work(env, asyncWork);
+                delete callbackData;
+            }
         } else {
             SERIAL_HILOGE(MODULE_JS_NAPI, "[DataReadCallback] Failed to create async work");
-            delete asyncData;
+            delete callbackData;
         }
     };
 }
@@ -1087,6 +1099,30 @@ static bool IsCallbackAlreadyRegistered(napi_env env, const std::string& portNam
     return false;
 }
 
+static bool RegisterOnDataReadListener(napi_env env, const std::string& portName, napi_ref callbackRef)
+{
+    auto callback = CreateDataReadCallback(portName, callbackRef, env);
+
+    ListenerHandle listenerHandle = INVALID_LISTENER_HANDLE;
+    int32_t regRet = g_serialClient.RegisterDataListener(portName, callback, listenerHandle);
+    if (regRet != SERIAL_OK || listenerHandle == INVALID_LISTENER_HANDLE) {
+        SERIAL_HILOGE(MODULE_JS_NAPI, "[SerialOnDataRead] RegisterDataListener failed, ret=%{public}d", regRet);
+        napi_delete_reference(env, callbackRef);
+        ThrowBusinessError(env, regRet, SerialJsErrorMessage(regRet));
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_callbackMutex);
+        CallbackInfo cbInfo = {callbackRef, env, listenerHandle};
+        g_dataCallbacks[portName][callbackRef] = cbInfo;
+    }
+
+    SERIAL_HILOGI(MODULE_JS_NAPI, "onDataRead success, portName=%{public}s, listenerHandle=%{public}llu",
+        portName.c_str(), static_cast<unsigned long long>(listenerHandle));
+    return true;
+}
+
 static napi_value SerialOnDataReadNapi(napi_env env, napi_callback_info info)
 {
     SERIAL_HILOGI(MODULE_JS_NAPI, "onDataRead start");
@@ -1097,7 +1133,9 @@ static napi_value SerialOnDataReadNapi(napi_env env, napi_callback_info info)
 
     napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
 
-    if (!CheckPortNotInvalidated(env, thisVar)) {
+    if (IsPortInvalidated(env, thisVar)) {
+        ThrowBusinessError(
+            env, SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
         return nullptr;
     }
 
@@ -1122,25 +1160,9 @@ static napi_value SerialOnDataReadNapi(napi_env env, napi_callback_info info)
     napi_ref callbackRef = nullptr;
     napi_create_reference(env, argv[0], NAPI_REF_COUNT_STRONG, &callbackRef);
 
-    auto callback = CreateDataReadCallback(portName, callbackRef, env);
-
-    ListenerHandle listenerHandle = INVALID_LISTENER_HANDLE;
-    int32_t regRet = g_serialClient.RegisterDataListener(portName, callback, listenerHandle);
-    if (regRet != SERIAL_OK || listenerHandle == INVALID_LISTENER_HANDLE) {
-        SERIAL_HILOGE(MODULE_JS_NAPI, "[SerialOnDataRead] RegisterDataListener failed, ret=%{public}d", regRet);
-        napi_delete_reference(env, callbackRef);
-        ThrowBusinessError(env, regRet, SerialJsErrorMessage(regRet));
+    if (!RegisterOnDataReadListener(env, portName, callbackRef)) {
         return nullptr;
     }
-
-    {
-        std::lock_guard<std::mutex> lock(g_callbackMutex);
-        CallbackInfo cbInfo = {callbackRef, env, listenerHandle};
-        g_dataCallbacks[portName][callbackRef] = cbInfo;
-    }
-
-    SERIAL_HILOGI(MODULE_JS_NAPI, "onDataRead success, portName=%{public}s, listenerHandle=%{public}llu",
-        portName.c_str(), (unsigned long long)listenerHandle);
 
     napi_value undefined = nullptr;
     napi_get_undefined(env, &undefined);
@@ -1176,7 +1198,6 @@ static FoundListener FindAndRemoveSpecificListener(napi_env env, const std::stri
     }
 
     if (result.handle != INVALID_LISTENER_HANDLE && result.callbackRef != nullptr) {
-        napi_delete_reference(env, result.callbackRef);
         portIt->second.erase(result.callbackRef);
         if (portIt->second.empty()) {
             g_dataCallbacks.erase(portIt);
@@ -1198,22 +1219,24 @@ static bool UnregisterListenerChecked(napi_env env, const std::string& portName,
 
 static napi_value RemoveAllListenersChecked(napi_env env, const std::string& portName)
 {
-    std::vector<ListenerHandle> handles;
+    std::vector<std::pair<napi_ref, ListenerHandle>> refsAndHandles;
     {
         std::lock_guard<std::mutex> lock(g_callbackMutex);
         auto portIt = g_dataCallbacks.find(portName);
         if (portIt != g_dataCallbacks.end()) {
             for (auto& pair : portIt->second) {
-                napi_delete_reference(env, pair.second.callbackRef);
-                handles.push_back(pair.second.listenerHandle);
+                refsAndHandles.push_back({pair.second.callbackRef, pair.second.listenerHandle});
             }
             g_dataCallbacks.erase(portIt);
         }
     }
-    for (ListenerHandle handle : handles) {
-        if (!UnregisterListenerChecked(env, portName, handle)) {
+    for (auto& rh : refsAndHandles) {
+        if (!UnregisterListenerChecked(env, portName, rh.second)) {
             return nullptr;
         }
+    }
+    for (auto& rh : refsAndHandles) {
+        napi_delete_reference(env, rh.first);
     }
     SERIAL_HILOGI(MODULE_JS_NAPI, "offDataRead all callbacks for portName=%{public}s", portName.c_str());
     napi_value undefined = nullptr;
@@ -1264,6 +1287,10 @@ static napi_value SerialOffDataReadNapi(napi_env env, napi_callback_info info)
             MODULE_JS_NAPI, "[SerialOffDataRead] Callback not found for portName=%{public}s", portName.c_str());
     }
 
+    if (found.callbackRef != nullptr) {
+        napi_delete_reference(env, found.callbackRef);
+    }
+
     napi_value undefined = nullptr;
     napi_get_undefined(env, &undefined);
     return undefined;
@@ -1294,9 +1321,6 @@ static void SerialFlushComplete(napi_env env, napi_status status, void* data)
         }
     }
 
-    if (context->workRef != nullptr) {
-        napi_delete_reference(env, context->workRef);
-    }
     napi_delete_async_work(env, context->asyncWork);
     delete context;
 }
@@ -1311,15 +1335,14 @@ static napi_value SerialFlushNapi(napi_env env, napi_callback_info info)
 
     napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
 
-    if (!CheckPortNotInvalidated(env, thisVar)) {
-        return nullptr;
+    if (IsPortInvalidated(env, thisVar)) {
+        return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
     }
 
     SerialFlushAsyncContext* context = new SerialFlushAsyncContext();
     context->env = env;
     context->deferred = nullptr;
     context->asyncWork = nullptr;
-    context->workRef = nullptr;
 
     GetPortNameFromThisVar(env, thisVar, context->portName);
 
@@ -1359,9 +1382,6 @@ static void SerialDrainComplete(napi_env env, napi_status status, void* data)
         }
     }
 
-    if (context->workRef != nullptr) {
-        napi_delete_reference(env, context->workRef);
-    }
     napi_delete_async_work(env, context->asyncWork);
     delete context;
 }
@@ -1376,15 +1396,14 @@ static napi_value SerialDrainNapi(napi_env env, napi_callback_info info)
 
     napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
 
-    if (!CheckPortNotInvalidated(env, thisVar)) {
-        return nullptr;
+    if (IsPortInvalidated(env, thisVar)) {
+        return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
     }
 
     SerialDrainAsyncContext* context = new SerialDrainAsyncContext();
     context->env = env;
     context->deferred = nullptr;
     context->asyncWork = nullptr;
-    context->workRef = nullptr;
 
     GetPortNameFromThisVar(env, thisVar, context->portName);
 
@@ -1424,9 +1443,6 @@ static void SerialSetRtsComplete(napi_env env, napi_status status, void* data)
         }
     }
 
-    if (context->workRef != nullptr) {
-        napi_delete_reference(env, context->workRef);
-    }
     napi_delete_async_work(env, context->asyncWork);
     delete context;
 }
@@ -1441,8 +1457,8 @@ static napi_value SerialSetRtsNapi(napi_env env, napi_callback_info info)
 
     napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
 
-    if (!CheckPortNotInvalidated(env, thisVar)) {
-        return nullptr;
+    if (IsPortInvalidated(env, thisVar)) {
+        return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
     }
 
     if (argc < 1) {
@@ -1463,7 +1479,6 @@ static napi_value SerialSetRtsNapi(napi_env env, napi_callback_info info)
     context->env = env;
     context->deferred = nullptr;
     context->asyncWork = nullptr;
-    context->workRef = nullptr;
 
     GetPortNameFromThisVar(env, thisVar, context->portName);
 
@@ -1505,9 +1520,6 @@ static void SerialSendBrkComplete(napi_env env, napi_status status, void* data)
         }
     }
 
-    if (context->workRef != nullptr) {
-        napi_delete_reference(env, context->workRef);
-    }
     napi_delete_async_work(env, context->asyncWork);
     delete context;
 }
@@ -1522,15 +1534,14 @@ static napi_value SerialSendBrkNapi(napi_env env, napi_callback_info info)
 
     napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
 
-    if (!CheckPortNotInvalidated(env, thisVar)) {
-        return nullptr;
+    if (IsPortInvalidated(env, thisVar)) {
+        return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
     }
 
     SerialSendBrkAsyncContext* context = new SerialSendBrkAsyncContext();
     context->env = env;
     context->deferred = nullptr;
     context->asyncWork = nullptr;
-    context->workRef = nullptr;
 
     GetPortNameFromThisVar(env, thisVar, context->portName);
 
@@ -1570,9 +1581,6 @@ static void SerialGetCtsComplete(napi_env env, napi_status status, void* data)
         }
     }
 
-    if (context->workRef != nullptr) {
-        napi_delete_reference(env, context->workRef);
-    }
     napi_delete_async_work(env, context->asyncWork);
     delete context;
 }
@@ -1587,15 +1595,14 @@ static napi_value SerialGetCtsNapi(napi_env env, napi_callback_info info)
 
     napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
 
-    if (!CheckPortNotInvalidated(env, thisVar)) {
-        return nullptr;
+    if (IsPortInvalidated(env, thisVar)) {
+        return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
     }
 
     SerialGetCtsAsyncContext* context = new SerialGetCtsAsyncContext();
     context->env = env;
     context->deferred = nullptr;
     context->asyncWork = nullptr;
-    context->workRef = nullptr;
     context->cts = false;
 
     GetPortNameFromThisVar(env, thisVar, context->portName);
@@ -1704,9 +1711,6 @@ static void SerialAddPortAuthComplete(napi_env env, napi_status status, void* da
         }
     }
 
-    if (context->workRef != nullptr) {
-        napi_delete_reference(env, context->workRef);
-    }
     napi_delete_async_work(env, context->asyncWork);
     delete context;
 }
@@ -1744,7 +1748,6 @@ static napi_value SerialAddPortAuthorizationNapi(napi_env env, napi_callback_inf
     context->env = env;
     context->deferred = nullptr;
     context->asyncWork = nullptr;
-    context->workRef = nullptr;
 
     char tokenIdBuf[PORT_NAME_BUF_SIZE] = {0};
     size_t tokenIdLen = 0;
