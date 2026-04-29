@@ -14,46 +14,50 @@
 import("//build/test.gni")
 import("../../../serialmgr.gni")
 
-ohos_unittest("SerialSrvClientTest") {
-  module_out_path = "busmanager/serial_manager"
+if (serial_manager_enable_service) {
+  ohos_unittest("SerialSrvClientTest") {
+    module_out_path = "busmanager/serial_manager"
 
-  branch_protector_ret = "pac_ret"
-  sanitize = {
-    integer_overflow = true
-    cfi = true
-    cfi_cross_dso = true
-    debug = false
+    branch_protector_ret = "pac_ret"
+    sanitize = {
+      integer_overflow = true
+      cfi = true
+      cfi_cross_dso = true
+      debug = false
+    }
+
+    sources = [
+      "serial_service_callback_test.cpp",
+      "serial_srv_client_test.cpp",
+    ]
+
+    include_dirs = [
+      "${serial_manager_path}/interfaces/innerkits/native/include",
+      "${serial_manager_path}/utils/native/include",
+    ]
+
+    deps = [
+      "${serial_manager_path}/interfaces/innerkits:serial_server_interface",
+      "${serial_manager_path}/interfaces/innerkits:serialsrv_client",
+      "${serial_manager_path}/utils:serial_error_code",
+    ]
+
+    external_deps = [
+      "c_utils:utils",
+      "googletest:gmock_main",
+      "googletest:gtest_main",
+      "hilog:libhilog",
+      "ipc:ipc_core",
+      "samgr:samgr_proxy",
+    ]
+
+    defines = [ "private=public" ]
   }
-
-  sources = [
-    "serial_service_callback_test.cpp",
-    "serial_srv_client_test.cpp",
-  ]
-
-  include_dirs = [
-    "${serial_manager_path}/interfaces/innerkits/native/include",
-    "${serial_manager_path}/utils/native/include",
-  ]
-
-  deps = [
-    "${serial_manager_path}/interfaces/innerkits:serial_server_interface",
-    "${serial_manager_path}/interfaces/innerkits:serialsrv_client",
-    "${serial_manager_path}/utils:serial_error_code",
-  ]
-
-  external_deps = [
-    "c_utils:utils",
-    "googletest:gmock_main",
-    "googletest:gtest_main",
-    "hilog:libhilog",
-    "ipc:ipc_core",
-    "samgr:samgr_proxy",
-  ]
-
-  defines = [ "private=public" ]
 }
 
 group("unittest") {
   testonly = true
-  deps = [ ":SerialSrvClientTest" ]
+  if (serial_manager_enable_service) {
+    deps = [ ":SerialSrvClientTest" ]
+  }
 }

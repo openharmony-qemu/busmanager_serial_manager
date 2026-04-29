@@ -13,266 +13,281 @@
 
 import("../../serialmgr.gni")
 
-config("serialsrv_errcode_private_config") {
-  include_dirs = [
-    "${serial_manager_path}/interfaces/innerkits/native/include",
-    "${serial_manager_path}/utils/native/include",
-    "${serial_manager_path}/test/unittest/include",
-  ]
-}
-
-config("serialsrv_errcode_public_config") {
-  include_dirs = [
-    "${serial_manager_path}/services/native/include",
-    "${serial_manager_path}/interfaces/innerkits/native/include",
-    "${serial_manager_path}/utils/native/include",
-  ]
-}
-
-ohos_shared_library("serialservice_errcodetest") {
-  sanitize = {
-    integer_overflow = true
-    ubsan = true
-    boundary_sanitize = true
-    cfi = true
-    cfi_cross_dso = true
-    debug = false
+if (serial_manager_enable_service) {
+  config("serialsrv_errcode_private_config") {
+    include_dirs = [
+      "${serial_manager_path}/interfaces/innerkits/native/include",
+      "${serial_manager_path}/utils/native/include",
+      "${serial_manager_path}/test/unittest/include",
+    ]
   }
-  branch_protector_ret = "pac_ret"
 
-  cflags_cc = [
-    "-Wno-unused-variable",
-    "-Wno-unused-function",
-  ]
+  config("serialsrv_errcode_public_config") {
+    include_dirs = [
+      "${serial_manager_path}/services/native/include",
+      "${serial_manager_path}/interfaces/innerkits/native/include",
+      "${serial_manager_path}/utils/native/include",
+    ]
+  }
 
-  install_enable = false
-  sources = [ "serial_service_errcodetest.cpp" ]
+  ohos_shared_library("serialservice_errcodetest") {
+    sanitize = {
+      integer_overflow = true
+      ubsan = true
+      boundary_sanitize = true
+      cfi = true
+      cfi_cross_dso = true
+      debug = false
+    }
+    branch_protector_ret = "pac_ret"
 
-  configs = [ ":serialsrv_errcode_private_config" ]
+    cflags_cc = [
+      "-Wno-unused-variable",
+      "-Wno-unused-function",
+    ]
 
-  public_configs = [ ":serialsrv_errcode_public_config" ]
-  deps = [
-    "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
-    "${serial_manager_path}/utils:serial_error_code",
-  ]
+    install_enable = false
+    sources = [ "serial_service_errcodetest.cpp" ]
 
-  external_deps = [
-    "ability_base:want",
-    "ability_runtime:ability_connect_callback_stub",
-    "ability_runtime:ability_manager",
-    "access_token:libaccesstoken_sdk",
-    "access_token:libtokenid_sdk",
-    "bundle_framework:appexecfwk_base",
-    "bundle_framework:appexecfwk_core",
-    "c_utils:utils",
-    "common_event_service:cesfwk_innerkits",
-    "drivers_interface_serial:libserials_proxy_1.0",
-    "drivers_interface_serial:serials_idl_headers",
-    "hdf_core:libhdf_utils",
-    "hdf_core:libhdi",
-    "hicollie:libhicollie",
-    "hilog:libhilog",
-    "ipc:ipc_single",
-    "os_account:os_account_innerkits",
-    "relational_store:native_rdb",
-    "safwk:system_ability_fwk",
-    "samgr:samgr_proxy",
-  ]
+    configs = [ ":serialsrv_errcode_private_config" ]
 
-  shlib_type = "sa"
-  subsystem_name = "busmanager"
-  part_name = "serial_manager"
+    public_configs = [ ":serialsrv_errcode_public_config" ]
+    deps = [
+      "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
+      "${serial_manager_path}/utils:serial_error_code",
+    ]
+
+    external_deps = [
+      "ability_base:want",
+      "ability_runtime:ability_connect_callback_stub",
+      "ability_runtime:ability_manager",
+      "access_token:libaccesstoken_sdk",
+      "access_token:libtokenid_sdk",
+      "bundle_framework:appexecfwk_base",
+      "bundle_framework:appexecfwk_core",
+      "c_utils:utils",
+      "common_event_service:cesfwk_innerkits",
+      "drivers_interface_serial:libserials_proxy_1.0",
+      "drivers_interface_serial:serials_idl_headers",
+      "hdf_core:libhdf_utils",
+      "hdf_core:libhdi",
+      "hicollie:libhicollie",
+      "hilog:libhilog",
+      "ipc:ipc_single",
+      "os_account:os_account_innerkits",
+      "relational_store:native_rdb",
+      "safwk:system_ability_fwk",
+      "samgr:samgr_proxy",
+    ]
+
+    shlib_type = "sa"
+    subsystem_name = "busmanager"
+    part_name = "serial_manager"
+  }
+
+  ohos_shared_library("serialservice_paramtest") {
+    sanitize = {
+      integer_overflow = true
+      ubsan = true
+      boundary_sanitize = true
+      cfi = true
+      cfi_cross_dso = true
+      debug = false
+    }
+    branch_protector_ret = "pac_ret"
+
+    install_enable = false
+    sources = [ "serial_service_paramtest.cpp" ]
+
+    configs = [ ":serialsrv_errcode_private_config" ]
+
+    public_configs = [ ":serialsrv_errcode_public_config" ]
+    deps = [
+      "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
+      "${serial_manager_path}/utils:serial_error_code",
+    ]
+
+    external_deps = [
+      "ability_base:want",
+      "ability_runtime:ability_connect_callback_stub",
+      "ability_runtime:ability_manager",
+      "access_token:libaccesstoken_sdk",
+      "access_token:libtokenid_sdk",
+      "bundle_framework:appexecfwk_base",
+      "bundle_framework:appexecfwk_core",
+      "c_utils:utils",
+      "common_event_service:cesfwk_innerkits",
+      "drivers_interface_serial:libserials_proxy_1.0",
+      "drivers_interface_serial:serials_idl_headers",
+      "hdf_core:libhdf_utils",
+      "hdf_core:libhdi",
+      "hicollie:libhicollie",
+      "hilog:libhilog",
+      "ipc:ipc_single",
+      "os_account:os_account_innerkits",
+      "relational_store:native_rdb",
+      "safwk:system_ability_fwk",
+      "samgr:samgr_proxy",
+    ]
+
+    shlib_type = "sa"
+    subsystem_name = "busmanager"
+    part_name = "serial_manager"
+  }
+
+  ohos_shared_library("serial_service_lifecycle_test") {
+    sanitize = {
+      integer_overflow = true
+      ubsan = true
+      boundary_sanitize = true
+      cfi = true
+      cfi_cross_dso = true
+      debug = false
+    }
+    branch_protector_ret = "pac_ret"
+
+    install_enable = false
+    sources = [ "serial_service_lifecycle_test.cpp" ]
+
+    configs = [ ":serialsrv_errcode_private_config" ]
+
+    public_configs = [ ":serialsrv_errcode_public_config" ]
+    deps = [
+      "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
+      "${serial_manager_path}/utils:serial_error_code",
+    ]
+
+    external_deps = [
+      "ability_base:want",
+      "ability_runtime:ability_connect_callback_stub",
+      "ability_runtime:ability_manager",
+      "access_token:libaccesstoken_sdk",
+      "access_token:libtokenid_sdk",
+      "bundle_framework:appexecfwk_base",
+      "bundle_framework:appexecfwk_core",
+      "c_utils:utils",
+      "common_event_service:cesfwk_innerkits",
+      "drivers_interface_serial:libserials_proxy_1.0",
+      "drivers_interface_serial:serials_idl_headers",
+      "hdf_core:libhdf_utils",
+      "hdf_core:libhdi",
+      "hicollie:libhicollie",
+      "hilog:libhilog",
+      "ipc:ipc_single",
+      "os_account:os_account_innerkits",
+      "relational_store:native_rdb",
+      "safwk:system_ability_fwk",
+      "samgr:samgr_proxy",
+    ]
+
+    shlib_type = "sa"
+    subsystem_name = "busmanager"
+    part_name = "serial_manager"
+  }
+
+  ohos_shared_library("serial_service_twodevice_test") {
+    sanitize = {
+      integer_overflow = true
+      ubsan = true
+      boundary_sanitize = true
+      cfi = true
+      cfi_cross_dso = true
+      debug = false
+    }
+    branch_protector_ret = "pac_ret"
+
+    install_enable = false
+    sources = [ "serial_service_twodevice_test.cpp" ]
+
+    configs = [ ":serialsrv_errcode_private_config" ]
+
+    public_configs = [ ":serialsrv_errcode_public_config" ]
+    deps = [
+      "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
+      "${serial_manager_path}/utils:serial_error_code",
+    ]
+
+    external_deps = [
+      "ability_base:want",
+      "ability_runtime:ability_connect_callback_stub",
+      "ability_runtime:ability_manager",
+      "access_token:libaccesstoken_sdk",
+      "access_token:libtokenid_sdk",
+      "bundle_framework:appexecfwk_base",
+      "bundle_framework:appexecfwk_core",
+      "c_utils:utils",
+      "common_event_service:cesfwk_innerkits",
+      "drivers_interface_serial:libserials_proxy_1.0",
+      "drivers_interface_serial:serials_idl_headers",
+      "hdf_core:libhdf_utils",
+      "hdf_core:libhdi",
+      "hicollie:libhicollie",
+      "hilog:libhilog",
+      "ipc:ipc_single",
+      "os_account:os_account_innerkits",
+      "relational_store:native_rdb",
+      "safwk:system_ability_fwk",
+      "samgr:samgr_proxy",
+    ]
+
+    shlib_type = "sa"
+    subsystem_name = "busmanager"
+    part_name = "serial_manager"
+  }
+
+  ohos_shared_library("serialservice_authdialog_test") {
+    sanitize = {
+      integer_overflow = true
+      ubsan = true
+      boundary_sanitize = true
+      cfi = true
+      cfi_cross_dso = true
+      debug = false
+    }
+    branch_protector_ret = "pac_ret"
+
+    install_enable = false
+    sources = [ "serial_service_auth_dialog_test.cpp" ]
+
+    configs = [ ":serialsrv_errcode_private_config" ]
+
+    public_configs = [ ":serialsrv_errcode_public_config" ]
+    deps = [
+      "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
+      "${serial_manager_path}/utils:serial_error_code",
+    ]
+
+    external_deps = [
+      "ability_base:want",
+      "ability_runtime:ability_connect_callback_stub",
+      "ability_runtime:ability_manager",
+      "c_utils:utils",
+      "drivers_interface_serial:libserials_proxy_1.0",
+      "drivers_interface_serial:serials_idl_headers",
+      "hdf_core:libhdf_utils",
+      "hdf_core:libhdi",
+      "hicollie:libhicollie",
+      "hilog:libhilog",
+      "ipc:ipc_single",
+      "safwk:system_ability_fwk",
+      "samgr:samgr_proxy",
+    ]
+
+    shlib_type = "sa"
+    subsystem_name = "busmanager"
+    part_name = "serial_manager"
+  }
 }
 
-ohos_shared_library("serialservice_paramtest") {
-  sanitize = {
-    integer_overflow = true
-    ubsan = true
-    boundary_sanitize = true
-    cfi = true
-    cfi_cross_dso = true
-    debug = false
+group("develop_tests") {
+  testonly = true
+  if (serial_manager_enable_service) {
+    deps = [
+      ":serial_service_lifecycle_test",
+      ":serial_service_twodevice_test",
+      ":serialservice_authdialog_test",
+      ":serialservice_errcodetest",
+      ":serialservice_paramtest",
+    ]
   }
-  branch_protector_ret = "pac_ret"
-
-  install_enable = false
-  sources = [ "serial_service_paramtest.cpp" ]
-
-  configs = [ ":serialsrv_errcode_private_config" ]
-
-  public_configs = [ ":serialsrv_errcode_public_config" ]
-  deps = [
-    "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
-    "${serial_manager_path}/utils:serial_error_code",
-  ]
-
-  external_deps = [
-    "ability_base:want",
-    "ability_runtime:ability_connect_callback_stub",
-    "ability_runtime:ability_manager",
-    "access_token:libaccesstoken_sdk",
-    "access_token:libtokenid_sdk",
-    "bundle_framework:appexecfwk_base",
-    "bundle_framework:appexecfwk_core",
-    "c_utils:utils",
-    "common_event_service:cesfwk_innerkits",
-    "drivers_interface_serial:libserials_proxy_1.0",
-    "drivers_interface_serial:serials_idl_headers",
-    "hdf_core:libhdf_utils",
-    "hdf_core:libhdi",
-    "hicollie:libhicollie",
-    "hilog:libhilog",
-    "ipc:ipc_single",
-    "os_account:os_account_innerkits",
-    "relational_store:native_rdb",
-    "safwk:system_ability_fwk",
-    "samgr:samgr_proxy",
-  ]
-
-  shlib_type = "sa"
-  subsystem_name = "busmanager"
-  part_name = "serial_manager"
-}
-
-ohos_shared_library("serial_service_lifecycle_test") {
-  sanitize = {
-    integer_overflow = true
-    ubsan = true
-    boundary_sanitize = true
-    cfi = true
-    cfi_cross_dso = true
-    debug = false
-  }
-  branch_protector_ret = "pac_ret"
-
-  install_enable = false
-  sources = [ "serial_service_lifecycle_test.cpp" ]
-
-  configs = [ ":serialsrv_errcode_private_config" ]
-
-  public_configs = [ ":serialsrv_errcode_public_config" ]
-  deps = [
-    "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
-    "${serial_manager_path}/utils:serial_error_code",
-  ]
-
-  external_deps = [
-    "ability_base:want",
-    "ability_runtime:ability_connect_callback_stub",
-    "ability_runtime:ability_manager",
-    "access_token:libaccesstoken_sdk",
-    "access_token:libtokenid_sdk",
-    "bundle_framework:appexecfwk_base",
-    "bundle_framework:appexecfwk_core",
-    "c_utils:utils",
-    "common_event_service:cesfwk_innerkits",
-    "drivers_interface_serial:libserials_proxy_1.0",
-    "drivers_interface_serial:serials_idl_headers",
-    "hdf_core:libhdf_utils",
-    "hdf_core:libhdi",
-    "hicollie:libhicollie",
-    "hilog:libhilog",
-    "ipc:ipc_single",
-    "os_account:os_account_innerkits",
-    "relational_store:native_rdb",
-    "safwk:system_ability_fwk",
-    "samgr:samgr_proxy",
-  ]
-
-  shlib_type = "sa"
-  subsystem_name = "busmanager"
-  part_name = "serial_manager"
-}
-
-ohos_shared_library("serial_service_twodevice_test") {
-  sanitize = {
-    integer_overflow = true
-    ubsan = true
-    boundary_sanitize = true
-    cfi = true
-    cfi_cross_dso = true
-    debug = false
-  }
-  branch_protector_ret = "pac_ret"
-
-  install_enable = false
-  sources = [ "serial_service_twodevice_test.cpp" ]
-
-  configs = [ ":serialsrv_errcode_private_config" ]
-
-  public_configs = [ ":serialsrv_errcode_public_config" ]
-  deps = [
-    "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
-    "${serial_manager_path}/utils:serial_error_code",
-  ]
-
-  external_deps = [
-    "ability_base:want",
-    "ability_runtime:ability_connect_callback_stub",
-    "ability_runtime:ability_manager",
-    "access_token:libaccesstoken_sdk",
-    "access_token:libtokenid_sdk",
-    "bundle_framework:appexecfwk_base",
-    "bundle_framework:appexecfwk_core",
-    "c_utils:utils",
-    "common_event_service:cesfwk_innerkits",
-    "drivers_interface_serial:libserials_proxy_1.0",
-    "drivers_interface_serial:serials_idl_headers",
-    "hdf_core:libhdf_utils",
-    "hdf_core:libhdi",
-    "hicollie:libhicollie",
-    "hilog:libhilog",
-    "ipc:ipc_single",
-    "os_account:os_account_innerkits",
-    "relational_store:native_rdb",
-    "safwk:system_ability_fwk",
-    "samgr:samgr_proxy",
-  ]
-
-  shlib_type = "sa"
-  subsystem_name = "busmanager"
-  part_name = "serial_manager"
-}
-
-ohos_shared_library("serialservice_authdialog_test") {
-  sanitize = {
-    integer_overflow = true
-    ubsan = true
-    boundary_sanitize = true
-    cfi = true
-    cfi_cross_dso = true
-    debug = false
-  }
-  branch_protector_ret = "pac_ret"
-
-  install_enable = false
-  sources = [ "serial_service_auth_dialog_test.cpp" ]
-
-  configs = [ ":serialsrv_errcode_private_config" ]
-
-  public_configs = [ ":serialsrv_errcode_public_config" ]
-  deps = [
-    "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
-    "${serial_manager_path}/utils:serial_error_code",
-  ]
-
-  external_deps = [
-    "ability_base:want",
-    "ability_runtime:ability_connect_callback_stub",
-    "ability_runtime:ability_manager",
-    "c_utils:utils",
-    "drivers_interface_serial:libserials_proxy_1.0",
-    "drivers_interface_serial:serials_idl_headers",
-    "hdf_core:libhdf_utils",
-    "hdf_core:libhdi",
-    "hicollie:libhicollie",
-    "hilog:libhilog",
-    "ipc:ipc_single",
-    "safwk:system_ability_fwk",
-    "samgr:samgr_proxy",
-  ]
-
-  shlib_type = "sa"
-  subsystem_name = "busmanager"
-  part_name = "serial_manager"
 }

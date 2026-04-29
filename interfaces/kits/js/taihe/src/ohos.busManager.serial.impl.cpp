@@ -465,8 +465,8 @@ public:
     {
         SERIAL_HILOGI(MODULE_TAIHE, "close start, portName=%{public}s", portName_.c_str());
         RemoveAllCallbacksForPort(portName_);
-        isOpened_ = false;
         int32_t ret = g_serialClient.CloseSerial(portName_);
+        isOpened_ = false;
         if (ret == SERIAL_OK) {
             SERIAL_HILOGI(MODULE_TAIHE, "close finish.");
             return;
