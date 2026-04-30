@@ -134,17 +134,15 @@ struct SerialAddPortAuthAsyncContext : AsyncCallbackContext {
 };
 
 struct CallbackData {
-    std::string portName;
     std::vector<uint8_t> data;
     napi_ref callbackRef;
-    napi_env env;
-    napi_async_work asyncWork;
 };
 
 struct CallbackInfo {
     napi_ref callbackRef;
     napi_env env;
     ListenerHandle listenerHandle;
+    napi_threadsafe_function tsfn;
 };
 
 static std::mutex g_callbackMutex;
@@ -172,12 +170,14 @@ static bool IsSerialPortInfoEqual(const SerialPortInfo& a, const SerialPortInfo&
 static void RemoveAllListenersForPort(napi_env env, const std::string& portName)
 {
     std::vector<std::pair<napi_ref, ListenerHandle>> refsAndHandles;
+    std::vector<napi_threadsafe_function> tsfnsToRelease;
     {
         std::lock_guard<std::mutex> lock(g_callbackMutex);
         auto portIt = g_dataCallbacks.find(portName);
         if (portIt != g_dataCallbacks.end()) {
             for (auto& pair : portIt->second) {
                 refsAndHandles.push_back({pair.second.callbackRef, pair.second.listenerHandle});
+                tsfnsToRelease.push_back(pair.second.tsfn);
             }
             g_dataCallbacks.erase(portIt);
         }
@@ -187,6 +187,9 @@ static void RemoveAllListenersForPort(napi_env env, const std::string& portName)
     }
     for (auto& rh : refsAndHandles) {
         napi_delete_reference(env, rh.first);
+    }
+    for (auto& tsfn : tsfnsToRelease) {
+        napi_release_threadsafe_function(tsfn, napi_tsfn_release);
     }
 }
 
@@ -1023,44 +1026,57 @@ static napi_value SerialWriteNapi(napi_env env, napi_callback_info info)
     return promise;
 }
 
-static std::function<void(const std::vector<uint8_t>&)> CreateDataReadCallback(
-    const std::string& portName, napi_ref callbackRef, napi_env env)
+static void TsfnFinalize(napi_env env, void* finalizeData, void* hint)
 {
-    return [portName, callbackRef, env](const std::vector<uint8_t>& data) {
+    auto* pendingQueue = static_cast<std::queue<CallbackData*>*>(finalizeData);
+    while (!pendingQueue->empty()) {
+        delete pendingQueue->front();
+        pendingQueue->pop();
+    }
+    delete pendingQueue;
+}
+
+static void CallJsCallback(napi_env env, napi_value jsCb, void* context, void* data)
+{
+    if (data == nullptr) {
+        return;
+    }
+    CallbackData* callbackData = static_cast<CallbackData*>(data);
+    InvokeJsCallback(env, callbackData->callbackRef, callbackData->data);
+    delete callbackData;
+}
+
+static std::function<void(const std::vector<uint8_t>&)> CreateDataReadCallback(
+    napi_ref callbackRef, napi_env env, napi_threadsafe_function tsfn)
+{
+    return [callbackRef, tsfn](const std::vector<uint8_t>& data) {
         CallbackData* callbackData = new CallbackData();
-        callbackData->portName = portName;
         callbackData->data = data;
         callbackData->callbackRef = callbackRef;
-        callbackData->env = env;
 
-        napi_value resourceName = nullptr;
-        napi_create_string_utf8(env, "dataReadCallback", NAPI_AUTO_LENGTH, &resourceName);
-
-        napi_async_work asyncWork = nullptr;
-        napi_create_async_work(
-            env, nullptr, resourceName, [](napi_env env, void* data) {},
-            [](napi_env env, napi_status status, void* data) {
-                CallbackData* callbackData = static_cast<CallbackData*>(data);
-                InvokeJsCallback(callbackData->env, callbackData->callbackRef, callbackData->data);
-                napi_delete_async_work(env, callbackData->asyncWork);
-                delete callbackData;
-            },
-            callbackData, &asyncWork);
-
-        callbackData->asyncWork = asyncWork;
-
-        if (asyncWork != nullptr) {
-            napi_status qStatus = napi_queue_async_work(env, asyncWork);
-            if (qStatus != napi_ok) {
-                SERIAL_HILOGE(MODULE_JS_NAPI, "[DataReadCallback] queue async work failed");
-                napi_delete_async_work(env, asyncWork);
-                delete callbackData;
-            }
-        } else {
-            SERIAL_HILOGE(MODULE_JS_NAPI, "[DataReadCallback] Failed to create async work");
+        napi_status status = napi_call_threadsafe_function(tsfn, callbackData, napi_tsfn_nonblocking);
+        if (status != napi_ok) {
+            SERIAL_HILOGE(MODULE_JS_NAPI, "[DataReadCallback] napi_call_threadsafe_function failed");
             delete callbackData;
         }
     };
+}
+
+static napi_threadsafe_function CreateThreadSafeFunction(napi_env env)
+{
+    napi_value resourceName = nullptr;
+    napi_create_string_utf8(env, "dataReadCallback", NAPI_AUTO_LENGTH, &resourceName);
+
+    auto* pendingQueue = new std::queue<CallbackData*>();
+
+    napi_threadsafe_function tsfn = nullptr;
+    napi_create_threadsafe_function(
+        env, nullptr, nullptr, resourceName, 0, 1, pendingQueue, TsfnFinalize, nullptr, CallJsCallback, &tsfn);
+    if (tsfn == nullptr) {
+        SERIAL_HILOGE(MODULE_JS_NAPI, "[CreateThreadSafeFunction] napi_create_threadsafe_function failed");
+        delete pendingQueue;
+    }
+    return tsfn;
 }
 
 static bool ValidateOnDataReadArgs(napi_env env, size_t argc, napi_value argv[])
@@ -1101,12 +1117,21 @@ static bool IsCallbackAlreadyRegistered(napi_env env, const std::string& portNam
 
 static bool RegisterOnDataReadListener(napi_env env, const std::string& portName, napi_ref callbackRef)
 {
-    auto callback = CreateDataReadCallback(portName, callbackRef, env);
+    napi_threadsafe_function tsfn = CreateThreadSafeFunction(env);
+    if (tsfn == nullptr) {
+        SERIAL_HILOGE(MODULE_JS_NAPI, "[SerialOnDataRead] CreateThreadSafeFunction failed");
+        napi_delete_reference(env, callbackRef);
+        ThrowBusinessError(env, SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
+        return false;
+    }
+
+    auto callback = CreateDataReadCallback(callbackRef, env, tsfn);
 
     ListenerHandle listenerHandle = INVALID_LISTENER_HANDLE;
     int32_t regRet = g_serialClient.RegisterDataListener(portName, callback, listenerHandle);
     if (regRet != SERIAL_OK || listenerHandle == INVALID_LISTENER_HANDLE) {
         SERIAL_HILOGE(MODULE_JS_NAPI, "[SerialOnDataRead] RegisterDataListener failed, ret=%{public}d", regRet);
+        napi_release_threadsafe_function(tsfn, napi_tsfn_release);
         napi_delete_reference(env, callbackRef);
         ThrowBusinessError(env, regRet, SerialJsErrorMessage(regRet));
         return false;
@@ -1114,7 +1139,7 @@ static bool RegisterOnDataReadListener(napi_env env, const std::string& portName
 
     {
         std::lock_guard<std::mutex> lock(g_callbackMutex);
-        CallbackInfo cbInfo = {callbackRef, env, listenerHandle};
+        CallbackInfo cbInfo = {callbackRef, env, listenerHandle, tsfn};
         g_dataCallbacks[portName][callbackRef] = cbInfo;
     }
 
@@ -1172,11 +1197,12 @@ static napi_value SerialOnDataReadNapi(napi_env env, napi_callback_info info)
 struct FoundListener {
     ListenerHandle handle;
     napi_ref callbackRef;
+    napi_threadsafe_function tsfn;
 };
 
 static FoundListener FindAndRemoveSpecificListener(napi_env env, const std::string& portName, napi_value jsCallback)
 {
-    FoundListener result = {INVALID_LISTENER_HANDLE, nullptr};
+    FoundListener result = {INVALID_LISTENER_HANDLE, nullptr, nullptr};
     std::lock_guard<std::mutex> lock(g_callbackMutex);
     auto portIt = g_dataCallbacks.find(portName);
     if (portIt == g_dataCallbacks.end()) {
@@ -1193,6 +1219,7 @@ static FoundListener FindAndRemoveSpecificListener(napi_env env, const std::stri
         if (isEqual) {
             result.handle = it->second.listenerHandle;
             result.callbackRef = it->first;
+            result.tsfn = it->second.tsfn;
             break;
         }
     }
@@ -1220,12 +1247,14 @@ static bool UnregisterListenerChecked(napi_env env, const std::string& portName,
 static napi_value RemoveAllListenersChecked(napi_env env, const std::string& portName)
 {
     std::vector<std::pair<napi_ref, ListenerHandle>> refsAndHandles;
+    std::vector<napi_threadsafe_function> tsfnsToRelease;
     {
         std::lock_guard<std::mutex> lock(g_callbackMutex);
         auto portIt = g_dataCallbacks.find(portName);
         if (portIt != g_dataCallbacks.end()) {
             for (auto& pair : portIt->second) {
                 refsAndHandles.push_back({pair.second.callbackRef, pair.second.listenerHandle});
+                tsfnsToRelease.push_back(pair.second.tsfn);
             }
             g_dataCallbacks.erase(portIt);
         }
@@ -1237,6 +1266,9 @@ static napi_value RemoveAllListenersChecked(napi_env env, const std::string& por
     }
     for (auto& rh : refsAndHandles) {
         napi_delete_reference(env, rh.first);
+    }
+    for (auto& tsfn : tsfnsToRelease) {
+        napi_release_threadsafe_function(tsfn, napi_tsfn_release);
     }
     SERIAL_HILOGI(MODULE_JS_NAPI, "offDataRead all callbacks for portName=%{public}s", portName.c_str());
     napi_value undefined = nullptr;
@@ -1289,6 +1321,9 @@ static napi_value SerialOffDataReadNapi(napi_env env, napi_callback_info info)
 
     if (found.callbackRef != nullptr) {
         napi_delete_reference(env, found.callbackRef);
+    }
+    if (found.tsfn != nullptr) {
+        napi_release_threadsafe_function(found.tsfn, napi_tsfn_release);
     }
 
     napi_value undefined = nullptr;
