@@ -13,9 +13,7 @@
   "component": {
     "name": "serial_manager",
     "subsystem": "busmanager",
-    "features": [
-      "serial_manager_enable_service"
-    ],
+    "features": [],
     "syscap": [
       "SystemCapability.BusManager.Serial"
     ],
