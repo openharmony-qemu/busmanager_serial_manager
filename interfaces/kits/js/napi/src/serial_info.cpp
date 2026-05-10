@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
@@ -417,8 +418,8 @@ static napi_value RestoreInvalidatedPort(napi_env env, const SerialPortInfo& dev
         napi_value jsObj = nullptr;
         napi_get_reference_value(env, native->objectRef, &jsObj);
         if (jsObj != nullptr) {
-            SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] RESTORE: portName=%{public}s, ptr=%{public}p",
-                deviceInfo.portName.c_str(), native);
+            SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] RESTORE: portName=%{public}s, ptr=0x%{public}04x",
+                deviceInfo.portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
             napi_delete_reference(env, native->objectRef);
             napi_create_reference(env, jsObj, NAPI_REF_COUNT_STRONG, &native->objectRef);
             native->invalidated = false;
@@ -427,8 +428,9 @@ static napi_value RestoreInvalidatedPort(napi_env env, const SerialPortInfo& dev
             return jsObj;
         }
 
-        SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] GC(detected in restore check): portName=%{public}s, ptr=%{public}p",
-            native->portName.c_str(), native);
+        SERIAL_HILOGI(MODULE_JS_NAPI,
+            "[LIFECYCLE] GC(detected in restore check): portName=%{public}s, ptr=0x%{public}04x",
+            native->portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
         napi_delete_reference(env, native->objectRef);
         delete native;
         it = g_invalidatedPorts.erase(it);
@@ -441,8 +443,9 @@ static void InvalidateDisappearedPorts(napi_env env, const std::set<std::string>
     for (auto it = g_activePorts.begin(); it != g_activePorts.end();) {
         if (activePortNames.find(it->first) == activePortNames.end()) {
             SerialPortNative* native = it->second;
-            SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] INVALIDATE(disappeared): portName=%{public}s, ptr=%{public}p",
-                native->portName.c_str(), native);
+            SERIAL_HILOGI(MODULE_JS_NAPI,
+                "[LIFECYCLE] INVALIDATE(disappeared): portName=%{public}s, ptr=0x%{public}04x",
+                native->portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
             InvalidatePort(env, native);
             it = g_activePorts.erase(it);
         } else {
@@ -464,16 +467,16 @@ static bool TryReuseActivePort(napi_env env, const SerialPortInfo& deviceInfo, u
         napi_value serialPortObj = nullptr;
         napi_get_reference_value(env, native->objectRef, &serialPortObj);
         if (serialPortObj != nullptr) {
-            SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] REUSE(active): portName=%{public}s, ptr=%{public}p",
-                deviceInfo.portName.c_str(), native);
+            SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] REUSE(active): portName=%{public}s, ptr=0x%{public}04x",
+                deviceInfo.portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
             activePortNames.insert(deviceInfo.portName);
             napi_set_element(env, result, index, serialPortObj);
             return true;
         }
     }
 
-    SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] INVALIDATE: portName=%{public}s, ptr=%{public}p (info changed)",
-        deviceInfo.portName.c_str(), native);
+    SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] INVALIDATE: portName=%{public}s, ptr=0x%{public}04x (info changed)",
+        deviceInfo.portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
     InvalidatePort(env, native);
     g_activePorts.erase(activeIt);
     return false;

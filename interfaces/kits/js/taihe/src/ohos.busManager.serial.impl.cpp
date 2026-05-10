@@ -17,6 +17,8 @@
 #include "ohos.busManager.serial.proj.hpp"
 #include "taihe/runtime.hpp"
 
+#include <cstdint>
+
 #include "hilog_wrapper.h"
 #include "interop_js/arkts_interop_js_api.h"
 #include "napi/native_api.h"
@@ -93,7 +95,8 @@ void EnsureNapiEnvStored()
         return;
     }
     g_napiEnv = napiEnv;
-    SERIAL_HILOGI(MODULE_TAIHE, "EnsureNapiEnvStored stored napiEnv=%{public}p", napiEnv);
+    SERIAL_HILOGI(MODULE_TAIHE, "EnsureNapiEnvStored stored napiEnv=0x%{public}04x",
+        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(napiEnv) & 0xFFFF));
 }
 
 napi_env GetNapiEnv()
