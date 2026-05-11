@@ -51,7 +51,6 @@ enum SerialMgrSubModule {
     MODULE_JS_NAPI,
     MODULE_TAIHE,
     SERIALMGR_MODULE_BUTT,
-    MODULE_UTILS,
 };
 
 constexpr unsigned int BASE_SERIAL_DOMAIN_ID = 0xD002A08;

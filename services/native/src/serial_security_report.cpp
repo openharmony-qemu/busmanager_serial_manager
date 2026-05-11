@@ -23,7 +23,7 @@
 #endif // SECURITY_GUARD_ENABLE
 
 namespace OHOS {
-namespace USB {
+namespace Serial {
     
 uint64_t SerialSecurityReport::GetCurrentTime()
 {
@@ -40,15 +40,15 @@ void SerialSecurityReport::ReportSecurityInfo(int64_t eventId, std::string versi
         (void)Security::SecurityGuard::NativeDataCollectKit::ReportSecurityInfoAsync(eventInfo);
     } else {
         int32_t ret = Security::SecurityGuard::NativeDataCollectKit::ReportSecurityInfo(eventInfo);
-        if (ret != UEC_OK) {
-            SERIAL_HILOGE(MODULE_UTILS, "%{public}s: failed to report security with ret = %{public}d",
+        if (ret != SERIAL_OK) {
+            SERIAL_HILOGE(MODULE_SERVICE, "%{public}s: failed to report security with ret = %{public}d",
                 __func__, ret);
         }
     }
 #else
-    SERIAL_HILOGD(MODULE_UTILS, "%{public}s: Security Guard not enabled", __func__);
+    SERIAL_HILOGD(MODULE_SERVICE, "%{public}s: Security Guard not enabled", __func__);
 #endif // SECURITY_GUARD_ENABLE
 }
 
-} // USB
+} // Serial
 } // namespace OHOS
