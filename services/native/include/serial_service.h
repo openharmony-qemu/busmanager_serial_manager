@@ -22,12 +22,13 @@
 #include <mutex>
 #include <string>
 #include <vector>
-#include <chrono>
+#include <charconv>
 #include <ipc_skeleton.h>
 
 #include "iremote_object.h"
 #include "iserial_service_callback.h"
 #include "serial_right_manager.h"
+#include "serial_security_report.h"
 #include "serial_server_stub.h"
 #include "system_ability.h"
 #include "system_ability_ondemand_reason.h"
@@ -98,7 +99,7 @@ public:
     SerialService(int32_t systemAbilityId, bool runOnCreate);
     ~SerialService() override;
 
-    void OnStart() override;
+    void OnStart(const OHOS::SystemAbilityOnDemandReason &startReason) override;
     void OnStop() override;
     int32_t OnIdle(const SystemAbilityOnDemandReason& idleReason) override;
     int Dump(int fd, const std::vector<std::u16string>& args) override;
@@ -121,6 +122,8 @@ public:
     void OnClientDied(const std::string& portName);
     int32_t OnRemoteRequest(uint32_t code, MessageParcel& data, MessageParcel& reply, MessageOption& option) override;
 
+    static sptr<SerialService> GetGlobalInstance();
+
 private:
     void InitHdiProxy();
     void InitCommonEventSubscriber();
@@ -130,15 +133,15 @@ private:
     std::string FindPortNameForDevice(const SerialPortInfo& portInfo);
 
     bool IsUsbSerial(const std::string& portName);
-    void SetSerialManagePolicy(const std::string& portType, bool disable);
+    void SetSerialManagePolicy(bool disable);
     void ReportSerialOperationAudit(const std::string& portName, const std::string& operationType);
+    void ReportSerialManageAuditEvent(const std::string& portType, bool disable);
 
     bool QueryAndRecordFirstRead(const std::string& portName);
     bool QueryAndRecordFirstWrite(const std::string& portName);
     void ResetFirstRead(const std::string& portName);
     void ResetFirstWrite(const std::string& portName);
 
-    int32_t GetCallingUserId();
     std::string GetCallingBundleName();
     std::string GetCallingTokenId();
     bool CheckSerialPortRight(const std::string& portName, const std::string& productName);
@@ -180,6 +183,7 @@ private:
     static constexpr uint32_t UNLOAD_SA_DELAY_MS = 30000;
 
     bool isRs232Disabled_ = false;
+    bool reportManageFlag_ = false;
     std::unordered_set<std::string> portsHasBeenRead_;
     std::unordered_set<std::string> portsHasBeenWritten_;
     std::mutex readStatusMutex_;
