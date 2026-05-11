@@ -648,22 +648,6 @@ static bool GetPortNameFromThisVar(napi_env env, napi_value thisVar, std::string
     return false;
 }
 
-static void GetBoolProperty(napi_env env, napi_value obj, const char* name, bool& out, bool defaultValue)
-{
-    napi_value value;
-    if (napi_get_named_property(env, obj, name, &value) == napi_ok) {
-        napi_valuetype type;
-        napi_typeof(env, value, &type);
-        if (type == napi_boolean) {
-            napi_get_value_bool(env, value, &out);
-        } else {
-            out = defaultValue;
-        }
-    } else {
-        out = defaultValue;
-    }
-}
-
 static bool IsStrictInteger(napi_env env, napi_value value)
 {
     double doubleVal = 0;
@@ -692,6 +676,51 @@ static bool GetStrictInt32Property(napi_env env, napi_value obj, const char* nam
         out = defaultValue;
     }
     return true;
+}
+
+static void GetPortInfoFromThisVar(napi_env env, napi_value thisVar, SerialPortInfo& portInfo)
+{
+    napi_value portInfoObj = nullptr;
+    if (thisVar == nullptr || napi_get_named_property(env, thisVar, "portInfo", &portInfoObj) != napi_ok) {
+        return;
+    }
+    napi_valuetype type = napi_undefined;
+    napi_typeof(env, portInfoObj, &type);
+    if (type != napi_object) {
+        return;
+    }
+
+    GetStrictInt32Property(env, portInfoObj, "productId", portInfo.productId, 0);
+    GetStrictInt32Property(env, portInfoObj, "vendorId", portInfo.vendorId, 0);
+
+    napi_value manufacturerValue = nullptr;
+    if (napi_get_named_property(env, portInfoObj, "manufacturer", &manufacturerValue) == napi_ok) {
+        napi_valuetype strType = napi_undefined;
+        napi_typeof(env, manufacturerValue, &strType);
+        if (strType == napi_string) {
+            char buf[PORT_NAME_BUF_SIZE] = {0};
+            size_t len = 0;
+            if (napi_get_value_string_utf8(env, manufacturerValue, buf, sizeof(buf), &len) == napi_ok) {
+                portInfo.manufacturer = std::string(buf, len);
+            }
+        }
+    }
+}
+
+static void GetBoolProperty(napi_env env, napi_value obj, const char* name, bool& out, bool defaultValue)
+{
+    napi_value value;
+    if (napi_get_named_property(env, obj, name, &value) == napi_ok) {
+        napi_valuetype type;
+        napi_typeof(env, value, &type);
+        if (type == napi_boolean) {
+            napi_get_value_bool(env, value, &out);
+        } else {
+            out = defaultValue;
+        }
+    } else {
+        out = defaultValue;
+    }
 }
 
 static int32_t ParseParityString(const std::string& parityStr)
@@ -797,6 +826,7 @@ static napi_value SerialOpenNapi(napi_env env, napi_callback_info info)
     context->asyncWork = nullptr;
 
     GetPortNameFromThisVar(env, thisVar, context->portInfo.portName);
+    GetPortInfoFromThisVar(env, thisVar, context->portInfo);
 
     if (argc >= 1) {
         napi_valuetype paramType;
