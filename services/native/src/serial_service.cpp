@@ -1396,7 +1396,7 @@ bool SerialService::QueryAndRecordFirstRead(const std::string& portName)
 
 bool SerialService::QueryAndRecordFirstWrite(const std::string& portName)
 {
-    std::lock_guard lock(readStatusMutex_);
+    std::lock_guard lock(writeStatusMutex_);
     return portsHasBeenWritten_.insert(portName).second; // return true if not write before
 }
 
