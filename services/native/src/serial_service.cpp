@@ -45,6 +45,7 @@ namespace Serial {
 constexpr uint8_t ASCII_PRINTABLE_MIN = 32;
 constexpr uint8_t ASCII_PRINTABLE_MAX = 126;
 constexpr int HEX_WIDTH = 2;
+constexpr const char *RS232_MDM_PARAM = "persist.edm.rs232_serial_disable";
 constexpr const char *PORT_ID_CHARS = "0123456789";
 sptr<SerialService> g_serviceInstance = nullptr;
 
@@ -160,11 +161,12 @@ void SerialService::OnStart(const OHOS::SystemAbilityOnDemandReason &startReason
     }
     g_serviceInstance = this;
 
-    // Load & watch enterprise policy
-    if (startReason.GetId() == OnDemandReasonId::PARAM) {
+    if (OHOS::system::GetParameter(RS232_MDM_PARAM, "") == "" || startReason.GetId() == OnDemandReasonId::PARAM) {
+        // 1. not set before; 2. SA launched due to the param;
         this->reportManageFlag_ = true;
     }
-    auto watchRet = WatchParameter("persist.edm.rs232_serial_disable",
+    // Load & watch enterprise policy
+    auto watchRet = WatchParameter(RS232_MDM_PARAM,
         [](const char *key, const char *value, void *context) {
             if (key == nullptr || value == nullptr) {
                 SERIAL_HILOGE(MODULE_SERVICE, "param null pointer");
@@ -176,11 +178,11 @@ void SerialService::OnStart(const OHOS::SystemAbilityOnDemandReason &startReason
                 g_serviceInstance->SetSerialManagePolicy(disable);
                 g_serviceInstance->ReportSerialManageAuditEvent("RS232", disable);
             } else {
-                SERIAL_HILOGE(MODULE_SERVICE, "rs232_serial_disable parameter watch callback failed.");
+                SERIAL_HILOGE(MODULE_SERVICE, "%{public}s parameter watch callback failed.", RS232_MDM_PARAM);
             }
         }, this);
     if (watchRet != SERIAL_OK) {
-        SERIAL_HILOGE(MODULE_SERVICE, "failed to watch rs232_serial_disable parameter");
+        SERIAL_HILOGE(MODULE_SERVICE, "failed to watch %{public}s", RS232_MDM_PARAM);
     }
 
     // Initialize HDI proxy
