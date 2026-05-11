@@ -651,6 +651,22 @@ static bool GetPortNameFromThisVar(napi_env env, napi_value thisVar, std::string
     return false;
 }
 
+static void GetBoolProperty(napi_env env, napi_value obj, const char* name, bool& out, bool defaultValue)
+{
+    napi_value value;
+    if (napi_get_named_property(env, obj, name, &value) == napi_ok) {
+        napi_valuetype type;
+        napi_typeof(env, value, &type);
+        if (type == napi_boolean) {
+            napi_get_value_bool(env, value, &out);
+        } else {
+            out = defaultValue;
+        }
+    } else {
+        out = defaultValue;
+    }
+}
+
 static bool IsStrictInteger(napi_env env, napi_value value)
 {
     double doubleVal = 0;
@@ -707,22 +723,6 @@ static void GetPortInfoFromThisVar(napi_env env, napi_value thisVar, SerialPortI
                 portInfo.manufacturer = std::string(buf, len);
             }
         }
-    }
-}
-
-static void GetBoolProperty(napi_env env, napi_value obj, const char* name, bool& out, bool defaultValue)
-{
-    napi_value value;
-    if (napi_get_named_property(env, obj, name, &value) == napi_ok) {
-        napi_valuetype type;
-        napi_typeof(env, value, &type);
-        if (type == napi_boolean) {
-            napi_get_value_bool(env, value, &out);
-        } else {
-            out = defaultValue;
-        }
-    } else {
-        out = defaultValue;
     }
 }
 
