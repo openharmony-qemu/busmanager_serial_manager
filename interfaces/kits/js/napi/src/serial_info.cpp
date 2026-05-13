@@ -186,11 +186,11 @@ static void RemoveAllListenersForPort(napi_env env, const std::string& portName)
     for (auto& rh : refsAndHandles) {
         g_serialClient.UnregisterDataListener(portName, rh.second);
     }
+    for (auto& tsfn : tsfnsToRelease) {
+        napi_release_threadsafe_function(tsfn, napi_tsfn_abort);
+    }
     for (auto& rh : refsAndHandles) {
         napi_delete_reference(env, rh.first);
-    }
-    for (auto& tsfn : tsfnsToRelease) {
-        napi_release_threadsafe_function(tsfn, napi_tsfn_release);
     }
 }
 
@@ -274,15 +274,8 @@ static bool CheckPortOpened(napi_env env, napi_value thisVar)
     return true;
 }
 
-static void InvokeJsCallback(napi_env env, napi_ref callbackRef, const std::vector<uint8_t>& data)
+static void InvokeJsCallbackWith(napi_env env, napi_value jsCallback, const std::vector<uint8_t>& data)
 {
-    napi_value jsCallback = nullptr;
-    napi_get_reference_value(env, callbackRef, &jsCallback);
-    if (jsCallback == nullptr) {
-        SERIAL_HILOGE(MODULE_JS_NAPI, "[InvokeJsCallback] Failed to get callback reference");
-        return;
-    }
-
     napi_value undefined = nullptr;
     napi_get_undefined(env, &undefined);
 
@@ -1071,11 +1064,21 @@ static void TsfnFinalize(napi_env env, void* finalizeData, void* hint)
 
 static void CallJsCallback(napi_env env, napi_value jsCb, void* context, void* data)
 {
-    if (data == nullptr) {
+    if (env == nullptr || data == nullptr) {
+        if (data != nullptr) {
+            delete static_cast<CallbackData*>(data);
+        }
         return;
     }
     CallbackData* callbackData = static_cast<CallbackData*>(data);
-    InvokeJsCallback(env, callbackData->callbackRef, callbackData->data);
+    napi_value jsCallback = nullptr;
+    napi_status status = napi_get_reference_value(env, callbackData->callbackRef, &jsCallback);
+    if (status != napi_ok || jsCallback == nullptr) {
+        SERIAL_HILOGE(MODULE_JS_NAPI, "[CallJsCallback] callbackRef already deleted, dropping data");
+        delete callbackData;
+        return;
+    }
+    InvokeJsCallbackWith(env, jsCallback, callbackData->data);
     delete callbackData;
 }
 
@@ -1297,11 +1300,11 @@ static napi_value RemoveAllListenersChecked(napi_env env, const std::string& por
             return nullptr;
         }
     }
+    for (auto& tsfn : tsfnsToRelease) {
+        napi_release_threadsafe_function(tsfn, napi_tsfn_abort);
+    }
     for (auto& rh : refsAndHandles) {
         napi_delete_reference(env, rh.first);
-    }
-    for (auto& tsfn : tsfnsToRelease) {
-        napi_release_threadsafe_function(tsfn, napi_tsfn_release);
     }
     SERIAL_HILOGI(MODULE_JS_NAPI, "offDataRead all callbacks for portName=%{public}s", portName.c_str());
     napi_value undefined = nullptr;
@@ -1352,11 +1355,11 @@ static napi_value SerialOffDataReadNapi(napi_env env, napi_callback_info info)
             MODULE_JS_NAPI, "[SerialOffDataRead] Callback not found for portName=%{public}s", portName.c_str());
     }
 
+    if (found.tsfn != nullptr) {
+        napi_release_threadsafe_function(found.tsfn, napi_tsfn_abort);
+    }
     if (found.callbackRef != nullptr) {
         napi_delete_reference(env, found.callbackRef);
-    }
-    if (found.tsfn != nullptr) {
-        napi_release_threadsafe_function(found.tsfn, napi_tsfn_release);
     }
 
     napi_value undefined = nullptr;
