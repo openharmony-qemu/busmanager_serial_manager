@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
@@ -185,11 +186,11 @@ static void RemoveAllListenersForPort(napi_env env, const std::string& portName)
     for (auto& rh : refsAndHandles) {
         g_serialClient.UnregisterDataListener(portName, rh.second);
     }
+    for (auto& tsfn : tsfnsToRelease) {
+        napi_release_threadsafe_function(tsfn, napi_tsfn_abort);
+    }
     for (auto& rh : refsAndHandles) {
         napi_delete_reference(env, rh.first);
-    }
-    for (auto& tsfn : tsfnsToRelease) {
-        napi_release_threadsafe_function(tsfn, napi_tsfn_release);
     }
 }
 
@@ -273,15 +274,8 @@ static bool CheckPortOpened(napi_env env, napi_value thisVar)
     return true;
 }
 
-static void InvokeJsCallback(napi_env env, napi_ref callbackRef, const std::vector<uint8_t>& data)
+static void InvokeJsCallbackWith(napi_env env, napi_value jsCallback, const std::vector<uint8_t>& data)
 {
-    napi_value jsCallback = nullptr;
-    napi_get_reference_value(env, callbackRef, &jsCallback);
-    if (jsCallback == nullptr) {
-        SERIAL_HILOGE(MODULE_JS_NAPI, "[InvokeJsCallback] Failed to get callback reference");
-        return;
-    }
-
     napi_value undefined = nullptr;
     napi_get_undefined(env, &undefined);
 
@@ -417,8 +411,8 @@ static napi_value RestoreInvalidatedPort(napi_env env, const SerialPortInfo& dev
         napi_value jsObj = nullptr;
         napi_get_reference_value(env, native->objectRef, &jsObj);
         if (jsObj != nullptr) {
-            SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] RESTORE: portName=%{public}s, ptr=%{public}p",
-                deviceInfo.portName.c_str(), native);
+            SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] RESTORE: portName=%{public}s, ptr=0x%{public}04x",
+                deviceInfo.portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
             napi_delete_reference(env, native->objectRef);
             napi_create_reference(env, jsObj, NAPI_REF_COUNT_STRONG, &native->objectRef);
             native->invalidated = false;
@@ -427,8 +421,9 @@ static napi_value RestoreInvalidatedPort(napi_env env, const SerialPortInfo& dev
             return jsObj;
         }
 
-        SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] GC(detected in restore check): portName=%{public}s, ptr=%{public}p",
-            native->portName.c_str(), native);
+        SERIAL_HILOGI(MODULE_JS_NAPI,
+            "[LIFECYCLE] GC(detected in restore check): portName=%{public}s, ptr=0x%{public}04x",
+            native->portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
         napi_delete_reference(env, native->objectRef);
         delete native;
         it = g_invalidatedPorts.erase(it);
@@ -441,8 +436,9 @@ static void InvalidateDisappearedPorts(napi_env env, const std::set<std::string>
     for (auto it = g_activePorts.begin(); it != g_activePorts.end();) {
         if (activePortNames.find(it->first) == activePortNames.end()) {
             SerialPortNative* native = it->second;
-            SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] INVALIDATE(disappeared): portName=%{public}s, ptr=%{public}p",
-                native->portName.c_str(), native);
+            SERIAL_HILOGI(MODULE_JS_NAPI,
+                "[LIFECYCLE] INVALIDATE(disappeared): portName=%{public}s, ptr=0x%{public}04x",
+                native->portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
             InvalidatePort(env, native);
             it = g_activePorts.erase(it);
         } else {
@@ -464,16 +460,16 @@ static bool TryReuseActivePort(napi_env env, const SerialPortInfo& deviceInfo, u
         napi_value serialPortObj = nullptr;
         napi_get_reference_value(env, native->objectRef, &serialPortObj);
         if (serialPortObj != nullptr) {
-            SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] REUSE(active): portName=%{public}s, ptr=%{public}p",
-                deviceInfo.portName.c_str(), native);
+            SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] REUSE(active): portName=%{public}s, ptr=0x%{public}04x",
+                deviceInfo.portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
             activePortNames.insert(deviceInfo.portName);
             napi_set_element(env, result, index, serialPortObj);
             return true;
         }
     }
 
-    SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] INVALIDATE: portName=%{public}s, ptr=%{public}p (info changed)",
-        deviceInfo.portName.c_str(), native);
+    SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] INVALIDATE: portName=%{public}s, ptr=0x%{public}04x (info changed)",
+        deviceInfo.portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
     InvalidatePort(env, native);
     g_activePorts.erase(activeIt);
     return false;
@@ -694,6 +690,35 @@ static bool GetStrictInt32Property(napi_env env, napi_value obj, const char* nam
     return true;
 }
 
+static void GetPortInfoFromThisVar(napi_env env, napi_value thisVar, SerialPortInfo& portInfo)
+{
+    napi_value portInfoObj = nullptr;
+    if (thisVar == nullptr || napi_get_named_property(env, thisVar, "portInfo", &portInfoObj) != napi_ok) {
+        return;
+    }
+    napi_valuetype type = napi_undefined;
+    napi_typeof(env, portInfoObj, &type);
+    if (type != napi_object) {
+        return;
+    }
+
+    GetStrictInt32Property(env, portInfoObj, "productId", portInfo.productId, 0);
+    GetStrictInt32Property(env, portInfoObj, "vendorId", portInfo.vendorId, 0);
+
+    napi_value manufacturerValue = nullptr;
+    if (napi_get_named_property(env, portInfoObj, "manufacturer", &manufacturerValue) == napi_ok) {
+        napi_valuetype strType = napi_undefined;
+        napi_typeof(env, manufacturerValue, &strType);
+        if (strType == napi_string) {
+            char buf[PORT_NAME_BUF_SIZE] = {0};
+            size_t len = 0;
+            if (napi_get_value_string_utf8(env, manufacturerValue, buf, sizeof(buf), &len) == napi_ok) {
+                portInfo.manufacturer = std::string(buf, len);
+            }
+        }
+    }
+}
+
 static int32_t ParseParityString(const std::string& parityStr)
 {
     if (parityStr == "none") {
@@ -797,6 +822,7 @@ static napi_value SerialOpenNapi(napi_env env, napi_callback_info info)
     context->asyncWork = nullptr;
 
     GetPortNameFromThisVar(env, thisVar, context->portInfo.portName);
+    GetPortInfoFromThisVar(env, thisVar, context->portInfo);
 
     if (argc >= 1) {
         napi_valuetype paramType;
@@ -1038,11 +1064,21 @@ static void TsfnFinalize(napi_env env, void* finalizeData, void* hint)
 
 static void CallJsCallback(napi_env env, napi_value jsCb, void* context, void* data)
 {
-    if (data == nullptr) {
+    if (env == nullptr || data == nullptr) {
+        if (data != nullptr) {
+            delete static_cast<CallbackData*>(data);
+        }
         return;
     }
     CallbackData* callbackData = static_cast<CallbackData*>(data);
-    InvokeJsCallback(env, callbackData->callbackRef, callbackData->data);
+    napi_value jsCallback = nullptr;
+    napi_status status = napi_get_reference_value(env, callbackData->callbackRef, &jsCallback);
+    if (status != napi_ok || jsCallback == nullptr) {
+        SERIAL_HILOGE(MODULE_JS_NAPI, "[CallJsCallback] callbackRef already deleted, dropping data");
+        delete callbackData;
+        return;
+    }
+    InvokeJsCallbackWith(env, jsCallback, callbackData->data);
     delete callbackData;
 }
 
@@ -1264,11 +1300,11 @@ static napi_value RemoveAllListenersChecked(napi_env env, const std::string& por
             return nullptr;
         }
     }
+    for (auto& tsfn : tsfnsToRelease) {
+        napi_release_threadsafe_function(tsfn, napi_tsfn_abort);
+    }
     for (auto& rh : refsAndHandles) {
         napi_delete_reference(env, rh.first);
-    }
-    for (auto& tsfn : tsfnsToRelease) {
-        napi_release_threadsafe_function(tsfn, napi_tsfn_release);
     }
     SERIAL_HILOGI(MODULE_JS_NAPI, "offDataRead all callbacks for portName=%{public}s", portName.c_str());
     napi_value undefined = nullptr;
@@ -1319,11 +1355,11 @@ static napi_value SerialOffDataReadNapi(napi_env env, napi_callback_info info)
             MODULE_JS_NAPI, "[SerialOffDataRead] Callback not found for portName=%{public}s", portName.c_str());
     }
 
+    if (found.tsfn != nullptr) {
+        napi_release_threadsafe_function(found.tsfn, napi_tsfn_abort);
+    }
     if (found.callbackRef != nullptr) {
         napi_delete_reference(env, found.callbackRef);
-    }
-    if (found.tsfn != nullptr) {
-        napi_release_threadsafe_function(found.tsfn, napi_tsfn_release);
     }
 
     napi_value undefined = nullptr;
