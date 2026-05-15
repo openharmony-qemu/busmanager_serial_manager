@@ -44,6 +44,7 @@ if (serial_manager_enable_service) {
     install_enable = true
     sources = [
       "native/src/serial_right_db_helper.cpp",
+      "native/src/serial_security_report.cpp",
       "native/src/serial_right_manager.cpp",
       "native/src/serial_service.cpp",
     ]
@@ -73,12 +74,21 @@ if (serial_manager_enable_service) {
       "hdf_core:libhdi",
       "hicollie:libhicollie",
       "hilog:libhilog",
+      "init:libbeget_proxy",
+      "init:libbegetutil",
       "ipc:ipc_single",
       "os_account:os_account_innerkits",
       "relational_store:native_rdb",
       "safwk:system_ability_fwk",
       "samgr:samgr_proxy",
     ]
+
+    defines = []
+    if (defined(global_parts_info) &&
+        defined(global_parts_info.security_security_guard)) {
+      external_deps += [ "security_guard:libsg_collect_sdk" ]
+      defines += [ "SECURITY_GUARD_ENABLE" ]
+    }
 
     shlib_type = "sa"
     subsystem_name = "busmanager"

@@ -4,10 +4,22 @@
         {
             "name": 4202,
             "libpath": "libserialservice.z.so",
-            "run-on-create": true,
+            "run-on-create": false,
             "auto-restart": true,
             "distributed": false,
-            "dump_level": 1
+            "dump_level": 1,
+            "start-on-demand": {
+                "param": [
+                    {
+                        "name": "persist.edm.rs232_serial_disable",
+                        "value": "1"
+                    },
+                    {
+                        "name": "persist.edm.rs232_serial_disable",
+                        "value": "0"
+                    }
+                ]
+            }
         }
     ]
 }

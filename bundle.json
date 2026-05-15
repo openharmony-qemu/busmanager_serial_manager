@@ -25,11 +25,13 @@
     "deps": {
       "components": [
         "hilog",
+        "init",
         "napi",
         "ipc",
         "safwk",
         "c_utils",
         "samgr",
+        "security_guard",
         "drivers_interface_serial",
         "ability_runtime",
         "ability_base",

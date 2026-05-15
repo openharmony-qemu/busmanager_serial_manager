@@ -22,14 +22,18 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <charconv>
+#include <ipc_skeleton.h>
 
 #include "iremote_object.h"
 #include "iserial_service_callback.h"
 #include "serial_right_manager.h"
+#include "serial_security_report.h"
 #include "serial_server_stub.h"
 #include "system_ability.h"
 #include "system_ability_ondemand_reason.h"
 #include "timer.h"
+#include "nlohmann/json.hpp"
 
 #include "serial_hdi_stub.h"
 #include "v1_0/iserial_device.h"
@@ -39,6 +43,14 @@
 
 namespace OHOS {
 namespace Serial {
+constexpr int64_t SERIAL_OP_EVENT_ID = 0x030000100; // serial operation audit event id
+constexpr int64_t SERIAL_EDM_EVENT_ID = 0x030000101; // serial management audit event id
+constexpr const char *SERIAL_OP_EVENT_VERSION = "1.0"; // serial operation audit event version
+constexpr const char *SERIAL_EDM_EVENT_VERSION = "1.0"; // serial management audit event version
+constexpr const char *SERIAL_OPEN = "SerialOpen";
+constexpr const char *SERIAL_CLOSE = "SerialClose";
+constexpr const char *SERIAL_READ = "SerialRead";
+constexpr const char *SERIAL_WRITE = "SerialWrite";
 
 class SerialService;
 
@@ -87,7 +99,7 @@ public:
     SerialService(int32_t systemAbilityId, bool runOnCreate);
     ~SerialService() override;
 
-    void OnStart() override;
+    void OnStart(const OHOS::SystemAbilityOnDemandReason &startReason) override;
     void OnStop() override;
     int32_t OnIdle(const SystemAbilityOnDemandReason& idleReason) override;
     int Dump(int fd, const std::vector<std::u16string>& args) override;
@@ -110,6 +122,8 @@ public:
     void OnClientDied(const std::string& portName);
     int32_t OnRemoteRequest(uint32_t code, MessageParcel& data, MessageParcel& reply, MessageOption& option) override;
 
+    static sptr<SerialService> GetGlobalInstance();
+
 private:
     void InitHdiProxy();
     void InitCommonEventSubscriber();
@@ -118,7 +132,16 @@ private:
     DeviceContext* FindDeviceContext(const std::string& portName);
     std::string FindPortNameForDevice(const SerialPortInfo& portInfo);
 
-    int32_t GetCallingUserId();
+    bool IsUsbSerial(const std::string& portName);
+    void SetSerialManagePolicy(bool disable);
+    void ReportSerialOperationAudit(const std::string& portName, const std::string& operationType);
+    void ReportSerialManageAuditEvent(const std::string& portType, bool disable);
+
+    bool QueryAndRecordFirstRead(const std::string& portName);
+    bool QueryAndRecordFirstWrite(const std::string& portName);
+    void ResetFirstRead(const std::string& portName);
+    void ResetFirstWrite(const std::string& portName);
+
     std::string GetCallingBundleName();
     std::string GetCallingTokenId();
     bool CheckSerialPortRight(const std::string& portName, const std::string& productName);
@@ -158,6 +181,13 @@ private:
     Utils::Timer unloadTimer_;
     uint32_t unloadTimerId_ = 0;
     static constexpr uint32_t UNLOAD_SA_DELAY_MS = 30000;
+
+    bool isRs232Disabled_ = false;
+    bool reportManageFlag_ = false;
+    std::unordered_set<std::string> portsHasBeenRead_;
+    std::unordered_set<std::string> portsHasBeenWritten_;
+    std::mutex readStatusMutex_;
+    std::mutex writeStatusMutex_;
 };
 
 } // namespace Serial
