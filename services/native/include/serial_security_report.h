@@ -16,8 +16,8 @@
 #ifndef SERIAL_SECURITY_REPORT_H
 #define SERIAL_SECURITY_REPORT_H
 
-#include <string>
 #include "nlohmann/json.hpp"
+#include <string>
 
 namespace OHOS {
 namespace Serial {
@@ -25,12 +25,10 @@ namespace Serial {
 class SerialSecurityReport {
 public:
     static uint64_t GetCurrentTime();
-    static void ReportSecurityInfo(
-        int64_t eventId, std::string version, nlohmann::json &json, bool isAsync = true);
+    static void ReportSecurityInfo(int64_t eventId, std::string version, nlohmann::json& json, bool isAsync = true);
 };
 
-} // Serial
+} // namespace Serial
 } // namespace OHOS
-
 
 #endif // SERIAL_SECURITY_REPORT_H

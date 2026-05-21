@@ -18,6 +18,7 @@
  * @brief Mock HDI 接口实现 - 用于单元测试
  * @details 本文件提供 Mock 实现的 ISerials 和 ISerialDevice 接口，
  *          允许测试代码控制 HDI 层的行为，验证 SerialService 的逻辑。
+ *          使用 gmock 的 ON_CALL + Invoke 设置默认行为，同时支持 EXPECT_CALL。
  * @since 2026-04-23
  */
 
@@ -63,10 +64,40 @@ public:
 };
 
 /**
+ * @class MockSerialsImpl
+ * @brief MockSerials 的默认实现辅助类
+ * @details 提供默认的 QueryDevices、OpenDevice、IsProxy 实现，
+ *          MockSerials 通过 Invoke 调用这些方法。
+ */
+class MockSerialsImpl {
+public:
+    MockSerialsImpl() = default;
+    ~MockSerialsImpl() = default;
+
+    int32_t QueryDevices(std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices);
+    int32_t OpenDevice(const std::string& portName, const OHOS::HDI::Serials::V1_0::SerialConfig& config,
+        const sptr<OHOS::HDI::Serials::V1_0::ISerialDeviceCallback>& cb,
+        sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& device);
+    bool IsProxy();
+
+    void SetMockDevices(const std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices);
+    void SetOpenDeviceResult(bool success);
+    void SetQueryDevicesResult(bool success);
+    uint32_t GetOpenedDeviceCount();
+
+private:
+    std::mutex mockMutex_;
+    std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo> mockDevices_;
+    std::map<std::string, sptr<MockSerialDevice>> openedDevices_;
+    bool openDeviceSuccess_ = true;
+    bool queryDevicesSuccess_ = true;
+};
+
+/**
  * @class MockSerials
  * @brief Mock 实现的 ISerials 接口
  * @details 使用 gmock 实现所有 ISerials 方法，允许测试设置预期行为。
- *          同时提供设备管理功能，模拟真实的 HDI 服务行为。
+ *          默认行为通过 ON_CALL + Invoke 设置，调用 MockSerialsImpl 的实现。
  * @since 2026-04-23
  */
 class MockSerials : public OHOS::HDI::Serials::V1_0::ISerials {
@@ -83,52 +114,14 @@ public:
         (override));
     MOCK_METHOD(bool, IsProxy, (), (override));
 
-    /**
-     * @brief 设置模拟的设备列表
-     * @param devices 设备信息列表
-     * @details QueryDevices 将返回此列表
-     */
+    // 辅助方法 - 代理到 impl_
     void SetMockDevices(const std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices);
-
-    /**
-     * @brief 设置 OpenDevice 的默认行为
-     * @param success 是否成功打开设备
-     * @details 设置 OpenDevice 返回成功或失败
-     */
     void SetOpenDeviceResult(bool success);
-
-    /**
-     * @brief 获取已打开设备数量
-     * @return uint32_t 已打开设备数量
-     */
+    void SetQueryDevicesResult(bool success);
     uint32_t GetOpenedDeviceCount();
 
-    /**
-     * @brief 获取默认成功行为的 QueryDevices 实现
-     * @param devices 输出设备列表
-     * @return int32_t HDF_SUCCESS
-     * @details 返回预设的设备列表
-     */
-    int32_t DefaultQueryDevices(std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices);
-
-    /**
-     * @brief 获取默认成功行为的 OpenDevice 实现
-     * @param portName 端口名称
-     * @param config 配置参数
-     * @param cb 回调对象
-     * @param device 输出设备对象
-     * @return int32_t HDF_SUCCESS 或 HDF_FAILURE
-     * @details 根据设置返回成功（创建 MockSerialDevice）或失败
-     */
-    int32_t DefaultOpenDevice(const std::string& portName, const OHOS::HDI::Serials::V1_0::SerialConfig& config,
-        const sptr<OHOS::HDI::Serials::V1_0::ISerialDeviceCallback>& cb,
-        sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& device);
-
 private:
-    std::mutex mockMutex_;
-    std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo> mockDevices_;
-    std::map<std::string, sptr<MockSerialDevice>> openedDevices_;
-    bool openDeviceSuccess_ = true;
+    MockSerialsImpl impl_;
 };
 
 } // namespace Serial

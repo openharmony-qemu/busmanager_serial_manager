@@ -44,10 +44,12 @@ if (serial_manager_enable_service) {
     install_enable = true
     sources = [
       "native/src/serial_right_db_helper.cpp",
-      "native/src/serial_security_report.cpp",
       "native/src/serial_right_manager.cpp",
+      "native/src/serial_security_report.cpp",
       "native/src/serial_service.cpp",
     ]
+
+    version_script = "serialservice.map"
 
     configs = [ ":serialsrv_private_config" ]
 

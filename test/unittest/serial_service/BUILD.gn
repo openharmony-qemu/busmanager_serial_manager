@@ -68,6 +68,55 @@ if (serial_manager_enable_service) {
     part_name = "serial_manager"
   }
 
+  # SerialRightTest - Unit tests for SerialRightDbHelper and SerialRightManager
+  ohos_unittest("SerialRightTest") {
+    module_out_path = "busmanager/serial_manager"
+
+    sanitize = {
+      integer_overflow = true
+      ubsan = true
+      boundary_sanitize = true
+      cfi = true
+      cfi_cross_dso = true
+      debug = false
+    }
+    branch_protector_ret = "pac_ret"
+
+    sources = [
+      "${serial_manager_path}/services/native/src/serial_right_db_helper.cpp",
+      "${serial_manager_path}/services/native/src/serial_right_manager.cpp",
+      "serial_right_test.cpp",
+    ]
+
+    cflags_cc = [
+      "-Wno-unused-variable",
+      "-Wno-unused-function",
+    ]
+
+    configs = [ ":serial_service_test_config" ]
+
+    external_deps = [
+      "ability_base:want",
+      "ability_runtime:ability_connect_callback_stub",
+      "ability_runtime:ability_manager",
+      "access_token:libaccesstoken_sdk",
+      "access_token:libtokenid_sdk",
+      "bundle_framework:appexecfwk_base",
+      "bundle_framework:appexecfwk_core",
+      "cJSON:cjson",
+      "c_utils:utils",
+      "common_event_service:cesfwk_innerkits",
+      "googletest:gmock",
+      "googletest:gtest_main",
+      "hilog:libhilog",
+      "ipc:ipc_core",
+      "os_account:os_account_innerkits",
+      "relational_store:native_rdb",
+    ]
+
+    defines = [ "private=public" ]
+  }
+
   # SerialServiceTest - Unit tests for SerialService using Mock HDI
   ohos_unittest("SerialServiceTest") {
     module_out_path = "busmanager/serial_manager"
@@ -82,19 +131,24 @@ if (serial_manager_enable_service) {
     }
     branch_protector_ret = "pac_ret"
 
+    sources = [
+      "${serial_manager_path}/services/native/src/serial_right_db_helper.cpp",
+      "${serial_manager_path}/services/native/src/serial_right_manager.cpp",
+      "${serial_manager_path}/services/native/src/serial_security_report.cpp",
+      "${serial_manager_path}/services/native/src/serial_service.cpp",
+      "serial_service_test.cpp",
+    ]
+
     cflags_cc = [
       "-Wno-unused-variable",
       "-Wno-unused-function",
     ]
-
-    sources = [ "serial_service_test.cpp" ]
 
     configs = [ ":serial_service_test_config" ]
 
     deps = [
       ":mock_serial_hdi_src",
       "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
-      "${serial_manager_path}/services:serialservice",
       "${serial_manager_path}/utils:serial_error_code",
     ]
 
@@ -117,6 +171,8 @@ if (serial_manager_enable_service) {
       "hdf_core:libhdi",
       "hicollie:libhicollie",
       "hilog:libhilog",
+      "init:libbeget_proxy",
+      "init:libbegetutil",
       "ipc:ipc_core",
       "ipc:ipc_single",
       "os_account:os_account_innerkits",
@@ -132,6 +188,9 @@ if (serial_manager_enable_service) {
 group("unittest") {
   testonly = true
   if (serial_manager_enable_service) {
-    deps = [ ":SerialServiceTest" ]
+    deps = [
+      ":SerialRightTest",
+      ":SerialServiceTest",
+    ]
   }
 }

@@ -1,0 +1,91 @@
+# Copyright (c) 2026 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import("//build/config/features.gni")
+import("//build/test.gni")
+import("../../serialmgr.gni")
+
+module_output_path = "busmanager/serial_manager"
+
+config("serialmgr_private_config") {
+  visibility = [ ":*" ]
+
+  cflags = [
+    "-g",
+    "-O0",
+    "-Wno-unused-variable",
+    "-fno-omit-frame-pointer",
+    "-Dprivate=public",
+    "-Dprotected=public",
+  ]
+
+  include_dirs = [
+    "${serial_manager_path}/interfaces/innerkits/native/include",
+    "${serial_manager_path}/utils/native/include",
+    "${serial_manager_path}/services/native/include",
+    "${serial_manager_path}/test/unittest/include",
+  ]
+}
+
+ohos_fuzztest("SerialMgrFuzzTest") {
+  module_out_path = module_output_path
+
+  fuzz_config_file =
+      "${serial_manager_path}/test/fuzztest/serialmgr_fuzzer"
+
+  configs = [ ":serialmgr_private_config" ]
+
+  deps = [
+    "${serial_manager_path}/interfaces/innerkits:serialsrv_client",
+    "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
+    "${serial_manager_path}/services:serialservice",
+  ]
+
+  external_deps = [
+    "ability_base:want",
+    "ability_runtime:ability_connect_callback_stub",
+    "ability_runtime:ability_manager",
+    "access_token:libaccesstoken_sdk",
+    "access_token:libtokenid_sdk",
+    "bundle_framework:appexecfwk_base",
+    "bundle_framework:appexecfwk_core",
+    "cJSON:cjson",
+    "c_utils:utils",
+    "common_event_service:cesfwk_innerkits",
+    "drivers_interface_serial:libserials_proxy_1.0",
+    "drivers_interface_serial:serials_idl_headers",
+    "hdf_core:libhdf_utils",
+    "hdf_core:libhdi",
+    "hicollie:libhicollie",
+    "hilog:libhilog",
+    "init:libbeget_proxy",
+    "init:libbegetutil",
+    "ipc:ipc_single",
+    "os_account:os_account_innerkits",
+    "relational_store:native_rdb",
+    "safwk:system_ability_fwk",
+    "samgr:samgr_proxy",
+  ]
+
+  sources = [ "serialmgr_fuzzer/serialmgr_fuzzer.cpp" ]
+
+  subsystem_name = "busmanager"
+  part_name = "serial_manager"
+}
+
+group("fuzztest") {
+  testonly = true
+  deps = [
+    ":SerialMgrFuzzTest",
+  ]
+}

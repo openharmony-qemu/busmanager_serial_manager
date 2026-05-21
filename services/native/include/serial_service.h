@@ -17,23 +17,23 @@
 #define SERIAL_SERVICE_H
 
 #include <atomic>
+#include <charconv>
 #include <chrono>
+#include <ipc_skeleton.h>
 #include <map>
 #include <mutex>
 #include <string>
 #include <vector>
-#include <charconv>
-#include <ipc_skeleton.h>
 
 #include "iremote_object.h"
 #include "iserial_service_callback.h"
+#include "nlohmann/json.hpp"
 #include "serial_right_manager.h"
 #include "serial_security_report.h"
 #include "serial_server_stub.h"
 #include "system_ability.h"
 #include "system_ability_ondemand_reason.h"
 #include "timer.h"
-#include "nlohmann/json.hpp"
 
 #include "serial_hdi_stub.h"
 #include "v1_0/iserial_device.h"
@@ -43,14 +43,14 @@
 
 namespace OHOS {
 namespace Serial {
-constexpr int64_t SERIAL_OP_EVENT_ID = 0x030000100; // serial operation audit event id
-constexpr int64_t SERIAL_EDM_EVENT_ID = 0x030000101; // serial management audit event id
-constexpr const char *SERIAL_OP_EVENT_VERSION = "1.0"; // serial operation audit event version
-constexpr const char *SERIAL_EDM_EVENT_VERSION = "1.0"; // serial management audit event version
-constexpr const char *SERIAL_OPEN = "SerialOpen";
-constexpr const char *SERIAL_CLOSE = "SerialClose";
-constexpr const char *SERIAL_READ = "SerialRead";
-constexpr const char *SERIAL_WRITE = "SerialWrite";
+constexpr int64_t SERIAL_OP_EVENT_ID = 0x030000100;     // serial operation audit event id
+constexpr int64_t SERIAL_EDM_EVENT_ID = 0x030000101;    // serial management audit event id
+constexpr const char* SERIAL_OP_EVENT_VERSION = "1.0";  // serial operation audit event version
+constexpr const char* SERIAL_EDM_EVENT_VERSION = "1.0"; // serial management audit event version
+constexpr const char* SERIAL_OPEN = "SerialOpen";
+constexpr const char* SERIAL_CLOSE = "SerialClose";
+constexpr const char* SERIAL_READ = "SerialRead";
+constexpr const char* SERIAL_WRITE = "SerialWrite";
 
 class SerialService;
 
@@ -99,7 +99,7 @@ public:
     SerialService(int32_t systemAbilityId, bool runOnCreate);
     ~SerialService() override;
 
-    void OnStart(const OHOS::SystemAbilityOnDemandReason &startReason) override;
+    void OnStart(const OHOS::SystemAbilityOnDemandReason& startReason) override;
     void OnStop() override;
     int32_t OnIdle(const SystemAbilityOnDemandReason& idleReason) override;
     int Dump(int fd, const std::vector<std::u16string>& args) override;
@@ -120,6 +120,7 @@ public:
     int32_t AddPortAuthorization(const std::string& tokenId, const std::string& deviceId) override;
 
     void OnClientDied(const std::string& portName);
+    void HandleDeviceOffline(const std::string& portName);
     int32_t OnRemoteRequest(uint32_t code, MessageParcel& data, MessageParcel& reply, MessageOption& option) override;
 
     static sptr<SerialService> GetGlobalInstance();
@@ -131,6 +132,7 @@ private:
     SerialPortInfo ConvertDeviceInfo(const OHOS::HDI::Serials::V1_0::SerialDeviceInfo& hdiInfo);
     DeviceContext* FindDeviceContext(const std::string& portName);
     std::string FindPortNameForDevice(const SerialPortInfo& portInfo);
+    int32_t CheckPortAccessPermission(const DeviceContext* context, const std::string& portName);
 
     bool IsUsbSerial(const std::string& portName);
     void SetSerialManagePolicy(bool disable);
@@ -144,6 +146,8 @@ private:
 
     std::string GetCallingBundleName();
     std::string GetCallingTokenId();
+    int32_t GetCallingUserId();
+    int32_t GetCallingUserIdFromToken();
     bool CheckSerialPortRight(const std::string& portName, const std::string& productName);
     int32_t RequestSerialPortRight(const SerialPortInfo& portInfo);
 
@@ -158,13 +162,21 @@ private:
 
     // Internal helper functions for function decomposition
     int32_t ValidateOpenSerialParams(const SerialPortInfo& portInfo, const sptr<ISerialServiceCallback>& token);
+    void LogWriteData(const std::vector<uint8_t>& data);
+    int32_t CheckWritePreconditions(DeviceContext* context, const std::string& portName);
     int32_t OpenHdiDevice(const std::string& portName, const SerialConfig& config,
-        const sptr<ISerialServiceCallback>& token, sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& hdiDevice);
+        const sptr<ISerialServiceCallback>& token, sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& hdiDevice,
+        sptr<SerialHdiCallback>& hdiCallback);
     std::shared_ptr<DeviceContext> BuildDeviceContext(const std::string& portName, const SerialConfig& config,
         const sptr<ISerialServiceCallback>& token, const sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& hdiDevice,
         const sptr<SerialHdiCallback>& hdiCallback);
     void DumpPhysicalDevices(int fd);
     void DumpOpenedDevices(int fd);
+
+    // Helper functions for AddPortAuthorization
+    int32_t ValidateDialogHapCaller(
+        Security::AccessToken::AccessTokenID callerTokenId, Security::AccessToken::HapTokenInfo& callerTokenInfo);
+    int32_t ParseTargetTokenId(const std::string& tokenId, Security::AccessToken::AccessTokenID& targetTokenId);
 
     void SetHdiProxyForTest(const sptr<OHOS::HDI::Serials::V1_0::ISerials>& proxy);
     sptr<OHOS::HDI::Serials::V1_0::ISerials> GetHdiProxyForTest() const;
