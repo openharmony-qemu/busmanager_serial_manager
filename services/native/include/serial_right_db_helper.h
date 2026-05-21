@@ -47,6 +47,18 @@ struct SerialRightAppInfo {
     uint64_t validPeriod;  /* app permission valid period */
 };
 
+struct SerialRightFullRecord {
+    uint32_t primaryKeyId;
+    int32_t uid;
+    std::string deviceId;
+    std::string bundleName;
+    std::string tokenId;
+    uint64_t installTime;
+    uint64_t updateTime;
+    uint64_t requestTime;
+    uint64_t validPeriod;
+};
+
 struct SerialRightTableInfo {
     int32_t rowCount;
     int32_t columnCount;
@@ -56,7 +68,7 @@ struct SerialRightTableInfo {
     int32_t updateTimeIndex;
     int32_t requestTimeIndex;
     int32_t validPeriodIndex;
-    int32_t portNameIndex;
+    int32_t deviceIdIndex;
     int32_t bundleNameIndex;
 };
 
@@ -68,48 +80,44 @@ public:
 
     static std::shared_ptr<SerialRightDbHelper> GetInstance();
 
-    bool IsRecordExpired(int32_t uid, const std::string& portName, const std::string& bundleName,
-        const std::string& tokenId, uint64_t expiredTime);
-    bool IsRecordExpired(const SerialRightAppInfo& info, uint64_t expiredTime);
+    // Check if database is valid and ready for operations
+    bool IsDatabaseValid() const
+    {
+        return rdbStore_ != nullptr;
+    }
 
-    int32_t AddRightRecord(const std::string& portName, const std::string& bundleName, const std::string& tokenId,
+    // 延迟创建模式：OnStart 时尝试打开已有数据库（不创建）
+    // OnStop 时创建数据库并保存缓存
+    bool OpenDatabaseIfExists();
+    bool CreateDatabaseAndOpen();
+    void CloseDatabase(); // 关闭数据库连接
+
+    int32_t AddRightRecord(const std::string& deviceId, const std::string& bundleName, const std::string& tokenId,
         SerialRightAppInfo& info);
 
     int32_t QueryUserRightRecord(int32_t uid, std::vector<SerialRightAppInfo>& infos);
-    int32_t QueryPortRightRecord(int32_t uid, const std::string& portName, std::vector<SerialRightAppInfo>& infos);
+    int32_t QueryPortRightRecord(int32_t uid, const std::string& deviceId, std::vector<SerialRightAppInfo>& infos);
     int32_t QueryAppRightRecord(int32_t uid, const std::string& bundleName, std::vector<SerialRightAppInfo>& infos);
-    int32_t QueryRightRecord(int32_t uid, const std::string& portName, const std::string& bundleName,
+    int32_t QueryRightRecord(int32_t uid, const std::string& deviceId, const std::string& bundleName,
         const std::string& tokenId, std::vector<SerialRightAppInfo>& infos);
     int32_t QueryRightRecordUids(std::vector<std::string>& uids);
     int32_t QueryRightRecordApps(int32_t uid, std::vector<std::string>& apps);
+    int32_t QueryAllRightRecords(std::vector<SerialRightFullRecord>& records);
 
-    int32_t UpdateRightRecord(
-        int32_t uid, const std::string& portName, const std::string& bundleName, SerialRightAppInfo& info);
-    int32_t AddOrUpdateRightRecord(int32_t uid, const std::string& portName, const std::string& bundleName,
-        const std::string& tokenId, SerialRightAppInfo& info);
+    // OnStop 保存时批量插入
+    int32_t InsertAllRecords(const std::vector<SerialRightFullRecord>& records);
 
-    int32_t DeleteRightRecord(
-        int32_t uid, const std::string& portName, const std::string& bundleName, const std::string& tokenId);
-    int32_t DeletePortRightRecord(int32_t uid, const std::string& portName);
-    int32_t DeleteAppRightRecord(int32_t uid, const std::string& bundleName);
-    int32_t DeleteAppsRightRecord(int32_t uid, const std::vector<std::string>& bundleNames);
-    int32_t DeleteUidRightRecord(int32_t uid);
-    int32_t DeleteNormalExpiredRightRecord(int32_t uid, uint64_t expiredTime);
-    int32_t DeleteValidPeriodRightRecord(long validPeriod, const std::string& portName);
+    // 数据库文件操作
+    static std::string GetDatabasePath();
+    bool DeleteDatabaseFile(); // 非静态方法，需要调用 CloseDatabase()
 
 private:
-    int32_t CheckIfNeedUpdateEx(bool& isUpdate, int32_t uid, const std::string& portName, const std::string& bundleName,
-        const std::string& tokenId);
-    int32_t AddOrUpdateRightRecordEx(bool isUpdate, int32_t uid, const std::string& portName,
-        const std::string& bundleName, const std::string& tokenId, SerialRightAppInfo& info);
     int32_t GetResultSetTableInfo(const std::shared_ptr<ResultSet>& resultSet, SerialRightTableInfo& table);
     int32_t GetResultRightRecordEx(const std::shared_ptr<ResultSet>& resultSet, std::vector<SerialRightAppInfo>& infos);
     int32_t QueryAndGetResult(const RdbPredicates& rdbPredicates, const std::vector<std::string>& columns,
         std::vector<SerialRightAppInfo>& infos);
-    int32_t QueryAndGetResultColumnValues(const RdbPredicates& rdbPredicates, const std::vector<std::string>& columns,
-        const std::string& columnName, std::vector<std::string>& columnValues);
-    int32_t DeleteAndNoOtherOperation(const std::string& whereClause, const std::vector<std::string>& whereArgs);
-    int32_t DeleteAndNoOtherOperation(const RdbPredicates& rdbPredicates);
+    int32_t ReadFullRecordFromRow(
+        const std::shared_ptr<ResultSet>& resultSet, int32_t rowIndex, SerialRightFullRecord& record);
 
     static std::shared_ptr<SerialRightDbHelper> instance_;
     std::mutex databaseMutex_;

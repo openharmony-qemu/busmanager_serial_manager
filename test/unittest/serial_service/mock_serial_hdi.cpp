@@ -13,62 +13,33 @@
  * limitations under the License.
  */
 
-/**
- * @file mock_serial_hdi.cpp
- * @brief Mock HDI 接口实现 - 用于单元测试
- * @details 本文件实现 MockSerials 类，提供可控制的 HDI 模拟行为。
- * @since 2026-04-23
- */
-
 #include "mock_serial_hdi.h"
 #include "hilog_wrapper.h"
+
+using namespace testing;
 
 namespace OHOS {
 namespace Serial {
 
-// HDI error codes
 constexpr int32_t HDF_SUCCESS = 0;
 constexpr int32_t HDF_FAILURE = -1;
 
-MockSerials::MockSerials()
-{
-    // 初始化默认模拟设备
-    mockDevices_.clear();
-}
+// ============================================================================
+// MockSerialsImpl 实现
+// ============================================================================
 
-MockSerials::~MockSerials()
+int32_t MockSerialsImpl::QueryDevices(std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices)
 {
     std::lock_guard<std::mutex> lock(mockMutex_);
-    openedDevices_.clear();
-}
-
-void MockSerials::SetMockDevices(const std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices)
-{
-    std::lock_guard<std::mutex> lock(mockMutex_);
-    mockDevices_ = devices;
-}
-
-void MockSerials::SetOpenDeviceResult(bool success)
-{
-    std::lock_guard<std::mutex> lock(mockMutex_);
-    openDeviceSuccess_ = success;
-}
-
-uint32_t MockSerials::GetOpenedDeviceCount()
-{
-    std::lock_guard<std::mutex> lock(mockMutex_);
-    return static_cast<uint32_t>(openedDevices_.size());
-}
-
-int32_t MockSerials::DefaultQueryDevices(std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices)
-{
-    std::lock_guard<std::mutex> lock(mockMutex_);
+    if (!queryDevicesSuccess_) {
+        devices.clear();
+        return HDF_FAILURE;
+    }
     devices = mockDevices_;
     return HDF_SUCCESS;
 }
 
-int32_t MockSerials::DefaultOpenDevice(const std::string& portName,
-    const OHOS::HDI::Serials::V1_0::SerialConfig& config,
+int32_t MockSerialsImpl::OpenDevice(const std::string& portName, const OHOS::HDI::Serials::V1_0::SerialConfig& config,
     const sptr<OHOS::HDI::Serials::V1_0::ISerialDeviceCallback>& cb,
     sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& device)
 {
@@ -79,20 +50,85 @@ int32_t MockSerials::DefaultOpenDevice(const std::string& portName,
         return HDF_FAILURE;
     }
 
-    // 创建新的 MockSerialDevice
     sptr<MockSerialDevice> mockDevice = new MockSerialDevice();
     if (mockDevice == nullptr) {
-        SERIAL_HILOGE(MODULE_SERVICE, "MockSerials::DefaultOpenDevice: failed to create MockSerialDevice");
         device = nullptr;
         return HDF_FAILURE;
     }
 
-    // 存储已打开设备
     openedDevices_[portName] = mockDevice;
     device = mockDevice;
-
-    SERIAL_HILOGI(MODULE_SERVICE, "MockSerials::DefaultOpenDevice: successfully opened %{public}s", portName.c_str());
     return HDF_SUCCESS;
+}
+
+bool MockSerialsImpl::IsProxy()
+{
+    return false;
+}
+
+void MockSerialsImpl::SetMockDevices(const std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices)
+{
+    std::lock_guard<std::mutex> lock(mockMutex_);
+    mockDevices_ = devices;
+}
+
+void MockSerialsImpl::SetOpenDeviceResult(bool success)
+{
+    std::lock_guard<std::mutex> lock(mockMutex_);
+    openDeviceSuccess_ = success;
+}
+
+void MockSerialsImpl::SetQueryDevicesResult(bool success)
+{
+    std::lock_guard<std::mutex> lock(mockMutex_);
+    queryDevicesSuccess_ = success;
+}
+
+uint32_t MockSerialsImpl::GetOpenedDeviceCount()
+{
+    std::lock_guard<std::mutex> lock(mockMutex_);
+    return static_cast<uint32_t>(openedDevices_.size());
+}
+
+// ============================================================================
+// MockSerials 实现
+// ============================================================================
+
+MockSerials::MockSerials()
+{
+    // 设置默认行为：调用 impl_ 的方法
+    ON_CALL(*this, QueryDevices(_)).WillByDefault(Invoke(&impl_, &MockSerialsImpl::QueryDevices));
+    ON_CALL(*this, OpenDevice(_, _, _, _)).WillByDefault(Invoke(&impl_, &MockSerialsImpl::OpenDevice));
+    ON_CALL(*this, IsProxy()).WillByDefault(Invoke(&impl_, &MockSerialsImpl::IsProxy));
+
+    // 设置默认的 NiceMock 行为（不报错未预期的调用）
+    ::testing::Mock::AllowLeak(this);
+}
+
+MockSerials::~MockSerials()
+{
+    // 析构时清理资源
+}
+
+// 辅助方法代理
+void MockSerials::SetMockDevices(const std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices)
+{
+    impl_.SetMockDevices(devices);
+}
+
+void MockSerials::SetOpenDeviceResult(bool success)
+{
+    impl_.SetOpenDeviceResult(success);
+}
+
+void MockSerials::SetQueryDevicesResult(bool success)
+{
+    impl_.SetQueryDevicesResult(success);
+}
+
+uint32_t MockSerials::GetOpenedDeviceCount()
+{
+    return impl_.GetOpenedDeviceCount();
 }
 
 } // namespace Serial

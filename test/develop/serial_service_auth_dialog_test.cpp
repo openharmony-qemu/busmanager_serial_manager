@@ -153,7 +153,7 @@ SerialService::SerialService(int32_t systemAbilityId, bool runOnCreate)
 
 SerialService::~SerialService() {}
 
-void SerialService::OnStart(const OHOS::SystemAbilityOnDemandReason &startReason)
+void SerialService::OnStart(const OHOS::SystemAbilityOnDemandReason& startReason)
 {
     if (registerToService_) {
         return;

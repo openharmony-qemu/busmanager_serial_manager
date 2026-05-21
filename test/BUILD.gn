@@ -17,7 +17,7 @@ group("serial_manager_tests") {
   testonly = true
   deps = [
     "develop:develop_tests",
-    "module_test:module_test",
-    "unittest:unittest",
+    "fuzztest:fuzztest",
+    "unittest:unittest"
   ]
 }

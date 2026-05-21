@@ -13,10 +13,10 @@
  * limitations under the License.
  */
 
-#include <chrono>
-#include "serial_error_code.h"
 #include "serial_security_report.h"
 #include "hilog_wrapper.h"
+#include "serial_error_code.h"
+#include <chrono>
 #ifdef SECURITY_GUARD_ENABLE
 #include "event_info.h"
 #include "sg_collect_client.h"
@@ -24,15 +24,16 @@
 
 namespace OHOS {
 namespace Serial {
-    
+
 uint64_t SerialSecurityReport::GetCurrentTime()
 {
     // get ms value since unix timestamp
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count());
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count());
 }
 
-void SerialSecurityReport::ReportSecurityInfo(int64_t eventId, std::string version, nlohmann::json &json, bool isAsync)
+void SerialSecurityReport::ReportSecurityInfo(int64_t eventId, std::string version, nlohmann::json& json, bool isAsync)
 {
 #ifdef SECURITY_GUARD_ENABLE
     auto eventInfo = std::make_shared<Security::SecurityGuard::EventInfo>(eventId, version, json.dump());
@@ -41,8 +42,7 @@ void SerialSecurityReport::ReportSecurityInfo(int64_t eventId, std::string versi
     } else {
         int32_t ret = Security::SecurityGuard::NativeDataCollectKit::ReportSecurityInfo(eventInfo);
         if (ret != SERIAL_OK) {
-            SERIAL_HILOGE(MODULE_SERVICE, "%{public}s: failed to report security with ret = %{public}d",
-                __func__, ret);
+            SERIAL_HILOGE(MODULE_SERVICE, "%{public}s: failed to report security with ret = %{public}d", __func__, ret);
         }
     }
 #else
@@ -50,5 +50,5 @@ void SerialSecurityReport::ReportSecurityInfo(int64_t eventId, std::string versi
 #endif // SECURITY_GUARD_ENABLE
 }
 
-} // Serial
+} // namespace Serial
 } // namespace OHOS

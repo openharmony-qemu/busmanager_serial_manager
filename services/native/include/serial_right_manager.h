@@ -25,8 +25,6 @@
 #include "ability_connect_callback_stub.h"
 #include "bundle_mgr_interface.h"
 #include "bundle_resource_interface.h"
-#include "common_event_subscribe_info.h"
-#include "common_event_subscriber.h"
 #include "serial_right_db_helper.h"
 
 // 前向声明，避免头文件依赖
@@ -43,7 +41,6 @@ namespace OHOS {
 namespace Serial {
 
 using namespace OHOS::AppExecFwk;
-using namespace OHOS::EventFwk;
 
 constexpr int32_t SERIAL_RIGHT_USERID_INVALID = -1;
 constexpr int32_t SERIAL_RIGHT_USERID_DEFAULT = 100;
@@ -55,7 +52,7 @@ constexpr int32_t SERIAL_RIGHT_NOP = 1;
 const std::string SERIAL_RIGHT_DIALOG_TITLE = "Serial Port Authorization";
 
 struct SerialDeviceInfoForDialog {
-    std::string portName;
+    std::string deviceId;
     std::string bundleName;
     std::string abilityName;
     std::string tokenId;
@@ -63,7 +60,7 @@ struct SerialDeviceInfoForDialog {
     std::string productId;
     std::string vendorId;
     std::string serialNumber;
-    std::string deviceId;
+    std::string portName;
     int32_t portId = 0;
 };
 
@@ -71,41 +68,30 @@ class SerialRightManager {
 public:
     static SerialRightManager& GetInstance();
 
+    // OnStart: 加载缓存（数据库存在则加载，不存在则空缓存）
     int32_t Init();
 
+    // OnStop: 缓存有数据时创建数据库并保存
+    int32_t OnStop();
+
+    // HasRight: 查缓存（不访问数据库）
     bool HasRight(
-        const std::string& portName, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
+        const std::string& deviceId, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
+
+    // RequestRight: 弹窗授权流程
     int32_t RequestRight(const SerialDeviceInfoForDialog& deviceInfo, const int32_t& userId);
-    bool AddDeviceRight(const std::string& portName, const std::string& tokenIdStr);
+
+    // AddDeviceRight: 写缓存（不访问数据库）
+    bool AddDeviceRight(const std::string& deviceId, const std::string& tokenIdStr);
     bool AddDeviceRight(
-        const std::string& portName, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
-    bool RemoveDeviceRight(
-        const std::string& portName, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
-    int32_t CancelDeviceRight(
-        const std::string& portName, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
-    bool RemoveDeviceAllRight(const std::string& portName);
+        const std::string& deviceId, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
+
     bool IsSystemAppOrSa();
-    int32_t CleanUpRightExpired(std::vector<std::string>& ports);
-
-    static int32_t CleanUpRightUserDeleted(int32_t& totalUsers, int32_t& deleteUsers);
-    static int32_t CleanUpRightUserStopped(int32_t uid);
-    static int32_t CleanUpRightAppUninstalled(int32_t uid, const std::string& bundleName);
-
-    void OnBootComplete();
-    int32_t ClearAllRights();
 
 private:
     SerialRightManager();
     ~SerialRightManager();
     DISALLOW_COPY_AND_MOVE(SerialRightManager);
-
-    class SerialRightEventSubscriber : public CommonEventSubscriber {
-    public:
-        explicit SerialRightEventSubscriber(const CommonEventSubscribeInfo& subscribeInfo);
-        ~SerialRightEventSubscriber() override = default;
-
-        void OnReceiveEvent(const CommonEventData& data) override;
-    };
 
     class SerialAbilityConn : public AAFwk::AbilityConnectionStub {
     public:
@@ -127,44 +113,36 @@ private:
         int32_t lastResultCode_ = -1;
     };
 
+    // 授权弹窗相关
     bool GetUserAgreementByDiag(const SerialDeviceInfoForDialog& deviceInfo, const int32_t& userId);
     bool ShowSerialDialog(const SerialDeviceInfoForDialog& deviceInfo, const int32_t userId);
     int32_t ConnectAbility(const int32_t userId);
     bool UnShowSerialDialog();
-    int32_t SubscribeCommonEvents();
 
-    sptr<IBundleMgr> GetBundleMgr();
-    sptr<IBundleResource> GetBundleResMgr();
-    bool GetAppName(const std::string& bundleName, std::string& appName);
-    bool IsAppInstalled(int32_t uid, const std::string& bundleName);
-    bool GetBundleInstallAndUpdateTime(
-        int32_t uid, const std::string& bundleName, uint64_t& installTime, uint64_t& updateTime);
-    void GetCurrentUserId(int32_t& uid);
-    uint64_t GetCurrentTimestamp();
-    bool IsAllDigits(const std::string& str);
+    // 缓存操作
+    bool LoadCacheFromDb();
+    bool SaveCacheToDb();
+    std::string BuildCacheKey(
+        const std::string& deviceId, const std::string& bundleName, const std::string& tokenId, int32_t userId);
 
-    int32_t TidyUpRight(uint32_t choose);
-    int32_t CleanUpRightTemporaryExpired(const std::string& portName);
-    int32_t CleanUpRightNormalExpired(int32_t uid);
-    int32_t CleanUpRightAppUninstalledInternal(int32_t uid, int32_t& totalApps, int32_t& deleteApps);
-    int32_t CleanUpRightAppReinstalled(int32_t uid, uint32_t& totalApps, uint32_t& deleteApps);
-
-    // Internal helper functions for function decomposition
+    // 辅助函数
     bool ValidateTokenAndGetHapInfo(const std::string& tokenIdStr, Security::AccessToken::AccessTokenID& tokenId,
         Security::AccessToken::HapTokenInfo& hapTokenInfoRes, int32_t& uid);
-    bool BuildInfoAndSaveRight(
-        int32_t uid, const std::string& portName, const std::string& bundleName, const std::string& tokenIdStr);
-    bool AddDeviceRightInternal(const std::string& portName, const std::string& actualBundleName,
-        const std::string& tokenId, int32_t userId, bool isCliMode);
-    std::vector<std::string> FindReinstalledBundleNames(int32_t uid, const std::vector<std::string>& apps);
+    uint64_t GetCurrentTimestamp();
+    bool IsAllDigits(const std::string& str);
+    sptr<IBundleMgr> GetBundleMgr();
+    sptr<IBundleResource> GetBundleResMgr();
+    bool GetAppName(const std::string& bundleName, std::string& appName, int32_t userId);
 
     static sem_t waitDialogDisappear_;
     static std::mutex dialogParamsMutex_;
     static std::map<std::string, std::string> dialogParams_;
 
     std::mutex dialogRunning_;
+    std::mutex cacheMutex_;
+    std::map<std::string, SerialRightFullRecord> rightCache_; // 权限缓存
+    bool cacheLoaded_ = false;
     sptr<SerialAbilityConn> abilityConn_ = nullptr;
-    std::shared_ptr<SerialRightEventSubscriber> eventSubscriber_ = nullptr;
 };
 
 } // namespace Serial

@@ -84,7 +84,7 @@ SerialService::~SerialService()
     g_readContexts.clear();
 }
 
-void SerialService::OnStart(const OHOS::SystemAbilityOnDemandReason &startReason)
+void SerialService::OnStart(const OHOS::SystemAbilityOnDemandReason& startReason)
 {
     SERIAL_HILOGI(MODULE_SERVICE, "SerialService OnStart");
     if (registerToService_) {
