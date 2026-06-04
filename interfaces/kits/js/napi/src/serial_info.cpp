@@ -333,8 +333,8 @@ static napi_value SerialSendBrkNapi(napi_env env, napi_callback_info info);
 static napi_value SerialGetCtsNapi(napi_env env, napi_callback_info info);
 static napi_value SerialSetDtrNapi(napi_env env, napi_callback_info info);
 static napi_value SerialGetDsrNapi(napi_env env, napi_callback_info info);
-static napi_value SerialOnDisconnectedNapi(napi_env env, napi_callback_info info);
-static napi_value SerialOffDisconnectedNapi(napi_env env, napi_callback_info info);
+static napi_value SerialOnDisconnectNapi(napi_env env, napi_callback_info info);
+static napi_value SerialOffDisconnectNapi(napi_env env, napi_callback_info info);
 
 static napi_value CreateSerialPortInfoObject(napi_env env, const SerialPortInfo& deviceInfo)
 {
@@ -400,8 +400,8 @@ static napi_value SerialPortToJSObject(napi_env env, const SerialPortInfo& devic
     SetNamedFunction(env, serialPortObj, "getCts", SerialGetCtsNapi);
     SetNamedFunction(env, serialPortObj, "setDtr", SerialSetDtrNapi);
     SetNamedFunction(env, serialPortObj, "getDsr", SerialGetDsrNapi);
-    SetNamedFunction(env, serialPortObj, "onDisconnected", SerialOnDisconnectedNapi);
-    SetNamedFunction(env, serialPortObj, "offDisconnected", SerialOffDisconnectedNapi);
+    SetNamedFunction(env, serialPortObj, "onDisconnect", SerialOnDisconnectNapi);
+    SetNamedFunction(env, serialPortObj, "offDisconnect", SerialOffDisconnectNapi);
 
     napi_status wrapStatus = napi_wrap(env, serialPortObj, native, SerialPortFinalize, nullptr, nullptr);
     if (wrapStatus != napi_ok) {
@@ -1906,7 +1906,7 @@ static napi_threadsafe_function CreateDisconnectedTsfn(napi_env env, napi_ref ca
     return tsfn;
 }
 
-static napi_value RegisterOnDisconnected(
+static napi_value RegisterOnDisconnect(
     napi_env env, const std::string& portName, napi_ref callbackRef, napi_threadsafe_function tsfn)
 {
     std::string name = portName;
@@ -1923,7 +1923,7 @@ static napi_value RegisterOnDisconnected(
                 napi_status status =
                     napi_call_threadsafe_function(pair.second, static_cast<void*>(pair.first), napi_tsfn_nonblocking);
                 if (status != napi_ok) {
-                    SERIAL_HILOGE(MODULE_JS_NAPI, "onDisconnected call tsfn failed");
+                    SERIAL_HILOGE(MODULE_JS_NAPI, "onDisconnect call tsfn failed");
                 }
             }
         },
@@ -1939,15 +1939,15 @@ static napi_value RegisterOnDisconnected(
         std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
         g_disconnectedCallbacks[portName][callbackRef] = tsfn;
     }
-    SERIAL_HILOGI(MODULE_JS_NAPI, "onDisconnected success, portName=%{public}s", portName.c_str());
+    SERIAL_HILOGI(MODULE_JS_NAPI, "onDisconnect success, portName=%{public}s", portName.c_str());
     napi_value undefined = nullptr;
     napi_get_undefined(env, &undefined);
     return undefined;
 }
 
-static napi_value SerialOnDisconnectedNapi(napi_env env, napi_callback_info info)
+static napi_value SerialOnDisconnectNapi(napi_env env, napi_callback_info info)
 {
-    SERIAL_HILOGI(MODULE_JS_NAPI, "onDisconnected start");
+    SERIAL_HILOGI(MODULE_JS_NAPI, "onDisconnect start");
     size_t argc = 1;
     napi_value argv[1] = {nullptr};
     napi_value thisVar = nullptr;
@@ -1974,7 +1974,7 @@ static napi_value SerialOnDisconnectedNapi(napi_env env, napi_callback_info info
     std::string portName;
     GetPortNameFromThisVar(env, thisVar, portName);
     if (IsDisconnectedCallbackRegistered(env, portName, argv[0])) {
-        SERIAL_HILOGI(MODULE_JS_NAPI, "onDisconnected callback already registered, skip");
+        SERIAL_HILOGI(MODULE_JS_NAPI, "onDisconnect callback already registered, skip");
         napi_value undefined = nullptr;
         napi_get_undefined(env, &undefined);
         return undefined;
@@ -1983,12 +1983,12 @@ static napi_value SerialOnDisconnectedNapi(napi_env env, napi_callback_info info
     napi_create_reference(env, argv[0], NAPI_REF_COUNT_STRONG, &callbackRef);
     napi_threadsafe_function tsfn = CreateDisconnectedTsfn(env, callbackRef);
     if (tsfn == nullptr) {
-        SERIAL_HILOGE(MODULE_JS_NAPI, "onDisconnected create tsfn failed");
+        SERIAL_HILOGE(MODULE_JS_NAPI, "onDisconnect create tsfn failed");
         napi_delete_reference(env, callbackRef);
         ThrowBusinessError(env, SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
         return nullptr;
     }
-    return RegisterOnDisconnected(env, portName, callbackRef, tsfn);
+    return RegisterOnDisconnect(env, portName, callbackRef, tsfn);
 }
 
 static void RemoveAllDisconnectedCallbacks(napi_env env, const std::string& portName)
@@ -2028,9 +2028,9 @@ static void RemoveDisconnectedCallbackByFunc(napi_env env, const std::string& po
     }
 }
 
-static napi_value SerialOffDisconnectedNapi(napi_env env, napi_callback_info info)
+static napi_value SerialOffDisconnectNapi(napi_env env, napi_callback_info info)
 {
-    SERIAL_HILOGI(MODULE_JS_NAPI, "offDisconnected start");
+    SERIAL_HILOGI(MODULE_JS_NAPI, "offDisconnect start");
     size_t argc = 1;
     napi_value argv[1] = {nullptr};
     napi_value thisVar = nullptr;
@@ -2047,7 +2047,7 @@ static napi_value SerialOffDisconnectedNapi(napi_env env, napi_callback_info inf
     }
     if (argc < 1 || type == napi_undefined || type == napi_null) {
         RemoveAllDisconnectedCallbacks(env, portName);
-        SERIAL_HILOGI(MODULE_JS_NAPI, "offDisconnected all callbacks for portName=%{public}s", portName.c_str());
+        SERIAL_HILOGI(MODULE_JS_NAPI, "offDisconnect all callbacks for portName=%{public}s", portName.c_str());
         napi_value undefined = nullptr;
         napi_get_undefined(env, &undefined);
         return undefined;
@@ -2057,7 +2057,7 @@ static napi_value SerialOffDisconnectedNapi(napi_env env, napi_callback_info inf
         return nullptr;
     }
     RemoveDisconnectedCallbackByFunc(env, portName, argv[0]);
-    SERIAL_HILOGI(MODULE_JS_NAPI, "offDisconnected finish for portName=%{public}s", portName.c_str());
+    SERIAL_HILOGI(MODULE_JS_NAPI, "offDisconnect finish for portName=%{public}s", portName.c_str());
     napi_value undefined = nullptr;
     napi_get_undefined(env, &undefined);
     return undefined;

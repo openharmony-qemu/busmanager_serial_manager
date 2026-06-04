@@ -238,7 +238,7 @@ declare namespace serial {
      * @stagemodelonly
      * @since 26.0.0 dynamic&static
      */
-    onDisconnected(callback: Callback<void>): void;
+    onDisconnect(callback: Callback<void>): void;
 
     /**
      * Cancels listening for serial port disconnection events.
@@ -251,7 +251,7 @@ declare namespace serial {
      * @stagemodelonly
      * @since 26.0.0 dynamic&static
      */
-    offDisconnected(callback?: Callback<void>): void;
+    offDisconnect(callback?: Callback<void>): void;
   }
   /**
    * Serial port device information.

@@ -67,7 +67,7 @@ public:
     ~MockSerialServiceCallback() override = default;
 
     MOCK_METHOD(ErrCode, onDataRead, (const std::string& portName, const std::vector<uint8_t>& buffer), (override));
-    MOCK_METHOD(ErrCode, onDisconnected, (const std::string& portName), (override));
+    MOCK_METHOD(ErrCode, onDisconnect, (const std::string& portName), (override));
 };
 
 // ============================================================================

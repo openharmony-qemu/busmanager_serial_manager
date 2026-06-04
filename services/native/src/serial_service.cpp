@@ -767,7 +767,7 @@ void SerialService::HandleDeviceOffline(const std::string& portName)
     }
 
     if (it->second->serviceCallback != nullptr) {
-        it->second->serviceCallback->onDisconnected(portName);
+        it->second->serviceCallback->onDisconnect(portName);
         SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Notified client of disconnection for port %{public}s",
             __func__, __LINE__, portName.c_str());
     }

@@ -37,7 +37,7 @@ public:
     ~SerialServiceCallback() override = default;
 
     ErrCode onDataRead(const std::string& portName, const std::vector<uint8_t>& buffer) override;
-    ErrCode onDisconnected(const std::string& portName) override;
+    ErrCode onDisconnect(const std::string& portName) override;
 
     ListenerHandle AddListener(const std::string& portName, const DataReceivedCallback& callback);
     bool RemoveListener(const std::string& portName, ListenerHandle listenerHandle);

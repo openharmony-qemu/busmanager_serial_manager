@@ -63,9 +63,9 @@ interface SerialPort {
 
   @promise getDsr(): bool;
 
-  onDisconnected(callback: () => void): void;
+  onDisconnect(callback: () => void): void;
 
-  offDisconnected(@optional callback: Optional<() => void>): void;
+  offDisconnect(@optional callback: Optional<() => void>): void;
 }
 
 interface SerialPortInfo {

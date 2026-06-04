@@ -113,14 +113,14 @@ size_t SerialServiceCallback::GetListenerCount(const std::string& portName)
     return it->second.size();
 }
 
-ErrCode SerialServiceCallback::onDisconnected(const std::string& portName)
+ErrCode SerialServiceCallback::onDisconnect(const std::string& portName)
 {
-    SERIAL_HILOGI(MODULE_INNERKIT, "[onDisconnected] portName=%{public}s", portName.c_str());
+    SERIAL_HILOGI(MODULE_INNERKIT, "[onDisconnect] portName=%{public}s", portName.c_str());
 
     std::lock_guard<std::mutex> lock(disconnectedListenerMutex_);
     auto it = disconnectedListeners_.find(portName);
     if (it == disconnectedListeners_.end() || it->second.empty()) {
-        SERIAL_HILOGW(MODULE_INNERKIT, "[onDisconnected] No listener for portName=%{public}s", portName.c_str());
+        SERIAL_HILOGW(MODULE_INNERKIT, "[onDisconnect] No listener for portName=%{public}s", portName.c_str());
         return ERR_OK;
     }
 

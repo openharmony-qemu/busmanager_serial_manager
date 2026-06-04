@@ -818,9 +818,9 @@ public:
         return dsr;
     }
 
-    void onDisconnected(taihe::callback<void()> callback)
+    void onDisconnect(taihe::callback<void()> callback)
     {
-        SERIAL_HILOGI(MODULE_TAIHE, "onDisconnected start, portName=%{public}s", portName_.c_str());
+        SERIAL_HILOGI(MODULE_TAIHE, "onDisconnect start, portName=%{public}s", portName_.c_str());
         if (invalidated_) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
@@ -828,7 +828,7 @@ public:
         }
         if (!isOpened_) {
             SERIAL_HILOGE(
-                MODULE_TAIHE, "onDisconnected failed: port not opened, portName=%{public}s", portName_.c_str());
+                MODULE_TAIHE, "onDisconnect failed: port not opened, portName=%{public}s", portName_.c_str());
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
             return;
@@ -838,7 +838,7 @@ public:
             auto& callbacks = g_disconnectedCallbacks[portName_];
             for (const auto& existing : callbacks) {
                 if (existing == callback) {
-                    SERIAL_HILOGI(MODULE_TAIHE, "onDisconnected callback already registered, skip");
+                    SERIAL_HILOGI(MODULE_TAIHE, "onDisconnect callback already registered, skip");
                     return;
                 }
             }
@@ -868,15 +868,15 @@ public:
             return;
         }
         SERIAL_HILOGI(
-            MODULE_TAIHE, "onDisconnected finish, handle=%{public}llu", static_cast<unsigned long long>(handle));
+            MODULE_TAIHE, "onDisconnect finish, handle=%{public}llu", static_cast<unsigned long long>(handle));
     }
 
-    void offDisconnected(optional_view<taihe::callback<void()>> callback)
+    void offDisconnect(optional_view<taihe::callback<void()>> callback)
     {
-        SERIAL_HILOGI(MODULE_TAIHE, "offDisconnected start, portName=%{public}s", portName_.c_str());
+        SERIAL_HILOGI(MODULE_TAIHE, "offDisconnect start, portName=%{public}s", portName_.c_str());
         if (!isOpened_) {
             SERIAL_HILOGE(
-                MODULE_TAIHE, "offDisconnected failed: port not opened, portName=%{public}s", portName_.c_str());
+                MODULE_TAIHE, "offDisconnect failed: port not opened, portName=%{public}s", portName_.c_str());
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
             return;
@@ -884,14 +884,14 @@ public:
         if (!callback.has_value()) {
             std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
             g_disconnectedCallbacks.erase(portName_);
-            SERIAL_HILOGI(MODULE_TAIHE, "offDisconnected finish.");
+            SERIAL_HILOGI(MODULE_TAIHE, "offDisconnect finish.");
             return;
         }
         {
             std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
             auto it = g_disconnectedCallbacks.find(portName_);
             if (it == g_disconnectedCallbacks.end()) {
-                SERIAL_HILOGW(MODULE_TAIHE, "offDisconnected no callbacks for %{public}s", portName_.c_str());
+                SERIAL_HILOGW(MODULE_TAIHE, "offDisconnect no callbacks for %{public}s", portName_.c_str());
                 return;
             }
             auto& entries = it->second;
@@ -904,13 +904,13 @@ public:
                 }
             }
             if (!found) {
-                SERIAL_HILOGW(MODULE_TAIHE, "offDisconnected callback not found for %{public}s", portName_.c_str());
+                SERIAL_HILOGW(MODULE_TAIHE, "offDisconnect callback not found for %{public}s", portName_.c_str());
             }
             if (entries.empty()) {
                 g_disconnectedCallbacks.erase(it);
             }
         }
-        SERIAL_HILOGI(MODULE_TAIHE, "offDisconnected finish.");
+        SERIAL_HILOGI(MODULE_TAIHE, "offDisconnect finish.");
     }
 
 private:
