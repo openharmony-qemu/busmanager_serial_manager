@@ -58,6 +58,14 @@ interface SerialPort {
   @promise getCts(): bool;
 
   @promise sendBrk(): void;
+
+  @promise setDtr(enable: bool): void;
+
+  @promise getDsr(): bool;
+
+  onDisconnected(callback: () => void): void;
+
+  offDisconnected(@optional callback: Optional<() => void>): void;
 }
 
 interface SerialPortInfo {

@@ -90,6 +90,17 @@ public:
         return HDF_ERR_NOT_READY;
     }
 
+    int32_t SetDtrSignal(bool dtr) override
+    {
+        return HDF_ERR_NOT_READY;
+    }
+
+    int32_t GetDsrSignal(bool& dsr) override
+    {
+        dsr = false;
+        return HDF_ERR_NOT_READY;
+    }
+
     bool IsProxy() override
     {
         return false;

@@ -117,6 +117,8 @@ public:
     int32_t SendBrkSignal(const std::string& portName) override;
     int32_t SetRtsSignal(const std::string& portName, bool rts) override;
     int32_t GetCtsSignal(const std::string& portName, bool& cts) override;
+    int32_t SetDtrSignal(const std::string& portName, bool dtr) override;
+    int32_t GetDsrSignal(const std::string& portName, bool& dsr) override;
     int32_t AddPortAuthorization(const std::string& tokenId, const std::string& deviceId) override;
 
     void OnClientDied(const std::string& portName);

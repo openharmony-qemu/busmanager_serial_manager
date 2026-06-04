@@ -766,6 +766,12 @@ void SerialService::HandleDeviceOffline(const std::string& portName)
         return;
     }
 
+    if (it->second->serviceCallback != nullptr) {
+        it->second->serviceCallback->onDisconnected(portName);
+        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Notified client of disconnection for port %{public}s",
+            __func__, __LINE__, portName.c_str());
+    }
+
     it->second->hdiDevice = nullptr;
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s marked as offline", __func__,
         __LINE__, portName.c_str());
@@ -1101,6 +1107,88 @@ int32_t SerialService::GetCtsSignal(const std::string& portName, bool& cts)
 
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetCtsSignal success, portName=%{public}s, cts=%{public}d",
         __func__, __LINE__, portName.c_str(), cts);
+    return SERIAL_OK;
+}
+
+int32_t SerialService::SetDtrSignal(const std::string& portName, bool dtr)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SetDtrSignal called, portName=%{public}s, dtr=%{public}d",
+        __func__, __LINE__, portName.c_str(), dtr);
+
+    std::lock_guard<std::mutex> lock(serviceMutex_);
+    if (isRs232Disabled_ && !IsUsbSerial(portName)) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_SERVICE;
+    }
+
+    DeviceContext* context = FindDeviceContext(portName);
+    if (context == nullptr) {
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s not opened", __func__, __LINE__, portName.c_str());
+        return SERIAL_ERR_DEVICE_NOT_OPENED;
+    }
+
+    if (context->hdiDevice == nullptr) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__,
+            portName.c_str());
+        return SERIAL_ERR_DEVICE_DISCONNECTED;
+    }
+
+    int32_t permRet = CheckPortAccessPermission(context, portName);
+    if (permRet != SERIAL_OK) {
+        return permRet;
+    }
+
+    int32_t ret = context->hdiDevice->SetDtrSignal(dtr);
+    if (ret != 0) {
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d HDI SetDtrSignal failed, ret=%{public}d", __func__, __LINE__, ret);
+        return SerialHdiToInternalCode(ret);
+    }
+
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SetDtrSignal success, portName=%{public}s", __func__, __LINE__,
+        portName.c_str());
+    return SERIAL_OK;
+}
+
+int32_t SerialService::GetDsrSignal(const std::string& portName, bool& dsr)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetDsrSignal called, portName=%{public}s", __func__, __LINE__,
+        portName.c_str());
+
+    std::lock_guard<std::mutex> lock(serviceMutex_);
+    if (isRs232Disabled_ && !IsUsbSerial(portName)) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+        return SERIAL_ERR_SERVICE;
+    }
+
+    DeviceContext* context = FindDeviceContext(portName);
+    if (context == nullptr) {
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s not opened", __func__, __LINE__, portName.c_str());
+        return SERIAL_ERR_DEVICE_NOT_OPENED;
+    }
+
+    if (context->hdiDevice == nullptr) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__,
+            portName.c_str());
+        return SERIAL_ERR_DEVICE_DISCONNECTED;
+    }
+
+    int32_t permRet = CheckPortAccessPermission(context, portName);
+    if (permRet != SERIAL_OK) {
+        return permRet;
+    }
+
+    int32_t ret = context->hdiDevice->GetDsrSignal(dsr);
+    if (ret != 0) {
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d HDI GetDsrSignal failed, ret=%{public}d", __func__, __LINE__, ret);
+        return SerialHdiToInternalCode(ret);
+    }
+
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetDsrSignal success, portName=%{public}s, dsr=%{public}d",
+        __func__, __LINE__, portName.c_str(), dsr);
     return SERIAL_OK;
 }
 int32_t SerialService::ValidateDialogHapCaller(AccessTokenID callerTokenId, HapTokenInfo& callerTokenInfo)

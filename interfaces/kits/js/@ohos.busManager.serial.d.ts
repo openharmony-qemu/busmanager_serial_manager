@@ -199,6 +199,59 @@ declare namespace serial {
      * @since 26.0.0 dynamic&static
      */
     sendBrk(): Promise<void>;
+
+    /**
+     * Sets the DTR signal. This API returns the result asynchronously through a promise.
+     *
+     * @param {boolean} enable - DTR signal status, indicating whether the data terminal is ready.
+     * @returns { Promise<void> } - Promise that returns no value.
+     * @throws { BusinessError } 35700001 - Service error.
+     * @throws { BusinessError } 35700003 - Virtual serial port disconnected.
+     * @throws { BusinessError } 35700005 - Port not open.
+     * @syscap SystemCapability.BusManager.Serial
+     * @stagemodelonly
+     * @since 26.0.0 dynamic&static
+     */
+    setDtr(enable: boolean): Promise<void>;
+
+    /**
+     * Obtains the DSR signal status. This API returns the result asynchronously through a promise.
+     *
+     * @returns { Promise<boolean> } - Promise used to return the DSR signal status, indicating whether the data
+     *     set is ready.
+     * @throws { BusinessError } 35700001 - Service error.
+     * @throws { BusinessError } 35700003 - Virtual serial port disconnected.
+     * @throws { BusinessError } 35700005 - Port not open.
+     * @syscap SystemCapability.BusManager.Serial
+     * @stagemodelonly
+     * @since 26.0.0 dynamic&static
+     */
+    getDsr(): Promise<boolean>;
+
+    /**
+     * Listens for serial port disconnection events. This API uses an asynchronous callback to return the result.
+     *
+     * @param { Callback<void> } callback - Callback invoked when the serial port is disconnected.
+     * @throws { BusinessError } 35700001 - Service error.
+     * @throws { BusinessError } 35700005 - Port not open.
+     * @syscap SystemCapability.BusManager.Serial
+     * @stagemodelonly
+     * @since 26.0.0 dynamic&static
+     */
+    onDisconnected(callback: Callback<void>): void;
+
+    /**
+     * Cancels listening for serial port disconnection events.
+     *
+     * @param { Callback<void> } [callback] - Callback invoked when the serial port is disconnected.
+     *     <br>Default value: Clear all listeners for serial port disconnection events.
+     * @throws { BusinessError } 35700001 - Service error.
+     * @throws { BusinessError } 35700005 - Port not open.
+     * @syscap SystemCapability.BusManager.Serial
+     * @stagemodelonly
+     * @since 26.0.0 dynamic&static
+     */
+    offDisconnected(callback?: Callback<void>): void;
   }
   /**
    * Serial port device information.

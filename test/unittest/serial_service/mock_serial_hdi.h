@@ -60,6 +60,8 @@ public:
     MOCK_METHOD(int32_t, SendBrkSignal, (), (override));
     MOCK_METHOD(int32_t, SetRtsSignal, (bool rts), (override));
     MOCK_METHOD(int32_t, GetCtsSignal, (bool& cts), (override));
+    MOCK_METHOD(int32_t, SetDtrSignal, (bool dtr), (override));
+    MOCK_METHOD(int32_t, GetDsrSignal, (bool& dsr), (override));
     MOCK_METHOD(bool, IsProxy, (), (override));
 };
 

@@ -173,6 +173,7 @@ int32_t SerialSrvClient::OpenSerial(const SerialPortInfo& portInfo, const Serial
     int32_t jsRet = SerialInternalToJsCode(ret);
     if (jsRet == SERIAL_OK && callback_ != nullptr) {
         callback_->RemoveAllListeners(portInfo.portName);
+        callback_->RemoveAllDisconnectedListeners(portInfo.portName);
     }
     SERIAL_HILOGI(MODULE_INNERKIT, "[OpenSerial] ret = %{public}d -> jsRet = %{public}d", ret, jsRet);
     return jsRet;
@@ -194,6 +195,7 @@ int32_t SerialSrvClient::CloseSerial(const std::string& portName)
 
     if (callback_ != nullptr) {
         callback_->RemoveAllListeners(portName);
+        callback_->RemoveAllDisconnectedListeners(portName);
     }
 
     int32_t ret = proxy->CloseSerial(portName);
@@ -334,6 +336,47 @@ int32_t SerialSrvClient::GetCtsSignal(const std::string& portName, bool& cts)
     return jsRet;
 }
 
+int32_t SerialSrvClient::SetDtrSignal(const std::string& portName, bool dtr)
+{
+    SERIAL_HILOGI(MODULE_INNERKIT, "[SetDtrSignal] Enter, portName=%{public}s, dtr=%{public}d", portName.c_str(), dtr);
+    if (portName.empty()) {
+        SERIAL_HILOGE(MODULE_INNERKIT, "[SetDtrSignal] PortName is empty");
+        return SERIAL_JS_ERR_INVALID_PARAM;
+    }
+
+    sptr<ISerialServer> proxy = GetProxy();
+    if (proxy == nullptr) {
+        SERIAL_HILOGE(MODULE_INNERKIT, "[SetDtrSignal] Proxy is nullptr");
+        return SERIAL_JS_ERR_SERVICE;
+    }
+
+    int32_t ret = proxy->SetDtrSignal(portName, dtr);
+    int32_t jsRet = SerialInternalToJsCode(ret);
+    SERIAL_HILOGI(MODULE_INNERKIT, "[SetDtrSignal] ret = %{public}d -> jsRet = %{public}d", ret, jsRet);
+    return jsRet;
+}
+
+int32_t SerialSrvClient::GetDsrSignal(const std::string& portName, bool& dsr)
+{
+    SERIAL_HILOGI(MODULE_INNERKIT, "[GetDsrSignal] Enter, portName=%{public}s", portName.c_str());
+    if (portName.empty()) {
+        SERIAL_HILOGE(MODULE_INNERKIT, "[GetDsrSignal] PortName is empty");
+        return SERIAL_JS_ERR_INVALID_PARAM;
+    }
+
+    sptr<ISerialServer> proxy = GetProxy();
+    if (proxy == nullptr) {
+        SERIAL_HILOGE(MODULE_INNERKIT, "[GetDsrSignal] Proxy is nullptr");
+        return SERIAL_JS_ERR_SERVICE;
+    }
+
+    int32_t ret = proxy->GetDsrSignal(portName, dsr);
+    int32_t jsRet = SerialInternalToJsCode(ret);
+    SERIAL_HILOGI(
+        MODULE_INNERKIT, "[GetDsrSignal] ret = %{public}d -> jsRet = %{public}d, dsr=%{public}d", ret, jsRet, dsr);
+    return jsRet;
+}
+
 int32_t SerialSrvClient::AddPortAuthorization(const std::string& tokenId, const std::string& deviceId)
 {
     SERIAL_HILOGI(MODULE_INNERKIT, "[AddPortAuthorization] Enter, tokenId=%{public}s, deviceId=%{public}s",
@@ -443,6 +486,50 @@ int32_t SerialSrvClient::UnregisterDataListener(const std::string& portName, Lis
         return jsRet;
     }
 
+    return SERIAL_OK;
+}
+
+int32_t SerialSrvClient::RegisterDisconnectedListener(
+    const std::string& portName, const DisconnectedCallback& callback, ListenerHandle& listenerHandle)
+{
+    SERIAL_HILOGI(MODULE_INNERKIT, "[RegisterDisconnectedListener] Enter, portName=%{public}s", portName.c_str());
+    listenerHandle = 0;
+
+    if (!callback) {
+        SERIAL_HILOGE(MODULE_INNERKIT, "[RegisterDisconnectedListener] Invalid callback");
+        return SERIAL_JS_ERR_INVALID_PARAM;
+    }
+
+    if (callback_ == nullptr) {
+        SERIAL_HILOGE(MODULE_INNERKIT, "[RegisterDisconnectedListener] Callback_ is nullptr");
+        return SERIAL_JS_ERR_SERVICE;
+    }
+
+    listenerHandle = callback_->AddDisconnectedListener(portName, callback);
+    if (listenerHandle == 0) {
+        SERIAL_HILOGE(MODULE_INNERKIT, "[RegisterDisconnectedListener] AddDisconnectedListener failed");
+        return SERIAL_JS_ERR_SERVICE;
+    }
+    SERIAL_HILOGI(MODULE_INNERKIT, "[RegisterDisconnectedListener] Success, handle=%{public}llu",
+        static_cast<unsigned long long>(listenerHandle));
+    return SERIAL_OK;
+}
+
+int32_t SerialSrvClient::UnregisterDisconnectedListener(const std::string& portName, ListenerHandle listenerHandle)
+{
+    SERIAL_HILOGI(MODULE_INNERKIT, "[UnregisterDisconnectedListener] Enter, portName=%{public}s, handle=%{public}llu",
+        portName.c_str(), static_cast<unsigned long long>(listenerHandle));
+    if (callback_ == nullptr) {
+        SERIAL_HILOGE(MODULE_INNERKIT, "[UnregisterDisconnectedListener] Callback_ is nullptr");
+        return UNREGISTER_LISTENER_ERROR;
+    }
+
+    if (!callback_->RemoveDisconnectedListener(portName, listenerHandle)) {
+        SERIAL_HILOGW(MODULE_INNERKIT, "[UnregisterDisconnectedListener] Remove failed for %{public}s",
+            portName.c_str());
+        return UNREGISTER_LISTENER_ERROR;
+    }
+    SERIAL_HILOGI(MODULE_INNERKIT, "[UnregisterDisconnectedListener] Success");
     return SERIAL_OK;
 }
 
