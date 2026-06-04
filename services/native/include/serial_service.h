@@ -51,6 +51,7 @@ constexpr const char* SERIAL_OPEN = "SerialOpen";
 constexpr const char* SERIAL_CLOSE = "SerialClose";
 constexpr const char* SERIAL_READ = "SerialRead";
 constexpr const char* SERIAL_WRITE = "SerialWrite";
+constexpr int32_t ACM_PORT_ID_OFFSET = 1000;
 
 class SerialService;
 

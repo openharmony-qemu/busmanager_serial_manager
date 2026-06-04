@@ -1677,7 +1677,7 @@ int SerialService::Dump(int fd, const std::vector<std::u16string>& args)
 
 bool SerialService::IsUsbSerial(const std::string& portName)
 {
-    return (portName.find("USB") != std::string::npos);
+    return (portName.find("USB") != std::string::npos || portName.find("ACM") != std::string::npos);
 }
 
 void SerialService::SetSerialManagePolicy(bool disable)
@@ -1708,7 +1708,9 @@ void SerialService::ReportSerialOperationAudit(const std::string& portName, cons
 {
     int32_t portId = GetIdFromPortName(portName);
     if (!IsUsbSerial(portName)) {
-        portId = -portId; // rs232 id is negative
+        portId = -portId;
+    } else if (portName.find("ACM") != std::string::npos) {
+        portId += ACM_PORT_ID_OFFSET;
     }
 
     // Report Security Audit Event for serial operation
