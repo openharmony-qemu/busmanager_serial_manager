@@ -37,5 +37,9 @@ interface OHOS.Serial.ISerialServer {
 
     void GetCtsSignal([in] String portName, [out] boolean cts);
 
+    void SetDtrSignal([in] String portName, [in] boolean dtr);
+
+    void GetDsrSignal([in] String portName, [out] boolean dsr);
+
     void AddPortAuthorization([in] String authToken, [in] String deviceId);
 }

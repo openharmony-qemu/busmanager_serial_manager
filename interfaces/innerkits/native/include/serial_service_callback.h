@@ -28,6 +28,7 @@ namespace OHOS {
 namespace Serial {
 
 using DataReceivedCallback = std::function<void(const std::vector<uint8_t>& data)>;
+using DisconnectedCallback = std::function<void(const std::string& portName)>;
 using ListenerHandle = uint64_t;
 
 class SerialServiceCallback : public SerialServiceCallbackStub {
@@ -36,6 +37,7 @@ public:
     ~SerialServiceCallback() override = default;
 
     ErrCode onDataRead(const std::string& portName, const std::vector<uint8_t>& buffer) override;
+    ErrCode onDisconnect(const std::string& portName) override;
 
     ListenerHandle AddListener(const std::string& portName, const DataReceivedCallback& callback);
     bool RemoveListener(const std::string& portName, ListenerHandle listenerHandle);
@@ -43,10 +45,18 @@ public:
     bool HasListeners(const std::string& portName);
     size_t GetListenerCount(const std::string& portName);
 
+    ListenerHandle AddDisconnectedListener(const std::string& portName, const DisconnectedCallback& callback);
+    bool RemoveDisconnectedListener(const std::string& portName, ListenerHandle listenerHandle);
+    void RemoveAllDisconnectedListeners(const std::string& portName);
+
 private:
     std::mutex listenerMutex_;
     std::map<std::string, std::map<ListenerHandle, DataReceivedCallback>> listeners_;
     ListenerHandle nextListenerHandle_ = 1;
+
+    std::mutex disconnectedListenerMutex_;
+    std::map<std::string, std::map<ListenerHandle, DisconnectedCallback>> disconnectedListeners_;
+    ListenerHandle nextDisconnectedListenerHandle_ = 1;
 };
 
 } // namespace Serial

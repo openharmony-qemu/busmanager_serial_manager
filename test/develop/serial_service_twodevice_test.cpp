@@ -374,6 +374,19 @@ int32_t SerialService::GetCtsSignal(const std::string& portName, bool& cts)
     return SERIAL_OK;
 }
 
+int32_t SerialService::SetDtrSignal(const std::string& portName, bool dtr)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "SetDtrSignal called, portName=%{public}s, dtr=%{public}d", portName.c_str(), dtr);
+    return SERIAL_OK;
+}
+
+int32_t SerialService::GetDsrSignal(const std::string& portName, bool& dsr)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "GetDsrSignal called, portName=%{public}s", portName.c_str());
+    dsr = false;
+    return SERIAL_OK;
+}
+
 int32_t SerialService::AddPortAuthorization(const std::string& tokenId, const std::string& deviceId)
 {
     SERIAL_HILOGI(MODULE_SERVICE, "AddPortAuthorization called, tokenId=%{public}s, deviceId=%{public}s",

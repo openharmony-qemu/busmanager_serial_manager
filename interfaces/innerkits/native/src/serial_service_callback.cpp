@@ -113,5 +113,85 @@ size_t SerialServiceCallback::GetListenerCount(const std::string& portName)
     return it->second.size();
 }
 
+ErrCode SerialServiceCallback::onDisconnect(const std::string& portName)
+{
+    SERIAL_HILOGI(MODULE_INNERKIT, "[onDisconnect] portName=%{public}s", portName.c_str());
+
+    std::lock_guard<std::mutex> lock(disconnectedListenerMutex_);
+    auto it = disconnectedListeners_.find(portName);
+    if (it == disconnectedListeners_.end() || it->second.empty()) {
+        SERIAL_HILOGW(MODULE_INNERKIT, "[onDisconnect] No listener for portName=%{public}s", portName.c_str());
+        return ERR_OK;
+    }
+
+    for (const auto& pair : it->second) {
+        if (pair.second) {
+            pair.second(portName);
+        }
+    }
+
+    return ERR_OK;
+}
+
+ListenerHandle SerialServiceCallback::AddDisconnectedListener(
+    const std::string& portName, const DisconnectedCallback& callback)
+{
+    if (!callback) {
+        SERIAL_HILOGE(MODULE_INNERKIT, "[AddDisconnectedListener] Invalid callback");
+        return 0;
+    }
+
+    std::lock_guard<std::mutex> lock(disconnectedListenerMutex_);
+    ListenerHandle listenerHandle = nextDisconnectedListenerHandle_++;
+    disconnectedListeners_[portName][listenerHandle] = callback;
+    SERIAL_HILOGI(MODULE_INNERKIT,
+        "[AddDisconnectedListener] portName=%{public}s, listenerHandle=%{public}llu, count=%{public}zu",
+        portName.c_str(), static_cast<unsigned long long>(listenerHandle), disconnectedListeners_[portName].size());
+    return listenerHandle;
+}
+
+bool SerialServiceCallback::RemoveDisconnectedListener(
+    const std::string& portName, ListenerHandle listenerHandle)
+{
+    std::lock_guard<std::mutex> lock(disconnectedListenerMutex_);
+    auto portIt = disconnectedListeners_.find(portName);
+    if (portIt == disconnectedListeners_.end()) {
+        SERIAL_HILOGW(
+            MODULE_INNERKIT, "[RemoveDisconnectedListener] No listeners for portName=%{public}s", portName.c_str());
+        return false;
+    }
+
+    auto& listenerMap = portIt->second;
+    auto it = listenerMap.find(listenerHandle);
+    if (it == listenerMap.end()) {
+        SERIAL_HILOGW(MODULE_INNERKIT,
+            "[RemoveDisconnectedListener] Listener not found for portName=%{public}s, listenerHandle=%{public}llu",
+            portName.c_str(), static_cast<unsigned long long>(listenerHandle));
+        return false;
+    }
+
+    listenerMap.erase(it);
+    SERIAL_HILOGI(MODULE_INNERKIT,
+        "[RemoveDisconnectedListener] portName=%{public}s, listenerHandle=%{public}llu, remaining=%{public}zu",
+        portName.c_str(), static_cast<unsigned long long>(listenerHandle), listenerMap.size());
+
+    if (listenerMap.empty()) {
+        disconnectedListeners_.erase(portIt);
+    }
+
+    return true;
+}
+void SerialServiceCallback::RemoveAllDisconnectedListeners(const std::string& portName)
+{
+    std::lock_guard<std::mutex> lock(disconnectedListenerMutex_);
+    auto it = disconnectedListeners_.find(portName);
+    if (it != disconnectedListeners_.end()) {
+        SERIAL_HILOGI(MODULE_INNERKIT,
+            "[RemoveAllDisconnectedListeners] portName=%{public}s, count=%{public}zu", portName.c_str(),
+            it->second.size());
+        disconnectedListeners_.erase(it);
+    }
+}
+
 } // namespace Serial
 } // namespace OHOS

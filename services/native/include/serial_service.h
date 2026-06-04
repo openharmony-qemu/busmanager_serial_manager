@@ -54,7 +54,7 @@ constexpr const char* SERIAL_WRITE = "SerialWrite";
 
 class SerialService;
 
-class SerialHdiCallback : public OHOS::HDI::Serials::V1_0::ISerialDeviceCallback {
+class SerialHdiCallback : public OHOS::HDI::Serial::V1_0::ISerialDeviceCallback {
 public:
     explicit SerialHdiCallback(const sptr<ISerialServiceCallback>& serviceCallback, const std::string& portName);
     ~SerialHdiCallback() override = default;
@@ -80,7 +80,7 @@ private:
 };
 
 struct DeviceContext {
-    sptr<OHOS::HDI::Serials::V1_0::ISerialDevice> hdiDevice;
+    sptr<OHOS::HDI::Serial::V1_0::ISerialDevice> hdiDevice;
     sptr<SerialHdiCallback> hdiCallback;
     sptr<ISerialServiceCallback> serviceCallback;
     sptr<SerialClientDeathRecipient> deathRecipient;
@@ -117,6 +117,8 @@ public:
     int32_t SendBrkSignal(const std::string& portName) override;
     int32_t SetRtsSignal(const std::string& portName, bool rts) override;
     int32_t GetCtsSignal(const std::string& portName, bool& cts) override;
+    int32_t SetDtrSignal(const std::string& portName, bool dtr) override;
+    int32_t GetDsrSignal(const std::string& portName, bool& dsr) override;
     int32_t AddPortAuthorization(const std::string& tokenId, const std::string& deviceId) override;
 
     void OnClientDied(const std::string& portName);
@@ -128,8 +130,8 @@ public:
 private:
     void InitHdiProxy();
     void InitCommonEventSubscriber();
-    OHOS::HDI::Serials::V1_0::SerialConfig ConvertConfig(const SerialConfig& serviceConfig);
-    SerialPortInfo ConvertDeviceInfo(const OHOS::HDI::Serials::V1_0::SerialDeviceInfo& hdiInfo);
+    OHOS::HDI::Serial::V1_0::SerialConfig ConvertConfig(const SerialConfig& serviceConfig);
+    SerialPortInfo ConvertDeviceInfo(const OHOS::HDI::Serial::V1_0::SerialDeviceInfo& hdiInfo);
     DeviceContext* FindDeviceContext(const std::string& portName);
     std::string FindPortNameForDevice(const SerialPortInfo& portInfo);
     int32_t CheckPortAccessPermission(const DeviceContext* context, const std::string& portName);
@@ -165,10 +167,10 @@ private:
     void LogWriteData(const std::vector<uint8_t>& data);
     int32_t CheckWritePreconditions(DeviceContext* context, const std::string& portName);
     int32_t OpenHdiDevice(const std::string& portName, const SerialConfig& config,
-        const sptr<ISerialServiceCallback>& token, sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& hdiDevice,
+        const sptr<ISerialServiceCallback>& token, sptr<OHOS::HDI::Serial::V1_0::ISerialDevice>& hdiDevice,
         sptr<SerialHdiCallback>& hdiCallback);
     std::shared_ptr<DeviceContext> BuildDeviceContext(const std::string& portName, const SerialConfig& config,
-        const sptr<ISerialServiceCallback>& token, const sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& hdiDevice,
+        const sptr<ISerialServiceCallback>& token, const sptr<OHOS::HDI::Serial::V1_0::ISerialDevice>& hdiDevice,
         const sptr<SerialHdiCallback>& hdiCallback);
     void DumpPhysicalDevices(int fd);
     void DumpOpenedDevices(int fd);
@@ -178,13 +180,13 @@ private:
         Security::AccessToken::AccessTokenID callerTokenId, Security::AccessToken::HapTokenInfo& callerTokenInfo);
     int32_t ParseTargetTokenId(const std::string& tokenId, Security::AccessToken::AccessTokenID& targetTokenId);
 
-    void SetHdiProxyForTest(const sptr<OHOS::HDI::Serials::V1_0::ISerials>& proxy);
-    sptr<OHOS::HDI::Serials::V1_0::ISerials> GetHdiProxyForTest() const;
+    void SetHdiProxyForTest(const sptr<OHOS::HDI::Serial::V1_0::ISerials>& proxy);
+    sptr<OHOS::HDI::Serial::V1_0::ISerials> GetHdiProxyForTest() const;
 
     bool registerToService_ = false;
     std::mutex serviceMutex_;
 
-    sptr<OHOS::HDI::Serials::V1_0::ISerials> serialsProxy_;
+    sptr<OHOS::HDI::Serial::V1_0::ISerials> serialsProxy_;
     bool hdiStubMode_ = false;
 
     std::map<std::string, std::shared_ptr<DeviceContext>> deviceContexts_;

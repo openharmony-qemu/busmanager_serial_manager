@@ -28,7 +28,7 @@ constexpr int32_t HDF_FAILURE = -1;
 // MockSerialsImpl 实现
 // ============================================================================
 
-int32_t MockSerialsImpl::QueryDevices(std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices)
+int32_t MockSerialsImpl::QueryDevices(std::vector<OHOS::HDI::Serial::V1_0::SerialDeviceInfo>& devices)
 {
     std::lock_guard<std::mutex> lock(mockMutex_);
     if (!queryDevicesSuccess_) {
@@ -39,9 +39,9 @@ int32_t MockSerialsImpl::QueryDevices(std::vector<OHOS::HDI::Serials::V1_0::Seri
     return HDF_SUCCESS;
 }
 
-int32_t MockSerialsImpl::OpenDevice(const std::string& portName, const OHOS::HDI::Serials::V1_0::SerialConfig& config,
-    const sptr<OHOS::HDI::Serials::V1_0::ISerialDeviceCallback>& cb,
-    sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& device)
+int32_t MockSerialsImpl::OpenDevice(const std::string& portName, const OHOS::HDI::Serial::V1_0::SerialConfig& config,
+    const sptr<OHOS::HDI::Serial::V1_0::ISerialDeviceCallback>& cb,
+    sptr<OHOS::HDI::Serial::V1_0::ISerialDevice>& device)
 {
     std::lock_guard<std::mutex> lock(mockMutex_);
 
@@ -66,7 +66,7 @@ bool MockSerialsImpl::IsProxy()
     return false;
 }
 
-void MockSerialsImpl::SetMockDevices(const std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices)
+void MockSerialsImpl::SetMockDevices(const std::vector<OHOS::HDI::Serial::V1_0::SerialDeviceInfo>& devices)
 {
     std::lock_guard<std::mutex> lock(mockMutex_);
     mockDevices_ = devices;
@@ -111,7 +111,7 @@ MockSerials::~MockSerials()
 }
 
 // 辅助方法代理
-void MockSerials::SetMockDevices(const std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices)
+void MockSerials::SetMockDevices(const std::vector<OHOS::HDI::Serial::V1_0::SerialDeviceInfo>& devices)
 {
     impl_.SetMockDevices(devices);
 }

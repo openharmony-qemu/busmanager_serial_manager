@@ -45,7 +45,7 @@ namespace Serial {
  * @details 使用 gmock 实现所有 ISerialDevice 方法，允许测试设置预期行为。
  * @since 2026-04-23
  */
-class MockSerialDevice : public OHOS::HDI::Serials::V1_0::ISerialDevice {
+class MockSerialDevice : public OHOS::HDI::Serial::V1_0::ISerialDevice {
 public:
     MockSerialDevice() = default;
     ~MockSerialDevice() override = default;
@@ -60,6 +60,8 @@ public:
     MOCK_METHOD(int32_t, SendBrkSignal, (), (override));
     MOCK_METHOD(int32_t, SetRtsSignal, (bool rts), (override));
     MOCK_METHOD(int32_t, GetCtsSignal, (bool& cts), (override));
+    MOCK_METHOD(int32_t, SetDtrSignal, (bool dtr), (override));
+    MOCK_METHOD(int32_t, GetDsrSignal, (bool& dsr), (override));
     MOCK_METHOD(bool, IsProxy, (), (override));
 };
 
@@ -74,20 +76,20 @@ public:
     MockSerialsImpl() = default;
     ~MockSerialsImpl() = default;
 
-    int32_t QueryDevices(std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices);
-    int32_t OpenDevice(const std::string& portName, const OHOS::HDI::Serials::V1_0::SerialConfig& config,
-        const sptr<OHOS::HDI::Serials::V1_0::ISerialDeviceCallback>& cb,
-        sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& device);
+    int32_t QueryDevices(std::vector<OHOS::HDI::Serial::V1_0::SerialDeviceInfo>& devices);
+    int32_t OpenDevice(const std::string& portName, const OHOS::HDI::Serial::V1_0::SerialConfig& config,
+        const sptr<OHOS::HDI::Serial::V1_0::ISerialDeviceCallback>& cb,
+        sptr<OHOS::HDI::Serial::V1_0::ISerialDevice>& device);
     bool IsProxy();
 
-    void SetMockDevices(const std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices);
+    void SetMockDevices(const std::vector<OHOS::HDI::Serial::V1_0::SerialDeviceInfo>& devices);
     void SetOpenDeviceResult(bool success);
     void SetQueryDevicesResult(bool success);
     uint32_t GetOpenedDeviceCount();
 
 private:
     std::mutex mockMutex_;
-    std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo> mockDevices_;
+    std::vector<OHOS::HDI::Serial::V1_0::SerialDeviceInfo> mockDevices_;
     std::map<std::string, sptr<MockSerialDevice>> openedDevices_;
     bool openDeviceSuccess_ = true;
     bool queryDevicesSuccess_ = true;
@@ -100,22 +102,22 @@ private:
  *          默认行为通过 ON_CALL + Invoke 设置，调用 MockSerialsImpl 的实现。
  * @since 2026-04-23
  */
-class MockSerials : public OHOS::HDI::Serials::V1_0::ISerials {
+class MockSerials : public OHOS::HDI::Serial::V1_0::ISerials {
 public:
     MockSerials();
     ~MockSerials() override;
 
     // gmock 方法声明
-    MOCK_METHOD(int32_t, QueryDevices, (std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo> & devices), (override));
+    MOCK_METHOD(int32_t, QueryDevices, (std::vector<OHOS::HDI::Serial::V1_0::SerialDeviceInfo> & devices), (override));
     MOCK_METHOD(int32_t, OpenDevice,
-        (const std::string& portName, const OHOS::HDI::Serials::V1_0::SerialConfig& config,
-            const sptr<OHOS::HDI::Serials::V1_0::ISerialDeviceCallback>& cb,
-            sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& device),
+        (const std::string& portName, const OHOS::HDI::Serial::V1_0::SerialConfig& config,
+            const sptr<OHOS::HDI::Serial::V1_0::ISerialDeviceCallback>& cb,
+            sptr<OHOS::HDI::Serial::V1_0::ISerialDevice>& device),
         (override));
     MOCK_METHOD(bool, IsProxy, (), (override));
 
     // 辅助方法 - 代理到 impl_
-    void SetMockDevices(const std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices);
+    void SetMockDevices(const std::vector<OHOS::HDI::Serial::V1_0::SerialDeviceInfo>& devices);
     void SetOpenDeviceResult(bool success);
     void SetQueryDevicesResult(bool success);
     uint32_t GetOpenedDeviceCount();

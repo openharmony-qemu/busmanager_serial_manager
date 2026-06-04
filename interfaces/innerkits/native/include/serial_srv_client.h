@@ -44,11 +44,17 @@ public:
     int32_t SendBrkSignal(const std::string& portName);
     int32_t SetRtsSignal(const std::string& portName, bool rts);
     int32_t GetCtsSignal(const std::string& portName, bool& cts);
+    int32_t SetDtrSignal(const std::string& portName, bool dtr);
+    int32_t GetDsrSignal(const std::string& portName, bool& dsr);
     int32_t AddPortAuthorization(const std::string& tokenId, const std::string& deviceId);
 
     int32_t RegisterDataListener(
         const std::string& portName, const DataReceivedCallback& callback, ListenerHandle& listenerHandle);
     int32_t UnregisterDataListener(const std::string& portName, ListenerHandle listenerHandle);
+
+    int32_t RegisterDisconnectedListener(
+        const std::string& portName, const DisconnectedCallback& callback, ListenerHandle& listenerHandle);
+    int32_t UnregisterDisconnectedListener(const std::string& portName, ListenerHandle listenerHandle);
 
 private:
     SerialSrvClient();

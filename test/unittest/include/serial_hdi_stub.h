@@ -38,7 +38,7 @@ constexpr int32_t HDF_ERR_NOT_READY = -3;
  * Provides placeholder implementation when no real HDI device is available.
  * All operations return HDF_ERR_NOT_READY.
  */
-class SerialDeviceStub : public OHOS::HDI::Serials::V1_0::ISerialDevice {
+class SerialDeviceStub : public OHOS::HDI::Serial::V1_0::ISerialDevice {
 public:
     SerialDeviceStub() = default;
     ~SerialDeviceStub() override = default;
@@ -90,6 +90,17 @@ public:
         return HDF_ERR_NOT_READY;
     }
 
+    int32_t SetDtrSignal(bool dtr) override
+    {
+        return HDF_ERR_NOT_READY;
+    }
+
+    int32_t GetDsrSignal(bool& dsr) override
+    {
+        dsr = false;
+        return HDF_ERR_NOT_READY;
+    }
+
     bool IsProxy() override
     {
         return false;
@@ -101,20 +112,20 @@ public:
  * Provides placeholder implementation when no real HDI service is available.
  * QueryDevices returns empty list, OpenDevice returns error.
  */
-class SerialHdiStub : public OHOS::HDI::Serials::V1_0::ISerials {
+class SerialHdiStub : public OHOS::HDI::Serial::V1_0::ISerials {
 public:
     SerialHdiStub() = default;
     ~SerialHdiStub() override = default;
 
-    int32_t QueryDevices(std::vector<OHOS::HDI::Serials::V1_0::SerialDeviceInfo>& devices) override
+    int32_t QueryDevices(std::vector<OHOS::HDI::Serial::V1_0::SerialDeviceInfo>& devices) override
     {
         devices.clear();
         return HDF_SUCCESS; // Return empty list successfully
     }
 
-    int32_t OpenDevice(const std::string& portName, const OHOS::HDI::Serials::V1_0::SerialConfig& config,
-        const sptr<OHOS::HDI::Serials::V1_0::ISerialDeviceCallback>& cb,
-        sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& device) override
+    int32_t OpenDevice(const std::string& portName, const OHOS::HDI::Serial::V1_0::SerialConfig& config,
+        const sptr<OHOS::HDI::Serial::V1_0::ISerialDeviceCallback>& cb,
+        sptr<OHOS::HDI::Serial::V1_0::ISerialDevice>& device) override
     {
         device = nullptr;
         return HDF_ERR_NOT_READY;

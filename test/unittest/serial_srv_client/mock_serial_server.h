@@ -50,6 +50,8 @@ public:
     MOCK_METHOD1(SendBrkSignal, ErrCode(const std::string& portName));
     MOCK_METHOD2(SetRtsSignal, ErrCode(const std::string& portName, bool rts));
     MOCK_METHOD2(GetCtsSignal, ErrCode(const std::string& portName, bool& cts));
+    MOCK_METHOD2(SetDtrSignal, ErrCode(const std::string& portName, bool dtr));
+    MOCK_METHOD2(GetDsrSignal, ErrCode(const std::string& portName, bool& dsr));
     MOCK_METHOD2(AddPortAuthorization, ErrCode(const std::string& authToken, const std::string& deviceId));
 };
 
