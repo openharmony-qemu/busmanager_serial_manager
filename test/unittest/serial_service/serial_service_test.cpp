@@ -43,7 +43,7 @@
 using namespace testing;
 using namespace testing::ext;
 using namespace OHOS::Serial;
-using namespace OHOS::HDI::Serials::V1_0;
+using namespace OHOS::HDI::Serial::V1_0;
 
 namespace OHOS {
 namespace Serial {

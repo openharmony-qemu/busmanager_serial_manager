@@ -38,7 +38,7 @@
 #include "xcollie/xcollie_define.h"
 
 using namespace OHOS::Security::AccessToken;
-using namespace OHOS::HDI::Serials::V1_0;
+using namespace OHOS::HDI::Serial::V1_0;
 
 namespace OHOS {
 namespace Serial {
@@ -325,9 +325,9 @@ void SerialService::InitHdiProxy()
     }
 }
 
-OHOS::HDI::Serials::V1_0::SerialConfig SerialService::ConvertConfig(const SerialConfig& serviceConfig)
+OHOS::HDI::Serial::V1_0::SerialConfig SerialService::ConvertConfig(const SerialConfig& serviceConfig)
 {
-    OHOS::HDI::Serials::V1_0::SerialConfig hdiConfig;
+    OHOS::HDI::Serial::V1_0::SerialConfig hdiConfig;
     hdiConfig.baudRate = serviceConfig.baudRate;
     hdiConfig.dataBits = serviceConfig.dataBits;
     hdiConfig.stopBits = serviceConfig.stopBits;
@@ -487,10 +487,10 @@ int32_t SerialService::ValidateOpenSerialParams(
 }
 
 int32_t SerialService::OpenHdiDevice(const std::string& portName, const SerialConfig& config,
-    const sptr<ISerialServiceCallback>& token, sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& hdiDevice,
+    const sptr<ISerialServiceCallback>& token, sptr<OHOS::HDI::Serial::V1_0::ISerialDevice>& hdiDevice,
     sptr<SerialHdiCallback>& hdiCallback)
 {
-    OHOS::HDI::Serials::V1_0::SerialConfig hdiConfig = ConvertConfig(config);
+    OHOS::HDI::Serial::V1_0::SerialConfig hdiConfig = ConvertConfig(config);
     int32_t ret = serialsProxy_->OpenDevice(portName, hdiConfig, hdiCallback, hdiDevice);
     if (ret != 0) {
         SERIAL_HILOGE(
@@ -506,7 +506,7 @@ int32_t SerialService::OpenHdiDevice(const std::string& portName, const SerialCo
 
 std::shared_ptr<DeviceContext> SerialService::BuildDeviceContext(const std::string& portName,
     const SerialConfig& config, const sptr<ISerialServiceCallback>& token,
-    const sptr<OHOS::HDI::Serials::V1_0::ISerialDevice>& hdiDevice, const sptr<SerialHdiCallback>& hdiCallback)
+    const sptr<OHOS::HDI::Serial::V1_0::ISerialDevice>& hdiDevice, const sptr<SerialHdiCallback>& hdiCallback)
 {
     auto context = std::make_shared<DeviceContext>();
     context->hdiDevice = hdiDevice;
@@ -614,7 +614,7 @@ int32_t SerialService::OpenSerial(
     }
 
     std::string hdiPortName = DEV_PREFIX + portName;
-    sptr<OHOS::HDI::Serials::V1_0::ISerialDevice> hdiDevice;
+    sptr<OHOS::HDI::Serial::V1_0::ISerialDevice> hdiDevice;
     sptr<SerialHdiCallback> hdiCallback = new SerialHdiCallback(token, portName);
     int32_t hdiRet = OpenHdiDevice(hdiPortName, config, token, hdiDevice, hdiCallback);
     if (hdiRet != SERIAL_OK) {
