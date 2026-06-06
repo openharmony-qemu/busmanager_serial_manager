@@ -76,7 +76,7 @@ class SerialPortHolder;
 static std::mutex g_holderRegistryMutex;
 static std::multimap<std::string, SerialPortHolder*> g_holderRegistry;
 static std::mutex g_disconnectedCallbackMutex;
-static std::map<std::string, std::vector<taihe::callback<void()>>> g_disconnectedCallbacks;
+static std::map<std::string, std::vector<taihe::callback<void(uintptr_t)>>> g_disconnectedCallbacks;
 
 void InvalidateAllHoldersForPort(const std::string& portName);
 
@@ -253,10 +253,10 @@ void RemoveAllCallbacksForPort(const std::string& portName)
 }
 
 void QueueDisconnectedCallbacks(
-    napi_env env, napi_value resourceName, std::vector<taihe::callback<void()>>&& callbacksCopy)
+    napi_env env, napi_value resourceName, std::vector<taihe::callback<void(uintptr_t)>>&& callbacksCopy)
 {
     napi_async_work asyncWork = nullptr;
-    auto* workData = new (std::nothrow) std::vector<taihe::callback<void()>>(std::move(callbacksCopy));
+    auto* workData = new (std::nothrow) std::vector<taihe::callback<void(uintptr_t)>>(std::move(callbacksCopy));
     if (workData == nullptr) {
         SERIAL_HILOGE(MODULE_TAIHE, "InvokeDisconnectedCallbacks alloc failed");
         return;
@@ -264,9 +264,9 @@ void QueueDisconnectedCallbacks(
     napi_create_async_work(
         env, nullptr, resourceName, [](napi_env env, void* data) {},
         [](napi_env env, napi_status status, void* data) {
-            auto* cbs = static_cast<std::vector<taihe::callback<void()>>*>(data);
+            auto* cbs = static_cast<std::vector<taihe::callback<void(uintptr_t)>>*>(data);
             for (size_t i = 0; i < cbs->size(); i++) {
-                (*cbs)[i]();
+                (*cbs)[i](0);
             }
             delete cbs;
         },
@@ -286,7 +286,7 @@ void QueueDisconnectedCallbacks(
 
 void InvokeDisconnectedCallbacks(const std::string& portName)
 {
-    std::vector<taihe::callback<void()>> callbacksCopy;
+    std::vector<taihe::callback<void(uintptr_t)>> callbacksCopy;
     {
         std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
         auto it = g_disconnectedCallbacks.find(portName);
@@ -818,7 +818,7 @@ public:
         return dsr;
     }
 
-    void onDisconnect(taihe::callback<void()> callback)
+    void onDisconnect(taihe::callback<void(uintptr_t)> callback)
     {
         SERIAL_HILOGI(MODULE_TAIHE, "onDisconnect start, portName=%{public}s", portName_.c_str());
         if (invalidated_) {
@@ -844,6 +844,7 @@ public:
             }
             callbacks.push_back(callback);
         }
+        EnsureNapiEnvStored();
         ListenerHandle handle = 0;
         std::string name = portName_;
         int32_t regRet = g_serialClient.RegisterDisconnectedListener(
@@ -871,7 +872,7 @@ public:
             MODULE_TAIHE, "onDisconnect finish, handle=%{public}llu", static_cast<unsigned long long>(handle));
     }
 
-    void offDisconnect(optional_view<taihe::callback<void()>> callback)
+    void offDisconnect(optional_view<taihe::callback<void(uintptr_t)>> callback)
     {
         SERIAL_HILOGI(MODULE_TAIHE, "offDisconnect start, portName=%{public}s", portName_.c_str());
         if (!isOpened_) {
