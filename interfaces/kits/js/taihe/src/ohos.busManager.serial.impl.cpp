@@ -77,6 +77,7 @@ static std::mutex g_holderRegistryMutex;
 static std::multimap<std::string, SerialPortHolder*> g_holderRegistry;
 static std::mutex g_disconnectedCallbackMutex;
 static std::map<std::string, std::vector<taihe::callback<void(uintptr_t)>>> g_disconnectedCallbacks;
+static std::map<std::string, ListenerHandle> g_disconnectedInnerkitHandles;
 
 void InvalidateAllHoldersForPort(const std::string& portName);
 
@@ -235,6 +236,7 @@ bool IsPortInfoEqual(const CachedPortInfo& cached, const OHOS::Serial::SerialPor
 void RemoveAllCallbacksForPort(const std::string& portName)
 {
     ListenerHandle handle = 0;
+    ListenerHandle discHandle = 0;
     {
         std::lock_guard<std::mutex> lock(g_callbackMutex);
         auto ihIt = g_innerkitHandles.find(portName);
@@ -243,13 +245,24 @@ void RemoveAllCallbacksForPort(const std::string& portName)
         }
         g_callbacks.erase(portName);
         g_innerkitHandles.erase(portName);
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
         g_disconnectedCallbacks.erase(portName);
+        auto discIt = g_disconnectedInnerkitHandles.find(portName);
+        if (discIt != g_disconnectedInnerkitHandles.end()) {
+            discHandle = discIt->second;
+            g_disconnectedInnerkitHandles.erase(discIt);
+        }
     }
     if (handle != 0) {
         g_serialClient.UnregisterDataListener(portName, handle);
     }
-    SERIAL_HILOGI(MODULE_TAIHE, "RemoveAllCallbacksForPort %{public}s, handle=%{public}llu", portName.c_str(),
-        static_cast<unsigned long long>(handle));
+    if (discHandle != 0) {
+        g_serialClient.UnregisterDisconnectedListener(portName, discHandle);
+    }
+    SERIAL_HILOGI(MODULE_TAIHE, "RemoveAllCallbacksForPort %{public}s, handle=%{public}llu, discHandle=%{public}llu",
+        portName.c_str(), static_cast<unsigned long long>(handle), static_cast<unsigned long long>(discHandle));
 }
 
 void QueueDisconnectedCallbacks(
@@ -827,49 +840,19 @@ public:
             return;
         }
         if (!isOpened_) {
-            SERIAL_HILOGE(
-                MODULE_TAIHE, "onDisconnect failed: port not opened, portName=%{public}s", portName_.c_str());
+            SERIAL_HILOGE(MODULE_TAIHE, "onDisconnect failed: port not opened, portName=%{public}s", portName_.c_str());
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
             return;
         }
-        {
-            std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
-            auto& callbacks = g_disconnectedCallbacks[portName_];
-            for (const auto& existing : callbacks) {
-                if (existing == callback) {
-                    SERIAL_HILOGI(MODULE_TAIHE, "onDisconnect callback already registered, skip");
-                    return;
-                }
-            }
-            callbacks.push_back(callback);
-        }
-        EnsureNapiEnvStored();
-        ListenerHandle handle = 0;
-        std::string name = portName_;
-        int32_t regRet = g_serialClient.RegisterDisconnectedListener(
-            name,
-            [name](const std::string&) {
-                InvokeDisconnectedCallbacks(name);
-            },
-            handle);
-        if (regRet != SERIAL_OK) {
-            SERIAL_HILOGE(MODULE_TAIHE, "RegisterDisconnectedListener failed, ret=%{public}d", regRet);
-            {
-                std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
-                auto& callbacks = g_disconnectedCallbacks[portName_];
-                for (auto it = callbacks.begin(); it != callbacks.end(); ++it) {
-                    if (*it == callback) {
-                        callbacks.erase(it);
-                        break;
-                    }
-                }
-            }
-            taihe::set_business_error(regRet, SerialJsErrorMessage(regRet));
+        bool needRegister = false;
+        if (!AddDisconnectedCallback(callback, needRegister)) {
             return;
         }
-        SERIAL_HILOGI(
-            MODULE_TAIHE, "onDisconnect finish, handle=%{public}llu", static_cast<unsigned long long>(handle));
+        if (!DoRegisterDisconnectedListener(callback, needRegister)) {
+            return;
+        }
+        SERIAL_HILOGI(MODULE_TAIHE, "onDisconnect finish, portName=%{public}s", portName_.c_str());
     }
 
     void offDisconnect(optional_view<taihe::callback<void(uintptr_t)>> callback)
@@ -883,38 +866,119 @@ public:
             return;
         }
         if (!callback.has_value()) {
-            std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
-            g_disconnectedCallbacks.erase(portName_);
-            SERIAL_HILOGI(MODULE_TAIHE, "offDisconnect finish.");
+            {
+                std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
+                g_disconnectedCallbacks.erase(portName_);
+            }
+            UnregisterDisconnectedHandle();
+            SERIAL_HILOGI(MODULE_TAIHE, "offDisconnect all finish.");
             return;
         }
-        {
-            std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
-            auto it = g_disconnectedCallbacks.find(portName_);
-            if (it == g_disconnectedCallbacks.end()) {
-                SERIAL_HILOGW(MODULE_TAIHE, "offDisconnect no callbacks for %{public}s", portName_.c_str());
-                return;
-            }
-            auto& entries = it->second;
-            bool found = false;
-            for (auto eit = entries.begin(); eit != entries.end(); ++eit) {
-                if (*eit == callback.value()) {
-                    entries.erase(eit);
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                SERIAL_HILOGW(MODULE_TAIHE, "offDisconnect callback not found for %{public}s", portName_.c_str());
-            }
-            if (entries.empty()) {
-                g_disconnectedCallbacks.erase(it);
-            }
+        bool portEmpty = false;
+        RemoveOneDisconnectedListener(callback.value(), portEmpty);
+        if (portEmpty) {
+            UnregisterDisconnectedHandle();
         }
         SERIAL_HILOGI(MODULE_TAIHE, "offDisconnect finish.");
     }
 
 private:
+    bool AddDisconnectedCallback(taihe::callback<void(uintptr_t)> callback, bool& needRegister)
+    {
+        std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
+        auto& callbacks = g_disconnectedCallbacks[portName_];
+        for (const auto& existing : callbacks) {
+            if (existing == callback) {
+                SERIAL_HILOGI(MODULE_TAIHE, "onDisconnect callback already registered, skip");
+                return false;
+            }
+        }
+        callbacks.push_back(callback);
+        needRegister = (g_disconnectedInnerkitHandles.find(portName_) == g_disconnectedInnerkitHandles.end());
+        return true;
+    }
+
+    void RollbackDisconnectedCallback(taihe::callback<void(uintptr_t)> callback)
+    {
+        std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
+        auto& callbacks = g_disconnectedCallbacks[portName_];
+        for (auto it = callbacks.begin(); it != callbacks.end(); ++it) {
+            if (*it == callback) {
+                callbacks.erase(it);
+                break;
+            }
+        }
+    }
+
+    bool DoRegisterDisconnectedListener(taihe::callback<void(uintptr_t)> callback, bool needRegister)
+    {
+        if (!needRegister) {
+            return true;
+        }
+        EnsureNapiEnvStored();
+        ListenerHandle handle = 0;
+        std::string name = portName_;
+        int32_t regRet = g_serialClient.RegisterDisconnectedListener(
+            name,
+            [name](const std::string&) {
+                InvokeDisconnectedCallbacks(name);
+            },
+            handle);
+        if (regRet != SERIAL_OK) {
+            SERIAL_HILOGE(MODULE_TAIHE, "RegisterDisconnectedListener failed, ret=%{public}d", regRet);
+            RollbackDisconnectedCallback(callback);
+            taihe::set_business_error(regRet, SerialJsErrorMessage(regRet));
+            return false;
+        }
+        {
+            std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
+            if (g_disconnectedInnerkitHandles.find(portName_) != g_disconnectedInnerkitHandles.end()) {
+                g_serialClient.UnregisterDisconnectedListener(portName_, handle);
+            } else {
+                g_disconnectedInnerkitHandles[portName_] = handle;
+            }
+        }
+        return true;
+    }
+
+    void RemoveOneDisconnectedListener(taihe::callback<void(uintptr_t)> cb, bool& portEmpty)
+    {
+        std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
+        portEmpty = false;
+        auto it = g_disconnectedCallbacks.find(portName_);
+        if (it == g_disconnectedCallbacks.end()) {
+            SERIAL_HILOGW(MODULE_TAIHE, "offDisconnect no callbacks for %{public}s", portName_.c_str());
+            return;
+        }
+        auto& entries = it->second;
+        for (auto eit = entries.begin(); eit != entries.end(); ++eit) {
+            if (*eit == cb) {
+                entries.erase(eit);
+                break;
+            }
+        }
+        if (entries.empty()) {
+            g_disconnectedCallbacks.erase(it);
+            portEmpty = true;
+        }
+    }
+
+    void UnregisterDisconnectedHandle()
+    {
+        ListenerHandle discHandle = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
+            auto discIt = g_disconnectedInnerkitHandles.find(portName_);
+            if (discIt != g_disconnectedInnerkitHandles.end()) {
+                discHandle = discIt->second;
+                g_disconnectedInnerkitHandles.erase(discIt);
+            }
+        }
+        if (discHandle != 0) {
+            g_serialClient.UnregisterDisconnectedListener(portName_, discHandle);
+        }
+    }
+
     bool RemoveOneListener(
         taihe::callback<void(array_view<uint8_t>)> cb, ListenerHandle& removedHandle, bool& portEmpty)
     {
