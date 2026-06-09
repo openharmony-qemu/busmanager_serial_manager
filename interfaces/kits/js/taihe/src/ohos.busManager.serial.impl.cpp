@@ -539,6 +539,8 @@ public:
             return;
         }
         isOpened_ = true;
+        ClearDataCallbackState();
+        ClearDisconnectedState();
         SERIAL_HILOGI(MODULE_TAIHE, "open finish.");
     }
 
@@ -883,6 +885,23 @@ public:
     }
 
 private:
+    void ClearDataCallbackState()
+    {
+        ListenerHandle handle = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_callbackMutex);
+            g_callbacks.erase(portName_);
+            auto ihIt = g_innerkitHandles.find(portName_);
+            if (ihIt != g_innerkitHandles.end()) {
+                handle = ihIt->second;
+                g_innerkitHandles.erase(ihIt);
+            }
+        }
+        if (handle != 0) {
+            g_serialClient.UnregisterDataListener(portName_, handle);
+        }
+    }
+
     bool AddDisconnectedCallback(taihe::callback<void(uintptr_t)> callback, bool& needRegister)
     {
         std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
@@ -960,6 +979,23 @@ private:
         if (entries.empty()) {
             g_disconnectedCallbacks.erase(it);
             portEmpty = true;
+        }
+    }
+
+    void ClearDisconnectedState()
+    {
+        ListenerHandle discHandle = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
+            g_disconnectedCallbacks.erase(portName_);
+            auto discIt = g_disconnectedInnerkitHandles.find(portName_);
+            if (discIt != g_disconnectedInnerkitHandles.end()) {
+                discHandle = discIt->second;
+                g_disconnectedInnerkitHandles.erase(discIt);
+            }
+        }
+        if (discHandle != 0) {
+            g_serialClient.UnregisterDisconnectedListener(portName_, discHandle);
         }
     }
 
