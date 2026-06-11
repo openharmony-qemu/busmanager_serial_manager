@@ -14,7 +14,7 @@
 import("//build/test.gni")
 import("../../../serialmgr.gni")
 
-if (serial_manager_enable_service) {
+if (serial_manager_feature_deploy_sa) {
   ohos_unittest("SerialSrvClientTest") {
     module_out_path = "busmanager/serial_manager"
 
@@ -57,7 +57,7 @@ if (serial_manager_enable_service) {
 
 group("unittest") {
   testonly = true
-  if (serial_manager_enable_service) {
+  if (serial_manager_feature_deploy_sa) {
     deps = [ ":SerialSrvClientTest" ]
   }
 }

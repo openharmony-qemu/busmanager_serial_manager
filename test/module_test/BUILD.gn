@@ -14,7 +14,7 @@
 import("//build/test.gni")
 import("../../serialmgr.gni")
 
-if (serial_manager_enable_service) {
+if (serial_manager_feature_deploy_sa) {
   config("serialsrv_errcode_public_config") {
     include_dirs = [
       "${serial_manager_path}/services/native/include",
@@ -94,7 +94,7 @@ if (serial_manager_enable_service) {
 
 group("module_test") {
   testonly = true
-  if (serial_manager_enable_service) {
+  if (serial_manager_feature_deploy_sa) {
     deps = [ ":SerialModuleTest" ]
   }
 }

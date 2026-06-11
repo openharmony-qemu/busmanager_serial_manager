@@ -29,7 +29,7 @@ ohos_shared_library("serialsrv_client") {
     boundary_sanitize = true
   }
   output_values = get_target_outputs(":serial_server_interface")
-  if (serial_manager_enable_service) {
+  if (serial_manager_feature_deploy_sa) {
     client_impl_sources = [ "native/src/serial_srv_client.cpp" ]
   } else {
     client_impl_sources = [ "native/src/serial_srv_client_without_service.cpp" ]
