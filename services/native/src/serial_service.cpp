@@ -17,10 +17,10 @@
 #include <iomanip>
 #include <sstream>
 
-#include "hdf_types.h"
 #include "accesstoken_kit.h"
 #include "bundle_mgr_interface.h"
 #include "common_timer_errors.h"
+#include "hdf_types.h"
 #include "hilog_wrapper.h"
 #include "if_system_ability_manager.h"
 #include "ipc_skeleton.h"
@@ -79,8 +79,8 @@ static int32_t SerialHdiToInternalCode(int32_t hdiCode)
 constexpr uint8_t ASCII_PRINTABLE_MIN = 32;
 constexpr uint8_t ASCII_PRINTABLE_MAX = 126;
 constexpr int HEX_WIDTH = 2;
-constexpr const char *RS232_MDM_PARAM = "persist.edm.rs232_serial_disable";
-constexpr const char *PORT_ID_CHARS = "0123456789";
+constexpr const char* RS232_MDM_PARAM = "persist.edm.rs232_serial_disable";
+constexpr const char* PORT_ID_CHARS = "0123456789";
 sptr<SerialService> g_serviceInstance = nullptr;
 
 REGISTER_SYSTEM_ABILITY_BY_ID(SerialService, SERIAL_SYSTEM_ABILITY_ID, true);
@@ -192,8 +192,9 @@ void SerialService::OnStart(const OHOS::SystemAbilityOnDemandReason& startReason
         this->reportManageFlag_ = true;
     }
     // Load & watch enterprise policy
-    auto watchRet = WatchParameter(RS232_MDM_PARAM,
-        [](const char *key, const char *value, void *context) {
+    auto watchRet = WatchParameter(
+        RS232_MDM_PARAM,
+        [](const char* key, const char* value, void* context) {
             if (key == nullptr || value == nullptr) {
                 SERIAL_HILOGE(MODULE_SERVICE, "param null pointer");
                 return;
@@ -582,9 +583,7 @@ int32_t SerialService::OpenSerial(
     } else {
         bool portFound = false;
         for (const auto& dev : currentDevices) {
-            if (dev.portName == portName &&
-                dev.vendorId == portInfo.vendorId &&
-                dev.productId == portInfo.productId &&
+            if (dev.portName == portName && dev.vendorId == portInfo.vendorId && dev.productId == portInfo.productId &&
                 dev.manufacturer == portInfo.manufacturer) {
                 portFound = true;
                 break;
@@ -772,8 +771,34 @@ void SerialService::HandleDeviceOffline(const std::string& portName)
             __func__, __LINE__, portName.c_str());
     }
 
-    it->second->hdiDevice = nullptr;
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s marked as offline", __func__,
+    // Skip hdiDevice->Close(): the HDI layer already detected the offline event
+    // and will handle its own cleanup. Calling Close() on a physically
+    // disconnected device may block indefinitely, keeping serviceMutex_ held
+    // and preventing subsequent OpenSerial calls from acquiring the lock.
+
+    if (it->second->deathRecipient != nullptr && it->second->serviceCallback != nullptr) {
+        auto callbackObject = it->second->serviceCallback->AsObject();
+        if (callbackObject != nullptr) {
+            callbackObject->RemoveDeathRecipient(it->second->deathRecipient);
+        }
+    }
+
+    deviceContexts_.erase(it);
+
+    if (deviceContexts_.empty()) {
+        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d No devices after offline, scheduling UnloadSystemAbility",
+            __func__, __LINE__);
+        if (unloadTimerId_ != 0) {
+            unloadTimer_.Unregister(unloadTimerId_);
+            unloadTimerId_ = 0;
+        }
+        auto task = [this]() {
+            DoUnloadSa();
+        };
+        unloadTimerId_ = unloadTimer_.Register(task, UNLOAD_SA_DELAY_MS, true);
+    }
+
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s offline cleanup complete", __func__,
         __LINE__, portName.c_str());
 }
 
@@ -803,8 +828,8 @@ int32_t SerialService::WriteSerial(
 
     int32_t ret = context->hdiDevice->Write(data, timeout, bytesWritten);
     if (ret != 0) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d HDI Write failed, ret=%{public}d",
-            __func__, __LINE__, ret);
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d HDI Write failed, ret=%{public}d", __func__, __LINE__, ret);
         return SerialHdiToInternalCode(ret);
     }
 
@@ -835,8 +860,8 @@ int32_t SerialService::StartRead(const std::string& portName)
     }
 
     if (context->hdiDevice == nullptr) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__,
-            portName.c_str());
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__, portName.c_str());
         return SERIAL_ERR_DEVICE_DISCONNECTED;
     }
 
@@ -877,8 +902,8 @@ int32_t SerialService::StopRead(const std::string& portName)
     }
 
     if (context->hdiDevice == nullptr) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__,
-            portName.c_str());
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__, portName.c_str());
         return SERIAL_ERR_DEVICE_DISCONNECTED;
     }
 
@@ -919,8 +944,8 @@ int32_t SerialService::Flush(const std::string& portName)
     }
 
     if (context->hdiDevice == nullptr) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__,
-            portName.c_str());
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__, portName.c_str());
         return SERIAL_ERR_DEVICE_DISCONNECTED;
     }
 
@@ -961,8 +986,8 @@ int32_t SerialService::Drain(const std::string& portName)
     }
 
     if (context->hdiDevice == nullptr) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__,
-            portName.c_str());
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__, portName.c_str());
         return SERIAL_ERR_DEVICE_DISCONNECTED;
     }
 
@@ -1003,8 +1028,8 @@ int32_t SerialService::SendBrkSignal(const std::string& portName)
     }
 
     if (context->hdiDevice == nullptr) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__,
-            portName.c_str());
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__, portName.c_str());
         return SERIAL_ERR_DEVICE_DISCONNECTED;
     }
 
@@ -1045,8 +1070,8 @@ int32_t SerialService::SetRtsSignal(const std::string& portName, bool rts)
     }
 
     if (context->hdiDevice == nullptr) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__,
-            portName.c_str());
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__, portName.c_str());
         return SERIAL_ERR_DEVICE_DISCONNECTED;
     }
 
@@ -1087,8 +1112,8 @@ int32_t SerialService::GetCtsSignal(const std::string& portName, bool& cts)
     }
 
     if (context->hdiDevice == nullptr) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__,
-            portName.c_str());
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__, portName.c_str());
         return SERIAL_ERR_DEVICE_DISCONNECTED;
     }
 
@@ -1129,8 +1154,8 @@ int32_t SerialService::SetDtrSignal(const std::string& portName, bool dtr)
     }
 
     if (context->hdiDevice == nullptr) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__,
-            portName.c_str());
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__, portName.c_str());
         return SERIAL_ERR_DEVICE_DISCONNECTED;
     }
 
@@ -1170,8 +1195,8 @@ int32_t SerialService::GetDsrSignal(const std::string& portName, bool& dsr)
     }
 
     if (context->hdiDevice == nullptr) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__,
-            portName.c_str());
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__, portName.c_str());
         return SERIAL_ERR_DEVICE_DISCONNECTED;
     }
 
@@ -1770,14 +1795,14 @@ void SerialService::LogWriteData(const std::vector<uint8_t>& data)
 int32_t SerialService::CheckWritePreconditions(DeviceContext* context, const std::string& portName)
 {
     if (context == nullptr) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s not opened",
-            __func__, __LINE__, portName.c_str());
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s not opened", __func__, __LINE__, portName.c_str());
         return SERIAL_ERR_DEVICE_NOT_OPENED;
     }
 
     if (context->hdiDevice == nullptr) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__,
-            portName.c_str());
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s is offline", __func__, __LINE__, portName.c_str());
         return SERIAL_ERR_DEVICE_DISCONNECTED;
     }
 

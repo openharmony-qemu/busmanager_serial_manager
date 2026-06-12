@@ -159,8 +159,13 @@ struct CallbackInfo {
 static std::mutex g_callbackMutex;
 static std::map<std::string, std::map<napi_ref, CallbackInfo>> g_dataCallbacks;
 
+struct DisconnectedCallbackInfo {
+    napi_threadsafe_function tsfn;
+    ListenerHandle listenerHandle;
+};
+
 static std::mutex g_disconnectedCallbackMutex;
-static std::map<std::string, std::map<napi_ref, napi_threadsafe_function>> g_disconnectedCallbacks;
+static std::map<std::string, std::map<napi_ref, DisconnectedCallbackInfo>> g_disconnectedCallbacks;
 
 struct SerialPortNative {
     std::string portName;
@@ -206,14 +211,19 @@ static void RemoveAllListenersForPort(napi_env env, const std::string& portName)
         napi_delete_reference(env, rh.first);
     }
     {
+        std::vector<std::pair<napi_ref, DisconnectedCallbackInfo>> discEntries;
         std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
         auto discIt = g_disconnectedCallbacks.find(portName);
         if (discIt != g_disconnectedCallbacks.end()) {
             for (auto& pair : discIt->second) {
-                napi_release_threadsafe_function(pair.second, napi_tsfn_abort);
-                napi_delete_reference(env, pair.first);
+                discEntries.push_back(pair);
             }
             g_disconnectedCallbacks.erase(discIt);
+        }
+        for (auto& entry : discEntries) {
+            g_serialClient.UnregisterDisconnectedListener(portName, entry.second.listenerHandle);
+            napi_release_threadsafe_function(entry.second.tsfn, napi_tsfn_abort);
+            napi_delete_reference(env, entry.first);
         }
     }
 }
@@ -492,6 +502,11 @@ static bool TryReuseActivePort(napi_env env, const SerialPortInfo& deviceInfo, u
         napi_value serialPortObj = nullptr;
         napi_get_reference_value(env, native->objectRef, &serialPortObj);
         if (serialPortObj != nullptr) {
+            if (native->invalidated) {
+                SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] RESTORE(reconnect): portName=%{public}s, ptr=0x%{public}04x",
+                    deviceInfo.portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
+                native->invalidated = false;
+            }
             SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] REUSE(active): portName=%{public}s, ptr=0x%{public}04x",
                 deviceInfo.portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
             activePortNames.insert(deviceInfo.portName);
@@ -640,11 +655,29 @@ static void SerialOpenComplete(napi_env env, napi_status status, void* data)
     napi_value result = nullptr;
 
     if (context->ret == SERIAL_OK) {
-        std::lock_guard<std::mutex> lock(g_portCacheMutex);
-        auto it = g_activePorts.find(context->portInfo.portName);
-        if (it != g_activePorts.end() && it->second != nullptr) {
-            it->second->isOpened = true;
+        {
+            std::lock_guard<std::mutex> lock(g_portCacheMutex);
+            auto it = g_activePorts.find(context->portInfo.portName);
+            if (it != g_activePorts.end() && it->second != nullptr) {
+                it->second->isOpened = true;
+                it->second->invalidated = false;
+            }
         }
+        std::string openPortName = context->portInfo.portName;
+        ListenerHandle internalHandle = 0;
+        g_serialClient.RegisterDisconnectedListener(
+            openPortName,
+            [openPortName](const std::string&) {
+                std::lock_guard<std::mutex> lock(g_portCacheMutex);
+                auto it = g_activePorts.find(openPortName);
+                if (it != g_activePorts.end()) {
+                    SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] INVALIDATE(disconnect): portName=%{public}s",
+                        openPortName.c_str());
+                    it->second->invalidated = true;
+                    it->second->isOpened = false;
+                }
+            },
+            internalHandle);
         napi_get_undefined(env, &result);
     } else {
         result = CreateBusinessError(env, context->ret, SerialJsErrorMessage(context->ret));
@@ -844,10 +877,6 @@ static napi_value SerialOpenNapi(napi_env env, napi_callback_info info)
 
     napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
 
-    if (IsPortInvalidated(env, thisVar)) {
-        return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
-    }
-
     SerialOpenAsyncContext* context = new SerialOpenAsyncContext();
     context->env = env;
     context->deferred = nullptr;
@@ -955,6 +984,24 @@ static napi_value SerialCloseNapi(napi_env env, napi_callback_info info)
 
     napi_value promise = nullptr;
     napi_create_promise(env, &context->deferred, &promise);
+
+    if (IsPortInvalidated(env, thisVar)) {
+        SERIAL_HILOGI(MODULE_JS_NAPI,
+            "[close] Port invalidated (disconnected), skipping service call: portName=%{public}s",
+            context->portName.c_str());
+        {
+            std::lock_guard<std::mutex> lock(g_portCacheMutex);
+            auto it = g_activePorts.find(context->portName);
+            if (it != g_activePorts.end() && it->second != nullptr) {
+                it->second->isOpened = false;
+            }
+        }
+        napi_value undefined = nullptr;
+        napi_get_undefined(env, &undefined);
+        napi_resolve_deferred(env, context->deferred, undefined);
+        delete context;
+        return promise;
+    }
 
     napi_value resourceName = nullptr;
     napi_create_string_utf8(env, "close", NAPI_AUTO_LENGTH, &resourceName);
@@ -1301,8 +1348,12 @@ static FoundListener FindAndRemoveSpecificListener(napi_env env, const std::stri
     return result;
 }
 
-static bool UnregisterListenerChecked(napi_env env, const std::string& portName, ListenerHandle handle)
+static bool UnregisterListenerChecked(
+    napi_env env, const std::string& portName, ListenerHandle handle, bool skipService = false)
 {
+    if (skipService) {
+        return true;
+    }
     int32_t ret = g_serialClient.UnregisterDataListener(portName, handle);
     if (ret != SERIAL_OK && ret != SERIAL_JS_ERR_DEVICE_DISCONNECTED) {
         SERIAL_HILOGE(MODULE_JS_NAPI, "UnregisterDataListener failed, ret=%{public}d", ret);
@@ -1312,7 +1363,7 @@ static bool UnregisterListenerChecked(napi_env env, const std::string& portName,
     return true;
 }
 
-static napi_value RemoveAllListenersChecked(napi_env env, const std::string& portName)
+static napi_value RemoveAllListenersChecked(napi_env env, const std::string& portName, bool skipService = false)
 {
     std::vector<std::pair<napi_ref, ListenerHandle>> refsAndHandles;
     std::vector<napi_threadsafe_function> tsfnsToRelease;
@@ -1328,7 +1379,7 @@ static napi_value RemoveAllListenersChecked(napi_env env, const std::string& por
         }
     }
     for (auto& rh : refsAndHandles) {
-        if (!UnregisterListenerChecked(env, portName, rh.second)) {
+        if (!UnregisterListenerChecked(env, portName, rh.second, skipService)) {
             return nullptr;
         }
     }
@@ -1354,7 +1405,9 @@ static napi_value SerialOffDataReadNapi(napi_env env, napi_callback_info info)
 
     napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
 
-    if (!CheckPortOpened(env, thisVar)) {
+    bool portInvalidated = IsPortInvalidated(env, thisVar);
+
+    if (!portInvalidated && !CheckPortOpened(env, thisVar)) {
         return nullptr;
     }
 
@@ -1367,7 +1420,7 @@ static napi_value SerialOffDataReadNapi(napi_env env, napi_callback_info info)
     }
 
     if (argc < 1 || type == napi_undefined || type == napi_null) {
-        return RemoveAllListenersChecked(env, portName);
+        return RemoveAllListenersChecked(env, portName, portInvalidated);
     }
 
     if (type != napi_function) {
@@ -1378,7 +1431,7 @@ static napi_value SerialOffDataReadNapi(napi_env env, napi_callback_info info)
 
     FoundListener found = FindAndRemoveSpecificListener(env, portName, argv[0]);
     if (found.handle != INVALID_LISTENER_HANDLE) {
-        if (!UnregisterListenerChecked(env, portName, found.handle)) {
+        if (!UnregisterListenerChecked(env, portName, found.handle, portInvalidated)) {
             return nullptr;
         }
         SERIAL_HILOGI(MODULE_JS_NAPI, "offDataRead specific callback, portName=%{public}s", portName.c_str());
@@ -1909,22 +1962,24 @@ static napi_threadsafe_function CreateDisconnectedTsfn(napi_env env, napi_ref ca
 static napi_value RegisterOnDisconnect(
     napi_env env, const std::string& portName, napi_ref callbackRef, napi_threadsafe_function tsfn)
 {
-    std::string name = portName;
     ListenerHandle handle = 0;
     int32_t regRet = g_serialClient.RegisterDisconnectedListener(
-        name,
-        [name](const std::string&) {
-            std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
-            auto portIt = g_disconnectedCallbacks.find(name);
-            if (portIt == g_disconnectedCallbacks.end()) {
-                return;
-            }
-            for (auto& pair : portIt->second) {
-                napi_status status =
-                    napi_call_threadsafe_function(pair.second, static_cast<void*>(pair.first), napi_tsfn_nonblocking);
-                if (status != napi_ok) {
-                    SERIAL_HILOGE(MODULE_JS_NAPI, "onDisconnect call tsfn failed");
+        portName,
+        [callbackRef, tsfn](const std::string& cbPortName) {
+            {
+                std::lock_guard<std::mutex> lock(g_portCacheMutex);
+                auto it = g_activePorts.find(cbPortName);
+                if (it != g_activePorts.end()) {
+                    SERIAL_HILOGI(
+                        MODULE_JS_NAPI, "[LIFECYCLE] INVALIDATE(disconnect): portName=%{public}s", cbPortName.c_str());
+                    it->second->invalidated = true;
+                    it->second->isOpened = false;
                 }
+            }
+            napi_status status =
+                napi_call_threadsafe_function(tsfn, static_cast<void*>(callbackRef), napi_tsfn_nonblocking);
+            if (status != napi_ok) {
+                SERIAL_HILOGE(MODULE_JS_NAPI, "onDisconnect call tsfn failed");
             }
         },
         handle);
@@ -1937,9 +1992,10 @@ static napi_value RegisterOnDisconnect(
     }
     {
         std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
-        g_disconnectedCallbacks[portName][callbackRef] = tsfn;
+        g_disconnectedCallbacks[portName][callbackRef] = {tsfn, handle};
     }
-    SERIAL_HILOGI(MODULE_JS_NAPI, "onDisconnect success, portName=%{public}s", portName.c_str());
+    SERIAL_HILOGI(MODULE_JS_NAPI, "onDisconnect success, portName=%{public}s, handle=%{public}llu", portName.c_str(),
+        static_cast<unsigned long long>(handle));
     napi_value undefined = nullptr;
     napi_get_undefined(env, &undefined);
     return undefined;
@@ -1954,8 +2010,7 @@ static napi_value SerialOnDisconnectNapi(napi_env env, napi_callback_info info)
     void* data = nullptr;
     napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
     if (IsPortInvalidated(env, thisVar)) {
-        ThrowBusinessError(
-            env, SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
+        ThrowBusinessError(env, SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
         return nullptr;
     }
     if (!CheckPortOpened(env, thisVar)) {
@@ -1991,40 +2046,61 @@ static napi_value SerialOnDisconnectNapi(napi_env env, napi_callback_info info)
     return RegisterOnDisconnect(env, portName, callbackRef, tsfn);
 }
 
-static void RemoveAllDisconnectedCallbacks(napi_env env, const std::string& portName)
+static void RemoveAllDisconnectedCallbacks(napi_env env, const std::string& portName, bool skipService = false)
 {
-    std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
-    auto portIt = g_disconnectedCallbacks.find(portName);
-    if (portIt != g_disconnectedCallbacks.end()) {
-        for (auto& pair : portIt->second) {
-            napi_release_threadsafe_function(pair.second, napi_tsfn_abort);
-            napi_delete_reference(env, pair.first);
+    std::vector<std::pair<napi_ref, DisconnectedCallbackInfo>> entries;
+    {
+        std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
+        auto portIt = g_disconnectedCallbacks.find(portName);
+        if (portIt != g_disconnectedCallbacks.end()) {
+            for (auto& pair : portIt->second) {
+                entries.push_back(pair);
+            }
+            g_disconnectedCallbacks.erase(portIt);
         }
-        g_disconnectedCallbacks.erase(portIt);
+    }
+    for (auto& entry : entries) {
+        if (!skipService) {
+            g_serialClient.UnregisterDisconnectedListener(portName, entry.second.listenerHandle);
+        }
+        napi_release_threadsafe_function(entry.second.tsfn, napi_tsfn_abort);
+        napi_delete_reference(env, entry.first);
     }
 }
 
-static void RemoveDisconnectedCallbackByFunc(napi_env env, const std::string& portName, napi_value callback)
+static void RemoveDisconnectedCallbackByFunc(
+    napi_env env, const std::string& portName, napi_value callback, bool skipService = false)
 {
-    std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
-    auto portIt = g_disconnectedCallbacks.find(portName);
-    if (portIt == g_disconnectedCallbacks.end()) {
-        return;
-    }
-    for (auto it = portIt->second.begin(); it != portIt->second.end(); ++it) {
-        napi_value storedCallback = nullptr;
-        napi_get_reference_value(env, it->first, &storedCallback);
-        bool isEqual = false;
-        napi_strict_equals(env, callback, storedCallback, &isEqual);
-        if (isEqual) {
-            napi_release_threadsafe_function(it->second, napi_tsfn_abort);
-            napi_delete_reference(env, it->first);
-            portIt->second.erase(it);
-            if (portIt->second.empty()) {
-                g_disconnectedCallbacks.erase(portIt);
-            }
-            break;
+    napi_ref foundRef = nullptr;
+    DisconnectedCallbackInfo foundInfo = {nullptr, INVALID_LISTENER_HANDLE};
+    {
+        std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
+        auto portIt = g_disconnectedCallbacks.find(portName);
+        if (portIt == g_disconnectedCallbacks.end()) {
+            return;
         }
+        for (auto it = portIt->second.begin(); it != portIt->second.end(); ++it) {
+            napi_value storedCallback = nullptr;
+            napi_get_reference_value(env, it->first, &storedCallback);
+            bool isEqual = false;
+            napi_strict_equals(env, callback, storedCallback, &isEqual);
+            if (isEqual) {
+                foundRef = it->first;
+                foundInfo = it->second;
+                portIt->second.erase(it);
+                if (portIt->second.empty()) {
+                    g_disconnectedCallbacks.erase(portIt);
+                }
+                break;
+            }
+        }
+    }
+    if (foundRef != nullptr) {
+        if (!skipService) {
+            g_serialClient.UnregisterDisconnectedListener(portName, foundInfo.listenerHandle);
+        }
+        napi_release_threadsafe_function(foundInfo.tsfn, napi_tsfn_abort);
+        napi_delete_reference(env, foundRef);
     }
 }
 
@@ -2036,7 +2112,10 @@ static napi_value SerialOffDisconnectNapi(napi_env env, napi_callback_info info)
     napi_value thisVar = nullptr;
     void* data = nullptr;
     napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
-    if (!CheckPortOpened(env, thisVar)) {
+
+    bool portInvalidated = IsPortInvalidated(env, thisVar);
+
+    if (!portInvalidated && !CheckPortOpened(env, thisVar)) {
         return nullptr;
     }
     std::string portName;
@@ -2046,7 +2125,7 @@ static napi_value SerialOffDisconnectNapi(napi_env env, napi_callback_info info)
         napi_typeof(env, argv[0], &type);
     }
     if (argc < 1 || type == napi_undefined || type == napi_null) {
-        RemoveAllDisconnectedCallbacks(env, portName);
+        RemoveAllDisconnectedCallbacks(env, portName, portInvalidated);
         SERIAL_HILOGI(MODULE_JS_NAPI, "offDisconnect all callbacks for portName=%{public}s", portName.c_str());
         napi_value undefined = nullptr;
         napi_get_undefined(env, &undefined);
@@ -2056,7 +2135,7 @@ static napi_value SerialOffDisconnectNapi(napi_env env, napi_callback_info info)
         ThrowBusinessError(env, SERIAL_JS_ERR_PARAM_ERROR, "Parameter error");
         return nullptr;
     }
-    RemoveDisconnectedCallbackByFunc(env, portName, argv[0]);
+    RemoveDisconnectedCallbackByFunc(env, portName, argv[0], portInvalidated);
     SERIAL_HILOGI(MODULE_JS_NAPI, "offDisconnect finish for portName=%{public}s", portName.c_str());
     napi_value undefined = nullptr;
     napi_get_undefined(env, &undefined);
