@@ -17,5 +17,6 @@ serial_manager_path = "//base/busmanager/serial_manager"
 serial_manager_part_name = "serial_manager"
 
 declare_args() {
-  serial_manager_enable_service = true
+  serial_manager_feature = true
+  serial_manager_feature_deploy_sa = true
 }

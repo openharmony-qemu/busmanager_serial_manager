@@ -14,7 +14,7 @@
 import("//build/ohos/sa_profile/sa_profile.gni")
 import("./../serialmgr.gni")
 
-if (serial_manager_enable_service) {
+if (serial_manager_feature_deploy_sa) {
   ohos_sa_profile("serialmgr_sa_profile") {
     sources = [ "4202.json" ]
     part_name = "serial_manager"

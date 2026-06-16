@@ -93,6 +93,19 @@ int32_t SerialSrvClient::GetCtsSignal(const std::string& portName, bool& cts)
     return SERIAL_JS_ERR_NOT_SUPPORTED;
 }
 
+int32_t SerialSrvClient::SetDtrSignal(const std::string& portName, bool dtr)
+{
+    SERIAL_HILOGI(MODULE_INNERKIT, "[SetDtrSignal] Stub: service not deployed");
+    return SERIAL_JS_ERR_NOT_SUPPORTED;
+}
+
+int32_t SerialSrvClient::GetDsrSignal(const std::string& portName, bool& dsr)
+{
+    SERIAL_HILOGI(MODULE_INNERKIT, "[GetDsrSignal] Stub: service not deployed");
+    dsr = false;
+    return SERIAL_JS_ERR_NOT_SUPPORTED;
+}
+
 int32_t SerialSrvClient::AddPortAuthorization(const std::string& tokenId, const std::string& deviceId)
 {
     SERIAL_HILOGI(MODULE_INNERKIT, "[AddPortAuthorization] Stub: service not deployed, return success");
@@ -115,6 +128,25 @@ int32_t SerialSrvClient::RegisterDataListener(
 int32_t SerialSrvClient::UnregisterDataListener(const std::string& portName, ListenerHandle listenerHandle)
 {
     SERIAL_HILOGI(MODULE_INNERKIT, "[UnregisterDataListener] Stub: service not deployed, return success");
+    return SERIAL_OK;
+}
+
+int32_t SerialSrvClient::RegisterDisconnectedListener(
+    const std::string& portName, const DisconnectedCallback& callback, ListenerHandle& listenerHandle)
+{
+    SERIAL_HILOGI(MODULE_INNERKIT, "[RegisterDisconnectedListener] Stub: service not deployed, return success");
+    if (!callback) {
+        SERIAL_HILOGE(MODULE_INNERKIT, "[RegisterDisconnectedListener] Invalid callback");
+        listenerHandle = 0;
+        return SERIAL_JS_ERR_INVALID_PARAM;
+    }
+    listenerHandle = STUB_FIRST_LISTENER_HANDLE;
+    return SERIAL_OK;
+}
+
+int32_t SerialSrvClient::UnregisterDisconnectedListener(const std::string& portName, ListenerHandle listenerHandle)
+{
+    SERIAL_HILOGI(MODULE_INNERKIT, "[UnregisterDisconnectedListener] Stub: service not deployed, return success");
     return SERIAL_OK;
 }
 

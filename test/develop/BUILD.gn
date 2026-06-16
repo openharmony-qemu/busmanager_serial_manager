@@ -13,7 +13,7 @@
 
 import("../../serialmgr.gni")
 
-if (serial_manager_enable_service) {
+if (serial_manager_feature_deploy_sa) {
   config("serialsrv_errcode_private_config") {
     include_dirs = [
       "${serial_manager_path}/interfaces/innerkits/native/include",
@@ -281,7 +281,7 @@ if (serial_manager_enable_service) {
 
 group("develop_tests") {
   testonly = true
-  if (serial_manager_enable_service) {
+  if (serial_manager_feature_deploy_sa) {
     deps = [
       ":serial_service_lifecycle_test",
       ":serial_service_twodevice_test",

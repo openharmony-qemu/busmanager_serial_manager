@@ -29,7 +29,7 @@ config("serialsrv_public_config") {
   ]
 }
 
-if (serial_manager_enable_service) {
+if (serial_manager_feature_deploy_sa) {
   ohos_shared_library("serialservice") {
     sanitize = {
       integer_overflow = true

@@ -14,7 +14,7 @@
 import("//build/test.gni")
 import("../../../serialmgr.gni")
 
-if (serial_manager_enable_service) {
+if (serial_manager_feature_deploy_sa) {
   config("serial_service_test_config") {
     include_dirs = [
       "${serial_manager_path}/test/unittest/include",
@@ -187,7 +187,7 @@ if (serial_manager_enable_service) {
 
 group("unittest") {
   testonly = true
-  if (serial_manager_enable_service) {
+  if (serial_manager_feature_deploy_sa) {
     deps = [
       ":SerialRightTest",
       ":SerialServiceTest",
