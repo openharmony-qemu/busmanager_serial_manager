@@ -32,6 +32,29 @@ ohos_taihe("run_taihe") {
   ]
 }
 
+if (serial_manager_feature_deploy_sa) {
+  taihe_impl_sources = [ "src/ohos.busManager.serial.impl.cpp" ]
+  taihe_extra_deps = [
+    "${serial_manager_path}/interfaces/innerkits:serialsrv_client",
+    "${serial_manager_path}/utils:serial_error_code",
+  ]
+  taihe_external_deps = [
+    "c_utils:utils",
+    "hilog:libhilog",
+    "ipc:ipc_core",
+    "napi:ace_napi",
+    "runtime_core:ani_helpers",
+    "samgr:samgr_proxy",
+  ]
+} else {
+  taihe_impl_sources = [ "src/ohos.busManager.serial.without_service.cpp" ]
+  taihe_extra_deps = []
+  taihe_external_deps = [
+    "hilog:libhilog",
+    "runtime_core:ani_helpers",
+  ]
+}
+
 taihe_shared_library("serial_manager_taihe_native") {
   sanitize = {
     cfi = true
@@ -44,30 +67,18 @@ taihe_shared_library("serial_manager_taihe_native") {
   subsystem_name = "$subsystem_name"
   sources = get_target_outputs(":run_taihe")
 
-  sources += [
-    "src/ani_constructor.cpp",
-    "src/ohos.busManager.serial.impl.cpp",
-  ]
+  sources += [ "src/ani_constructor.cpp" ]
+  sources += taihe_impl_sources
 
   include_dirs = [
     "${serial_manager_path}/interfaces/innerkits/native/include",
     "${serial_manager_path}/utils/native/include",
   ]
 
-  deps = [
-    ":run_taihe",
-    "${serial_manager_path}/interfaces/innerkits:serialsrv_client",
-    "${serial_manager_path}/utils:serial_error_code",
-  ]
+  deps = [ ":run_taihe" ]
+  deps += taihe_extra_deps
 
-  external_deps = [
-    "c_utils:utils",
-    "hilog:libhilog",
-    "ipc:ipc_core",
-    "napi:ace_napi",
-    "runtime_core:ani_helpers",
-    "samgr:samgr_proxy",
-  ]
+  external_deps = taihe_external_deps
 }
 
 generate_static_abc("serial_manager_abc") {
