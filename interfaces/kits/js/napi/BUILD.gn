@@ -21,6 +21,28 @@ config("serialnapi_private_config") {
   ]
 }
 
+if (serial_manager_feature_deploy_sa) {
+  serial_sources = [ "src/serial_info.cpp" ]
+  serial_deps = [
+    "${serial_manager_path}/interfaces/innerkits:serialsrv_client",
+    "${serial_manager_path}/utils:serial_error_code",
+  ]
+  serial_external_deps = [
+    "c_utils:utils",
+    "hilog:libhilog",
+    "ipc:ipc_core",
+    "napi:ace_napi",
+    "samgr:samgr_proxy",
+  ]
+} else {
+  serial_sources = [ "src/serial_info_without_service.cpp" ]
+  serial_deps = [ "${serial_manager_path}/utils:serial_error_code" ]
+  serial_external_deps = [
+    "hilog:libhilog",
+    "napi:ace_napi",
+  ]
+}
+
 ohos_shared_library("serial") {
   sanitize = {
     integer_overflow = true
@@ -30,18 +52,9 @@ ohos_shared_library("serial") {
 
   defines = [ "SERIAL_NAPI" ]
 
-  sources = [ "src/serial_info.cpp" ]
-  deps = [
-    "${serial_manager_path}/interfaces/innerkits:serialsrv_client",
-    "${serial_manager_path}/utils:serial_error_code",
-  ]
-  external_deps = [
-    "c_utils:utils",
-    "hilog:libhilog",
-    "ipc:ipc_core",
-    "napi:ace_napi",
-    "samgr:samgr_proxy",
-  ]
+  sources = serial_sources
+  deps = serial_deps
+  external_deps = serial_external_deps
 
   configs = [ ":serialnapi_private_config" ]
 
