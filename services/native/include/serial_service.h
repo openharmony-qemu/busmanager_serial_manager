@@ -35,7 +35,6 @@
 #include "system_ability_ondemand_reason.h"
 #include "timer.h"
 
-#include "serial_hdi_stub.h"
 #include "v1_0/iserial_device.h"
 #include "v1_0/iserial_device_callback.h"
 #include "v1_0/iserials.h"
@@ -164,7 +163,8 @@ private:
     int DoDump(int fd, const std::vector<std::string>& argList);
 
     // Internal helper functions for function decomposition
-    int32_t ValidateOpenSerialParams(const SerialPortInfo& portInfo, const sptr<ISerialServiceCallback>& token);
+    int32_t ValidateOpenSerialParams(const SerialPortInfo& portInfo,
+        const SerialConfig& config, const sptr<ISerialServiceCallback>& token);
     void LogWriteData(const std::vector<uint8_t>& data);
     int32_t CheckWritePreconditions(DeviceContext* context, const std::string& portName);
     int32_t OpenHdiDevice(const std::string& portName, const SerialConfig& config,
@@ -180,9 +180,6 @@ private:
     int32_t ValidateDialogHapCaller(
         Security::AccessToken::AccessTokenID callerTokenId, Security::AccessToken::HapTokenInfo& callerTokenInfo);
     int32_t ParseTargetTokenId(const std::string& tokenId, Security::AccessToken::AccessTokenID& targetTokenId);
-
-    void SetHdiProxyForTest(const sptr<OHOS::HDI::Serial::V1_0::ISerials>& proxy);
-    sptr<OHOS::HDI::Serial::V1_0::ISerials> GetHdiProxyForTest() const;
 
     bool registerToService_ = false;
     std::mutex serviceMutex_;

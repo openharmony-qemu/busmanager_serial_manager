@@ -102,7 +102,7 @@ public:
         ASSERT_NE(service_, nullptr);
 
         // 注入 Mock HDI 代理
-        service_->SetHdiProxyForTest(mockHdi_);
+        service_->serialsProxy_ = mockHdi_;
 
         // 设置 Mock 设备列表
         SetupMockDevices();
@@ -576,7 +576,7 @@ HWTEST_F(SerialServiceTest, QuerySerialDevices_HdiStubMode_ReturnsEmptyList, Tes
     // 设置 HDI 为 stub 模式
     sptr<SerialHdiStub> stubHdi = new SerialHdiStub();
     ASSERT_NE(stubHdi, nullptr);
-    service_->SetHdiProxyForTest(stubHdi);
+    service_->serialsProxy_ = stubHdi;
 
     std::vector<SerialPortInfo> devices;
     int32_t result = service_->QuerySerialDevices(devices);
