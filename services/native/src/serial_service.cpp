@@ -1437,8 +1437,8 @@ int32_t SerialService::RequestSerialPortRight(const SerialPortInfo& portInfo)
 
     SERIAL_HILOGI(MODULE_SERVICE,
         "%{public}s:%{public}d RequestSerialPortRight: portName=%{public}s, "
-        "bundleName=%{public}s, userId=%{public}d, tokenId=%{public}s, testMode=%{public}d",
-        __func__, __LINE__, portName.c_str(), bundleName.c_str(), userId, tokenId.c_str(), testModeEnabled);
+        "bundleName=%{public}s, userId=%{public}d, tokenId=%{public}s",
+        __func__, __LINE__, portName.c_str(), bundleName.c_str(), userId, tokenId.c_str());
 
     // Build device info for authorization dialog
     SerialDeviceInfoForDialog deviceInfo;
