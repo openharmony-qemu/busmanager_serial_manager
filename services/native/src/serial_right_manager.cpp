@@ -57,7 +57,7 @@ static bool IsTestModeEnabled()
     if (testMode != nullptr && strcmp(testMode, "1") == 0) {
         return true;
     }
-    return true; // Bypass permission check for testing
+    return false;
 }
 #endif
 
@@ -267,7 +267,7 @@ bool SerialRightManager::GetUserAgreementByDiag(const SerialDeviceInfoForDialog&
 
     if (!ShowSerialDialog(deviceInfo, userId)) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d ShowSerialDialog failed", __func__, __LINE__);
-        return true; // Bypass permission check for testing
+        return false;
     }
 
     // Check HasRight after dialog closes - dialog HAP should have called AddPortAuthorization
@@ -301,7 +301,7 @@ bool SerialRightManager::ShowSerialDialog(const SerialDeviceInfoForDialog& devic
         if (errno == ERANGE || castId < 0) {
             SERIAL_HILOGE(
                 MODULE_SERVICE, "%{public}s:%{public}d tokenId cast failed %{public}d", __func__, __LINE__, castId);
-            return true; // Bypass permission check for testing
+            return false;
         }
     }
 
@@ -324,7 +324,7 @@ bool SerialRightManager::ShowSerialDialog(const SerialDeviceInfoForDialog& devic
     if (ret != SERIAL_RIGHT_OK) {
         SERIAL_HILOGE(
             MODULE_SERVICE, "%{public}s:%{public}d ConnectAbility failed %{public}d", __func__, __LINE__, ret);
-        return true; // Bypass permission check for testing
+        return false;
     }
 
     // Waiting for the user to click
@@ -370,21 +370,21 @@ bool SerialRightManager::ValidateTokenAndGetHapInfo(const std::string& tokenIdSt
 {
     if (!IsAllDigits(tokenIdStr)) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d tokenIdStr invalid", __func__, __LINE__);
-        return true; // Bypass permission check for testing
+        return false;
     }
 
     errno = 0;
     tokenId = static_cast<AccessTokenID>(std::stoull(tokenIdStr, nullptr, DECIMAL_BASE));
     if (errno == ERANGE) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d tokenIdStr is out of uint64_t range", __func__, __LINE__);
-        return true; // Bypass permission check for testing
+        return false;
     }
 
     int32_t ret = AccessTokenKit::GetHapTokenInfo(tokenId, hapTokenInfoRes);
     if (ret != RET_SUCCESS) {
         SERIAL_HILOGE(
             MODULE_SERVICE, "%{public}s:%{public}d GetHapTokenInfo failed:ret:%{public}d", __func__, __LINE__, ret);
-        return true; // Bypass permission check for testing
+        return false;
     }
     uid = hapTokenInfoRes.userID;
     return true;
@@ -396,7 +396,7 @@ bool SerialRightManager::AddDeviceRight(const std::string& deviceId, const std::
     HapTokenInfo hapTokenInfoRes;
     int32_t uid;
     if (!ValidateTokenAndGetHapInfo(tokenIdStr, tokenId, hapTokenInfoRes, uid)) {
-        return true; // Bypass permission check for testing
+        return false;
     }
 
 #if !DISABLE_CONSOLE_BYPASS
@@ -485,7 +485,7 @@ bool SerialRightManager::UnShowSerialDialog()
     auto abmc = AAFwk::AbilityManagerClient::GetInstance();
     if (abmc == nullptr) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d GetInstance failed", __func__, __LINE__);
-        return true; // Bypass permission check for testing
+        return false;
     }
 
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d unshow serial dialog window", __func__, __LINE__);
@@ -495,7 +495,7 @@ bool SerialRightManager::UnShowSerialDialog()
     if (ret != SERIAL_RIGHT_OK) {
         SERIAL_HILOGE(
             MODULE_SERVICE, "%{public}s:%{public}d DisconnectAbility failed %{public}d", __func__, __LINE__, ret);
-        return true; // Bypass permission check for testing
+        return false;
     }
 
     SERIAL_HILOGD(MODULE_SERVICE, "%{public}s:%{public}d unshow serial dialog window success", __func__, __LINE__);
@@ -608,7 +608,7 @@ bool SerialRightManager::IsAllDigits(const std::string& str)
     size_t len = str.length();
     for (size_t i = 0; i < len; i++) {
         if (!isdigit(str[i])) {
-            return true; // Bypass permission check for testing
+            return false;
         }
     }
     return true;

@@ -44,6 +44,13 @@ namespace OHOS {
 namespace Serial {
 constexpr const char* DEV_PREFIX = "/dev/";
 constexpr size_t DEV_PREFIX_LEN = 5;
+constexpr size_t WRITE_DATA_MAX_SIZE = 4096;
+constexpr int32_t WRITE_TIMEOUT_MAX_MS = 300000;
+constexpr int32_t PARITY_MIN = 0;
+constexpr int32_t PARITY_MAX = 4;
+constexpr int32_t DATA_BITS_MIN = 5;
+constexpr int32_t DATA_BITS_MAX = 8;
+constexpr int32_t STOP_BITS_MAX = 2;
 
 static int32_t SerialHdiToInternalCode(int32_t hdiCode)
 {
@@ -301,7 +308,6 @@ void SerialService::OnStop()
 
     // Step 5: Reset proxy and flags
     serialsProxy_ = nullptr;
-    hdiStubMode_ = false;
     registerToService_ = false;
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SerialService OnStop success", __func__, __LINE__);
 }
@@ -311,16 +317,10 @@ void SerialService::InitHdiProxy()
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d InitHdiProxy: getting ISerials proxy", __func__, __LINE__);
     serialsProxy_ = ISerials::Get(true);
     if (serialsProxy_ == nullptr) {
-        SERIAL_HILOGW(MODULE_SERVICE,
+        SERIAL_HILOGE(MODULE_SERVICE,
             "%{public}s:%{public}d Failed to get ISerials HDI proxy, using stub mode as placeholder service", __func__,
             __LINE__);
-        // Use stub implementation when HDI is unavailable
-        serialsProxy_ = new SerialHdiStub();
-        hdiStubMode_ = true;
-        SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d Serial service running in HDI stub mode (placeholder service)", __func__, __LINE__);
     } else {
-        hdiStubMode_ = false;
         SERIAL_HILOGI(
             MODULE_SERVICE, "%{public}s:%{public}d ISerials HDI proxy obtained successfully", __func__, __LINE__);
     }
@@ -388,12 +388,6 @@ int32_t SerialService::QuerySerialDevices(std::vector<SerialPortInfo>& devices)
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d HDI proxy not initialized", __func__, __LINE__);
         return SERIAL_ERR_SERVICE;
     }
-    if (hdiStubMode_) {
-        SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d QuerySerialDevices: stub mode - returning empty device list", __func__, __LINE__);
-        devices.clear();
-        return SERIAL_OK;
-    }
 
     std::vector<SerialDeviceInfo> hdiDevices;
     int32_t ret = serialsProxy_->QueryDevices(hdiDevices);
@@ -436,14 +430,6 @@ int32_t SerialService::QuerySerialDevices(std::vector<SerialPortInfo>& devices)
 
 std::string SerialService::FindPortNameForDevice(const SerialPortInfo& portInfo)
 {
-    // No real devices in stub mode
-    if (hdiStubMode_) {
-        SERIAL_HILOGW(MODULE_SERVICE,
-            "%{public}s:%{public}d FindPortNameForDevice: service running in stub mode, no real devices available",
-            __func__, __LINE__);
-        return "";
-    }
-
     // Strategy 1: Find by portName (most precise) - return directly
     if (!portInfo.portName.empty()) {
         SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Found portName directly: %{public}s", __func__, __LINE__,
@@ -467,17 +453,32 @@ std::string SerialService::FindPortNameForDevice(const SerialPortInfo& portInfo)
 }
 
 int32_t SerialService::ValidateOpenSerialParams(
-    const SerialPortInfo& portInfo, const sptr<ISerialServiceCallback>& token)
+    const SerialPortInfo& portInfo, const SerialConfig& config, const sptr<ISerialServiceCallback>& token)
 {
     if (serialsProxy_ == nullptr) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d HDI proxy not initialized", __func__, __LINE__);
         return SERIAL_ERR_SERVICE;
     }
 
-    if (hdiStubMode_) {
-        SERIAL_HILOGE(
-            MODULE_SERVICE, "%{public}s:%{public}d OpenSerial: stub mode, cannot open real device", __func__, __LINE__);
-        return SERIAL_ERR_SERVICE;
+    if (config.baudRate <= 0) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Invalid baudRate=%{public}d",
+            __func__, __LINE__, config.baudRate);
+        return SERIAL_ERR_INVALID_PARAM;
+    }
+    if (config.dataBits < DATA_BITS_MIN || config.dataBits > DATA_BITS_MAX) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Invalid dataBits=%{public}d",
+            __func__, __LINE__, config.dataBits);
+        return SERIAL_ERR_INVALID_PARAM;
+    }
+    if (config.stopBits < 1 || config.stopBits > STOP_BITS_MAX) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Invalid stopBits=%{public}d",
+            __func__, __LINE__, config.stopBits);
+        return SERIAL_ERR_INVALID_PARAM;
+    }
+    if (config.parity < PARITY_MIN || config.parity > PARITY_MAX) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Invalid parity=%{public}d",
+            __func__, __LINE__, config.parity);
+        return SERIAL_ERR_INVALID_PARAM;
     }
 
     if (token == nullptr) {
@@ -492,6 +493,10 @@ int32_t SerialService::OpenHdiDevice(const std::string& portName, const SerialCo
     sptr<SerialHdiCallback>& hdiCallback)
 {
     OHOS::HDI::Serial::V1_0::SerialConfig hdiConfig = ConvertConfig(config);
+    if (serialsProxy_ == nullptr) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d HDI proxy not initialized", __func__, __LINE__);
+        return SERIAL_ERR_SERVICE;
+    }
     int32_t ret = serialsProxy_->OpenDevice(portName, hdiConfig, hdiCallback, hdiDevice);
     if (ret != 0) {
         SERIAL_HILOGE(
@@ -554,7 +559,7 @@ int32_t SerialService::OpenSerial(
         return SERIAL_ERR_SERVICE;
     }
 
-    int32_t paramRet = ValidateOpenSerialParams(portInfo, token);
+    int32_t paramRet = ValidateOpenSerialParams(portInfo, config, token);
     if (paramRet != SERIAL_OK) {
         return paramRet;
     }
@@ -814,6 +819,16 @@ int32_t SerialService::WriteSerial(
     if (isRs232Disabled_ && !IsUsbSerial(portName)) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
         return SERIAL_ERR_SERVICE;
+    }
+    if (data.empty() || data.size() > WRITE_DATA_MAX_SIZE) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Invalid data size=%{public}zu",
+            __func__, __LINE__, data.size());
+        return SERIAL_ERR_INVALID_PARAM;
+    }
+    if (timeout < 0 || timeout > WRITE_TIMEOUT_MAX_MS) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Invalid timeout=%{public}d",
+            __func__, __LINE__, timeout);
+        return SERIAL_ERR_INVALID_PARAM;
     }
 
     std::lock_guard<std::mutex> lock(serviceMutex_);
@@ -1417,29 +1432,13 @@ int32_t SerialService::RequestSerialPortRight(const SerialPortInfo& portInfo)
     std::string tokenId = GetCallingTokenId();
     std::string productName = portInfo.manufacturer.empty() ? portInfo.portName : portInfo.manufacturer;
 
-    // Test mode detection: check if manufacturer contains test_user marker
-    // Format: "test_user=<userId>" - used by CLI tool to test real auth flow
-    const std::string testUserMarker = "test_user=";
-    bool testModeEnabled = false;
-    if (portInfo.manufacturer.find(testUserMarker) == 0) {
-        std::string userIdStr = portInfo.manufacturer.substr(testUserMarker.length());
-        int32_t testUserId = std::stoi(userIdStr);
-        if (testUserId > 0) {
-            userId = testUserId;
-            testModeEnabled = true;
-            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d TEST MODE: overriding userId to %{public}d", __func__,
-                __LINE__, userId);
-        }
-        productName = portInfo.portName; // Use portName for test mode
-    }
-
     // Find the portName for the device
     std::string portName = FindPortNameForDevice(portInfo);
 
     SERIAL_HILOGI(MODULE_SERVICE,
         "%{public}s:%{public}d RequestSerialPortRight: portName=%{public}s, "
-        "bundleName=%{public}s, userId=%{public}d, tokenId=%{public}s, testMode=%{public}d",
-        __func__, __LINE__, portName.c_str(), bundleName.c_str(), userId, tokenId.c_str(), testModeEnabled);
+        "bundleName=%{public}s, userId=%{public}d, tokenId=%{public}s",
+        __func__, __LINE__, portName.c_str(), bundleName.c_str(), userId, tokenId.c_str());
 
     // Build device info for authorization dialog
     SerialDeviceInfoForDialog deviceInfo;
@@ -1660,7 +1659,6 @@ int SerialService::DoDump(int fd, const std::vector<std::string>& argList)
         dprintf(fd, "========================================\n");
         DumpPhysicalDevices(fd);
         DumpOpenedDevices(fd);
-        dprintf(fd, "HDI Stub Mode: %s\n", hdiStubMode_ ? "true" : "false");
         dprintf(fd, "========================================\n");
         return SERIAL_OK;
     }
@@ -1813,18 +1811,6 @@ int32_t SerialService::CheckWritePreconditions(DeviceContext* context, const std
         return permRet;
     }
     return SERIAL_OK;
-}
-
-void SerialService::SetHdiProxyForTest(const sptr<ISerials>& proxy)
-{
-    std::lock_guard<std::mutex> lock(serviceMutex_);
-    serialsProxy_ = proxy;
-    hdiStubMode_ = false;
-}
-
-sptr<ISerials> SerialService::GetHdiProxyForTest() const
-{
-    return serialsProxy_;
 }
 } // namespace Serial
 } // namespace OHOS
