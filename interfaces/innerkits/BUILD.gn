@@ -29,6 +29,7 @@ if (serial_manager_feature_deploy_sa) {
       ubsan = true
       boundary_sanitize = true
     }
+    branch_protector_ret = "pac_ret"
     output_values = get_target_outputs(":serial_server_interface")
     sources = [
       "native/src/serial_service_callback.cpp",
