@@ -885,28 +885,29 @@ static napi_value SerialOpenNapi(napi_env env, napi_callback_info info)
     GetPortNameFromThisVar(env, thisVar, context->portInfo.portName);
     GetPortInfoFromThisVar(env, thisVar, context->portInfo);
 
+    context->config.baudRate = DEFAULT_BAUD_RATE;
+    context->config.dataBits = DEFAULT_DATA_BITS;
+    context->config.stopBits = DEFAULT_STOP_BITS;
+    context->config.parity = DEFAULT_PARITY;
+    context->config.rtscts = false;
+    context->config.xon = false;
+    context->config.xoff = false;
+    context->config.xany = false;
+
     if (argc >= 1) {
         napi_valuetype paramType;
         napi_typeof(env, argv[0], &paramType);
-        if (paramType != napi_object) {
+        if (paramType == napi_object) {
+            if (!ParseSerialConfig(env, argv[0], context->config)) {
+                ThrowBusinessError(env, SERIAL_JS_ERR_INVALID_PARAM, "Invalid parameter");
+                delete context;
+                return nullptr;
+            }
+        } else if (paramType != napi_undefined) {
             ThrowBusinessError(env, SERIAL_JS_ERR_PARAM_ERROR, "Parameter error");
             delete context;
             return nullptr;
         }
-        if (!ParseSerialConfig(env, argv[0], context->config)) {
-            ThrowBusinessError(env, SERIAL_JS_ERR_INVALID_PARAM, "Invalid parameter");
-            delete context;
-            return nullptr;
-        }
-    } else {
-        context->config.baudRate = DEFAULT_BAUD_RATE;
-        context->config.dataBits = DEFAULT_DATA_BITS;
-        context->config.stopBits = DEFAULT_STOP_BITS;
-        context->config.parity = DEFAULT_PARITY;
-        context->config.rtscts = false;
-        context->config.xon = false;
-        context->config.xoff = false;
-        context->config.xany = false;
     }
 
     napi_value promise = nullptr;
