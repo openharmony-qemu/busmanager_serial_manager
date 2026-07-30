@@ -18,6 +18,7 @@ config("serialutils_public_config") {
 }
 
 ohos_source_set("serial_error_code") {
+  branch_protector_ret = "pac_ret"
   sources = [ "native/src/serial_error_code.cpp" ]
 
   public_configs = [ ":serialutils_public_config" ]

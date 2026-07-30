@@ -49,6 +49,8 @@ ohos_shared_library("serial") {
     ubsan = true
     boundary_sanitize = true
   }
+  
+  branch_protector_ret = "pac_ret"
 
   defines = [ "SERIAL_NAPI" ]
 
