@@ -548,11 +548,10 @@ int32_t SerialService::OpenSerial(
     SERIAL_HILOGI(MODULE_SERVICE,
         "%{public}s:%{public}d OpenSerial called, portName=%{public}s, productId=%{public}d, vendorId=%{public}d, "
         "manufacturer=%{public}s, baudRate=%{public}d, dataBits=%{public}d, stopBits=%{public}d, "
-        "parity=%{public}d, rtscts=%{public}d, xon=%{public}d, xoff=%{public}d, xany=%{public}d, "
-        "token=%{public}p",
+        "parity=%{public}d, rtscts=%{public}d, xon=%{public}d, xoff=%{public}d, xany=%{public}d, ",
         __func__, __LINE__, portInfo.portName.c_str(), portInfo.productId, portInfo.vendorId,
         portInfo.manufacturer.c_str(), config.baudRate, config.dataBits, config.stopBits, config.parity, config.rtscts,
-        config.xon, config.xoff, config.xany, token.GetRefPtr());
+        config.xon, config.xoff, config.xany);
     ReportSerialOperationAudit(portInfo.portName, SERIAL_OPEN);
     if (isRs232Disabled_ && !IsUsbSerial(portInfo.portName)) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
