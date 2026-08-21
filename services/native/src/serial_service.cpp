@@ -1802,7 +1802,7 @@ int32_t SerialService::CalculatePortId(const std::string& portName)
         if (portName.find("ACM") != std::string::npos) {
             return baseId + ACM_PORT_ID_OFFSET;
         }
-        return baseId;
+        return baseId; // USB serial: extracted_number + 0
     }
 
     for (const auto& [prefix, offset] : pcieSerialOffsets_) {
