@@ -19,6 +19,7 @@
 
 #include "accesstoken_kit.h"
 #include "bundle_mgr_interface.h"
+#include "config_policy_utils.h"
 #include "common_timer_errors.h"
 #include "hdf_types.h"
 #include "hilog_wrapper.h"
@@ -88,6 +89,7 @@ constexpr uint8_t ASCII_PRINTABLE_MAX = 126;
 constexpr int HEX_WIDTH = 2;
 constexpr const char* RS232_MDM_PARAM = "persist.edm.rs232_serial_disable";
 constexpr const char* PORT_ID_CHARS = "0123456789";
+constexpr const char* PCIE_SERIAL_CONFIG_PATH = "etc/serial/pcie_serial_config.json";
 sptr<SerialService> g_serviceInstance = nullptr;
 
 REGISTER_SYSTEM_ABILITY_BY_ID(SerialService, SERIAL_SYSTEM_ABILITY_ID, true);
@@ -223,6 +225,9 @@ void SerialService::OnStart(const OHOS::SystemAbilityOnDemandReason& startReason
     // Initialize HDI proxy
     InitHdiProxy();
 
+    // Load PCIE serial port configuration from CCM
+    LoadPcieSerialConfig();
+
     // Initialize permission manager
     SerialRightManager::GetInstance().Init();
 
@@ -324,6 +329,51 @@ void SerialService::InitHdiProxy()
         SERIAL_HILOGI(
             MODULE_SERVICE, "%{public}s:%{public}d ISerials HDI proxy obtained successfully", __func__, __LINE__);
     }
+}
+
+void SerialService::LoadPcieSerialConfig()
+{
+    // ttyS is Linux standard serial port - always present as PCIE serial with offset 2000
+    pcieSerialOffsets_["ttyS"] = TTYS_PORT_ID_OFFSET;
+
+    char buf[MAX_PATH_LEN] = {0};
+    char* path = GetOneCfgFile(PCIE_SERIAL_CONFIG_PATH, buf, MAX_PATH_LEN);
+    if (path == nullptr || *path == '\0') {
+        SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d GetOneCfgFile failed for %{public}s",
+            __func__, __LINE__, PCIE_SERIAL_CONFIG_PATH);
+        return;
+    }
+
+    std::ifstream ifsConf(path);
+    if (!ifsConf.is_open()) {
+        SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d Failed to open pcie serial config: %{public}s",
+            __func__, __LINE__, path);
+        return;
+    }
+
+    nlohmann::json root = nlohmann::json::parse(ifsConf, nullptr, false);
+    if (root.is_discarded() || !root.contains("pcieSerialPorts")) {
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Invalid pcie serial config format", __func__, __LINE__);
+        return;
+    }
+
+    for (const auto& item : root["pcieSerialPorts"]) {
+        if (!item.contains("prefix") || !item.contains("portIdOffset")) {
+            SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d Invalid pcie serial entry, skipping",
+                __func__, __LINE__);
+            continue;
+        }
+        if (!item["prefix"].is_string() || !item["portIdOffset"].is_number_integer()) {
+            SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d Invalid pcie serial entry type, skipping",
+                __func__, __LINE__);
+            continue;
+        }
+        std::string prefix = item["prefix"].get<std::string>();
+        int32_t offset = item["portIdOffset"].get<int32_t>();
+        pcieSerialOffsets_[prefix] = offset;
+    }
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Loaded %{public}zu pcie serial port configs from %{public}s",
+        __func__, __LINE__, pcieSerialOffsets_.size(), path);
 }
 
 OHOS::HDI::Serial::V1_0::SerialConfig SerialService::ConvertConfig(const SerialConfig& serviceConfig)
@@ -1728,12 +1778,7 @@ void SerialService::ReportSerialManageAuditEvent(const std::string& portType, bo
 
 void SerialService::ReportSerialOperationAudit(const std::string& portName, const std::string& operationType)
 {
-    int32_t portId = GetIdFromPortName(portName);
-    if (!IsUsbSerial(portName)) {
-        portId = -portId;
-    } else if (portName.find("ACM") != std::string::npos) {
-        portId += ACM_PORT_ID_OFFSET;
-    }
+    int32_t portId = CalculatePortId(portName);
 
     // Report Security Audit Event for serial operation
     nlohmann::json operationJson {
@@ -1744,6 +1789,30 @@ void SerialService::ReportSerialOperationAudit(const std::string& portName, cons
     };
     Serial::SerialSecurityReport::ReportSecurityInfo(
         SERIAL_OP_EVENT_ID, std::string(SERIAL_OP_EVENT_VERSION), operationJson);
+}
+
+int32_t SerialService::CalculatePortId(const std::string& portName)
+{
+    int32_t baseId = GetIdFromPortName(portName);
+    if (baseId == SERIAL_ERR_INVALID_PARAM) {
+        return SERIAL_ERR_INVALID_PARAM;
+    }
+
+    if (IsUsbSerial(portName)) {
+        if (portName.find("ACM") != std::string::npos) {
+            return baseId + ACM_PORT_ID_OFFSET;
+        }
+        return baseId;
+    }
+
+    for (const auto& [prefix, offset] : pcieSerialOffsets_) {
+        if (portName.find(prefix) != std::string::npos) {
+            return baseId + offset;
+        }
+    }
+
+    // Onboard serial: negative number
+    return -baseId;
 }
 
 bool SerialService::QueryAndRecordFirstRead(const std::string& portName)

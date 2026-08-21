@@ -19,6 +19,7 @@
 #include <atomic>
 #include <charconv>
 #include <chrono>
+#include <fstream>
 #include <ipc_skeleton.h>
 #include <map>
 #include <mutex>
@@ -51,6 +52,7 @@ constexpr const char* SERIAL_CLOSE = "SerialClose";
 constexpr const char* SERIAL_READ = "SerialRead";
 constexpr const char* SERIAL_WRITE = "SerialWrite";
 constexpr int32_t ACM_PORT_ID_OFFSET = 1000;
+constexpr int32_t TTYS_PORT_ID_OFFSET = 2000;
 
 class SerialService;
 
@@ -130,6 +132,7 @@ public:
 private:
     void InitHdiProxy();
     void InitCommonEventSubscriber();
+    void LoadPcieSerialConfig();
     OHOS::HDI::Serial::V1_0::SerialConfig ConvertConfig(const SerialConfig& serviceConfig);
     SerialPortInfo ConvertDeviceInfo(const OHOS::HDI::Serial::V1_0::SerialDeviceInfo& hdiInfo);
     DeviceContext* FindDeviceContext(const std::string& portName);
@@ -137,6 +140,7 @@ private:
     int32_t CheckPortAccessPermission(const DeviceContext* context, const std::string& portName);
 
     bool IsUsbSerial(const std::string& portName);
+    int32_t CalculatePortId(const std::string& portName);
     void SetSerialManagePolicy(bool disable);
     void ReportSerialOperationAudit(const std::string& portName, const std::string& operationType);
     void ReportSerialManageAuditEvent(const std::string& portType, bool disable);
@@ -196,6 +200,7 @@ private:
 
     bool isRs232Disabled_ = false;
     bool reportManageFlag_ = false;
+    std::map<std::string, int32_t> pcieSerialOffsets_;
     std::unordered_set<std::string> portsHasBeenRead_;
     std::unordered_set<std::string> portsHasBeenWritten_;
     std::mutex readStatusMutex_;
