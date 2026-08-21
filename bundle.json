@@ -44,6 +44,7 @@
         "relational_store",
         "access_token",
         "cJSON",
+        "config_policy",
         "hicollie",
         "hdf_core",
         "runtime_core"
