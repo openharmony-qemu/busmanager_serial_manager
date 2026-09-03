@@ -166,8 +166,8 @@ int32_t SerialHdiCallback::OnDeviceOffline()
         service->HandleDeviceOffline(portName_);
     }
 
-    // 设备离线时不清理授权记录（缓存模式：授权在本次启动周期有效，重启清空）
-    // 设备重新插入时，如果 VID/PID 相同但 portName 变化，需要重新授权
+    // Do not clear authorization records on device offline (cache mode: authorization valid for current boot cycle, cleared on reboot)
+    // When device is reinserted with same VID/PID but different portName, re-authorization is required
     return SERIAL_OK;
 }
 
@@ -333,7 +333,7 @@ void SerialService::InitHdiProxy()
 
 void SerialService::LoadPcieSerialConfig()
 {
-    // ttyS is Linux standard serial port - always present as PCIE serial with offset 2000
+    // ttyS is Linux standard serial port — always present as PCIE serial with offset 2000
     pcieSerialOffsets_["ttyS"] = TTYS_PORT_ID_OFFSET;
 
     char buf[MAX_PATH_LEN] = {0};
@@ -1280,6 +1280,7 @@ int32_t SerialService::GetDsrSignal(const std::string& portName, bool& dsr)
         __func__, __LINE__, portName.c_str(), dsr);
     return SERIAL_OK;
 }
+
 int32_t SerialService::ValidateDialogHapCaller(AccessTokenID callerTokenId, HapTokenInfo& callerTokenInfo)
 {
     ATokenTypeEnum tokenType = AccessTokenKit::GetTokenType(callerTokenId);
