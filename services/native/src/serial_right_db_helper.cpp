@@ -76,7 +76,7 @@ std::shared_ptr<SerialRightDbHelper> SerialRightDbHelper::GetInstance()
 SerialRightDbHelper::SerialRightDbHelper()
 {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d constructed (lazy init mode)", __func__, __LINE__);
-    // 构造时不创建数据库，延迟到 OnStart/OnStop 时创建
+    // Do not create database in constructor, defer to OnStart/OnStop
     rdbStore_ = nullptr;
 }
 
@@ -96,7 +96,7 @@ void SerialRightDbHelper::CloseDatabase()
 
 bool SerialRightDbHelper::DeleteDatabaseFile()
 {
-    // 先关闭数据库连接
+    // Close database connection first
     CloseDatabase();
 
     std::string dbPath = GetDatabasePath();
@@ -114,7 +114,7 @@ bool SerialRightDbHelper::OpenDatabaseIfExists()
 {
     std::lock_guard<std::mutex> lock(databaseMutex_);
 
-    // 先清理旧的连接
+    // Clear existing connection first
     rdbStore_ = nullptr;
 
     std::string dbPath = GetDatabasePath();
@@ -145,7 +145,7 @@ bool SerialRightDbHelper::CreateDatabaseAndOpen()
 {
     std::lock_guard<std::mutex> lock(databaseMutex_);
 
-    // 确保目录存在
+    // Ensure directory exists
     struct stat st;
     if (stat(DATABASE_DIR, &st) != 0) {
         if (mkdir(DATABASE_DIR, 0770) != 0) {
