@@ -90,7 +90,7 @@ int32_t SerialRightManager::Init()
 {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SerialRightManager Init (OnStart)", __func__, __LINE__);
 
-    // 加载缓存：数据库存在则加载，不存在则空缓存
+    // Load cache: load from DB if exists, otherwise empty cache
     LoadCacheFromDb();
 
     return SERIAL_RIGHT_OK;
@@ -100,7 +100,7 @@ int32_t SerialRightManager::OnStop()
 {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SerialRightManager OnStop", __func__, __LINE__);
 
-    // 缓存有数据时创建数据库并保存
+    // Create database and save if cache has data
     SaveCacheToDb();
 
     return SERIAL_RIGHT_OK;
@@ -109,7 +109,7 @@ int32_t SerialRightManager::OnStop()
 std::string SerialRightManager::BuildCacheKey(
     const std::string& deviceId, const std::string& bundleName, const std::string& tokenId, int32_t userId)
 {
-    // key格式: userId_deviceId_bundleName_tokenId
+    // Key format: userId_deviceId_bundleName_tokenId
     return std::to_string(userId) + "_" + deviceId + "_" + bundleName + "_" + tokenId;
 }
 
@@ -126,14 +126,14 @@ bool SerialRightManager::LoadCacheFromDb()
         return false;
     }
 
-    // 尝试打开数据库（不存在则返回false）
+    // Try to open database (return false if not exists)
     if (!helper->OpenDatabaseIfExists()) {
         SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Database not exists, use empty cache", __func__, __LINE__);
         cacheLoaded_ = true;
-        return true; // 数据库不存在是正常情况，返回true
+        return true; // Database not existing is normal, return true
     }
 
-    // 加载所有记录到缓存
+    // Load all records into cache
     std::vector<SerialRightFullRecord> records;
     int32_t ret = helper->QueryAllRightRecords(records);
     if (ret <= 0) {
@@ -168,19 +168,19 @@ bool SerialRightManager::SaveCacheToDb()
         return false;
     }
 
-    // 创建数据库（如果不存在）
+    // Create database if not exists
     if (!helper->CreateDatabaseAndOpen()) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d CreateDatabase failed", __func__, __LINE__);
         return false;
     }
 
-    // 转换缓存为记录列表
+    // Convert cache to record list
     std::vector<SerialRightFullRecord> records;
     for (const auto& pair : rightCache_) {
         records.push_back(pair.second);
     }
 
-    // 批量插入
+    // Batch insert
     int32_t ret = helper->InsertAllRecords(records);
     if (ret != E_OK) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d InsertAllRecords failed", __func__, __LINE__);
@@ -190,7 +190,7 @@ bool SerialRightManager::SaveCacheToDb()
     SERIAL_HILOGI(
         MODULE_SERVICE, "%{public}s:%{public}d Cache saved: %{public}zu records", __func__, __LINE__, records.size());
 
-    // 清空缓存
+    // Clear cache
     rightCache_.clear();
 
     return true;
@@ -228,7 +228,7 @@ bool SerialRightManager::HasRight(
     }
 #endif
 
-    // 查缓存（不访问数据库）
+    // Query cache (no database access)
     std::lock_guard<std::mutex> lock(cacheMutex_);
     std::string key = BuildCacheKey(deviceId, actualBundleName, tokenId, userId);
     bool hasRecord = rightCache_.find(key) != rightCache_.end();
@@ -446,7 +446,7 @@ bool SerialRightManager::AddDeviceRight(
     }
 #endif
 
-    // 写缓存（不访问数据库）
+    // Write cache (no database access)
     std::lock_guard<std::mutex> lock(cacheMutex_);
 
     SerialRightFullRecord record = {};
@@ -457,7 +457,7 @@ bool SerialRightManager::AddDeviceRight(
     record.installTime = GetCurrentTimestamp();
     record.updateTime = GetCurrentTimestamp();
     record.requestTime = GetCurrentTimestamp();
-    record.validPeriod = SERIAL_RIGHT_VALID_PERIOD_MAX; // 永久有效
+    record.validPeriod = SERIAL_RIGHT_VALID_PERIOD_MAX; // Permanently valid
 
     std::string key = BuildCacheKey(deviceId, actualBundleName, tokenId, userId);
     rightCache_[key] = record;
@@ -470,7 +470,7 @@ bool SerialRightManager::AddDeviceRight(
 
 bool SerialRightManager::IsSystemAppOrSa()
 {
-    // 临时禁用，用于测试授权弹窗
+    // Temporarily disabled for testing authorization dialog
     SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: temporarily returning false for testing",
         __func__, __LINE__);
     return false;
