@@ -379,8 +379,7 @@ int32_t SerialSrvClient::GetDsrSignal(const std::string& portName, bool& dsr)
 
 int32_t SerialSrvClient::AddPortAuthorization(const std::string& tokenId, const std::string& deviceId)
 {
-    SERIAL_HILOGI(MODULE_INNERKIT, "[AddPortAuthorization] Enter, tokenId=%{public}s, deviceId=%{public}s",
-        tokenId.c_str(), deviceId.c_str());
+    SERIAL_HILOGI(MODULE_INNERKIT, "[AddPortAuthorization] Enter");
     if (tokenId.empty() || deviceId.empty()) {
         SERIAL_HILOGE(MODULE_INNERKIT, "[AddPortAuthorization] Invalid params");
         return SERIAL_JS_ERR_INVALID_PARAM;
