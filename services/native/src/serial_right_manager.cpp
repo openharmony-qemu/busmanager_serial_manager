@@ -381,8 +381,8 @@ bool SerialRightManager::AddDeviceRight(
     std::string key = BuildCacheKey(deviceId, actualBundleName, tokenId, userId);
     rightCache_[key] = record;
 
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Added to cache: cache size=%{public}zu",
-        __func__, __LINE__, rightCache_.size());
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Added to cache: key=%{public}s, cache size=%{public}zu",
+        __func__, __LINE__, key.c_str(), rightCache_.size());
 
     return true;
 }
@@ -596,15 +596,16 @@ bool SerialRightManager::GetAppName(const std::string& bundleName, std::string& 
             (uint32_t)ResourceFlag::GET_RESOURCE_INFO_WITH_LABEL, info, userId);
         if (resRet == ERR_OK && !info.label.empty()) {
             appName = info.label;
-            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr", __func__, __LINE__);
+            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr: %{public}s",
+                __func__, __LINE__, appName.c_str());
             return true;
         }
         resRet = resMgr->GetBundleResourceInfo(bundleName,
             (uint32_t)ResourceFlag::GET_RESOURCE_INFO_WITH_LABEL, info);
         if (resRet == ERR_OK && !info.label.empty()) {
             appName = info.label;
-            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr (no userId)",
-                __func__, __LINE__);
+            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr (no userId): %{public}s",
+                __func__, __LINE__, appName.c_str());
             return true;
         }
         if (resRet != ERR_OK) {
@@ -613,7 +614,8 @@ bool SerialRightManager::GetAppName(const std::string& bundleName, std::string& 
         }
     }
 
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName use bundleName", __func__, __LINE__);
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName use bundleName: %{public}s",
+        __func__, __LINE__, appName.c_str());
     return true;
 }
 
