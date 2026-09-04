@@ -169,7 +169,6 @@ private:
     // Internal helper functions for function decomposition
     int32_t ValidateOpenSerialParams(const SerialPortInfo& portInfo,
         const SerialConfig& config, const sptr<ISerialServiceCallback>& token);
-    void LogWriteData(const std::vector<uint8_t>& data);
     int32_t CheckWritePreconditions(DeviceContext* context, const std::string& portName);
     int32_t OpenHdiDevice(const std::string& portName, const SerialConfig& config,
         const sptr<ISerialServiceCallback>& token, sptr<OHOS::HDI::Serial::V1_0::ISerialDevice>& hdiDevice,
@@ -189,7 +188,6 @@ private:
     std::mutex serviceMutex_;
 
     sptr<OHOS::HDI::Serial::V1_0::ISerials> serialsProxy_;
-    bool hdiStubMode_ = false;
 
     std::map<std::string, std::shared_ptr<DeviceContext>> deviceContexts_;
     std::map<std::pair<int32_t, int32_t>, std::string> productIdVendorIdToPortName_;
