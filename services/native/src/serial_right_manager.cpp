@@ -18,7 +18,7 @@
 #include <algorithm>
 #include <cJSON.h>
 #include <chrono>
-#include <cstdlib>
+#include <cerrno>
 #include <regex>
 #include <semaphore.h>
 #include <unistd.h>
@@ -41,25 +41,6 @@ using namespace OHOS::Security::AccessToken;
 
 namespace OHOS {
 namespace Serial {
-
-// Authorization flow configuration:
-// 1. DISABLE_CONSOLE_BYPASS=0: Console users (userId=0) bypass auth check
-//    - Used for module testing and CLI tools
-// 2. DISABLE_CONSOLE_BYPASS=1: Force real auth flow for ALL users including console
-//    - Used for production deployment
-#define DISABLE_CONSOLE_BYPASS 1
-
-#if !DISABLE_CONSOLE_BYPASS
-// Test mode: when SERIAL_RIGHT_TEST_MODE=1, skip console bypass to test real auth flow
-static bool IsTestModeEnabled()
-{
-    const char* testMode = getenv("SERIAL_RIGHT_TEST_MODE");
-    if (testMode != nullptr && strcmp(testMode, "1") == 0) {
-        return true;
-    }
-    return false;
-}
-#endif
 
 constexpr int32_t MESSAGE_PARCEL_KEY_SIZE = 3;
 constexpr int32_t DECIMAL_BASE = 10;
@@ -206,25 +187,6 @@ bool SerialRightManager::HasRight(
         "%{public}s:%{public}d HasRight: bundleName=%{public}s (actual=%{public}s)",
         __func__, __LINE__, bundleName.c_str(), actualBundleName.c_str());
 
-#if !DISABLE_CONSOLE_BYPASS
-    // Normal mode: console bypass enabled
-    if (userId == SERIAL_RIGHT_USERID_CONSOLE && !IsTestModeEnabled()) {
-        SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d console called, bypass (testMode=0)", __func__, __LINE__);
-        return true;
-    }
-
-    if (userId == SERIAL_RIGHT_USERID_CONSOLE && IsTestModeEnabled()) {
-        SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d TEST MODE: console bypass disabled", __func__, __LINE__);
-    }
-#else
-    // DISABLE_CONSOLE_BYPASS=1: force real auth flow for ALL users including console
-    if (userId == SERIAL_RIGHT_USERID_CONSOLE) {
-        SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d DISABLE_CONSOLE_BYPASS: forcing real auth", __func__, __LINE__);
-    }
-#endif
-
     // Query cache (no database access)
     std::lock_guard<std::mutex> lock(cacheMutex_);
     std::string key = BuildCacheKey(deviceId, actualBundleName, tokenId, userId);
@@ -255,10 +217,6 @@ int32_t SerialRightManager::RequestRight(const SerialDeviceInfoForDialog& device
 
 bool SerialRightManager::GetUserAgreementByDiag(const SerialDeviceInfoForDialog& deviceInfo, const int32_t& userId)
 {
-#ifdef SERIAL_RIGHT_TEST
-    return true;
-#endif
-
     // There can only be one dialog at a time
     std::lock_guard<std::mutex> guard(dialogRunning_);
 
@@ -394,18 +352,6 @@ bool SerialRightManager::AddDeviceRight(const std::string& deviceId, const std::
         return false;
     }
 
-#if !DISABLE_CONSOLE_BYPASS
-    if (uid == SERIAL_RIGHT_USERID_CONSOLE && !IsTestModeEnabled()) {
-        SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d console called, bypass (testMode=0)", __func__, __LINE__);
-        return true;
-    }
-#else
-    if (uid == SERIAL_RIGHT_USERID_CONSOLE) {
-        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d DISABLE_CONSOLE_BYPASS: proceeding",
-            __func__, __LINE__);
-    }
-#endif
-
     return AddDeviceRight(deviceId, hapTokenInfoRes.bundleName, tokenIdStr, uid);
 }
 
@@ -418,26 +364,6 @@ bool SerialRightManager::AddDeviceRight(
     SERIAL_HILOGI(MODULE_SERVICE,
         "%{public}s:%{public}d AddDeviceRight: bundleName=%{public}s (actual=%{public}s)",
         __func__, __LINE__, bundleName.c_str(), actualBundleName.c_str());
-
-#if !DISABLE_CONSOLE_BYPASS
-    // Normal mode: console bypass enabled
-    if (userId == SERIAL_RIGHT_USERID_CONSOLE && !IsTestModeEnabled()) {
-        SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d console called, bypass (testMode=0)", __func__, __LINE__);
-        return true;
-    }
-
-    if (userId == SERIAL_RIGHT_USERID_CONSOLE && IsTestModeEnabled()) {
-        SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d TEST MODE: console bypass disabled, proceeding", __func__,
-            __LINE__);
-    }
-#else
-    // DISABLE_CONSOLE_BYPASS=1: force real auth flow for ALL users including console
-    if (userId == SERIAL_RIGHT_USERID_CONSOLE) {
-        SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d DISABLE_CONSOLE_BYPASS: forcing real auth", __func__, __LINE__);
-    }
-#endif
 
     // Write cache (no database access)
     std::lock_guard<std::mutex> lock(cacheMutex_);
@@ -463,9 +389,19 @@ bool SerialRightManager::AddDeviceRight(
 
 bool SerialRightManager::IsSystemAppOrSa()
 {
-    // Temporarily disabled for testing authorization dialog
-    SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: temporarily returning false for testing",
-        __func__, __LINE__);
+    ATokenTypeEnum tokenType = AccessTokenKit::GetTokenType(IPCSkeleton::GetCallingTokenID());
+    if (tokenType == TOKEN_NATIVE) {
+        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: SA caller", __func__, __LINE__);
+        return true;
+    }
+    if (tokenType == TOKEN_HAP) {
+        uint64_t fullTokenId = IPCSkeleton::GetCallingFullTokenID();
+        bool isSystemApp = TokenIdKit::IsSystemAppByFullTokenID(fullTokenId);
+        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: HAP caller, isSystemApp=%{public}d",
+            __func__, __LINE__, static_cast<int32_t>(isSystemApp));
+        return isSystemApp;
+    }
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: not system app or SA", __func__, __LINE__);
     return false;
 }
 
