@@ -104,7 +104,7 @@ public:
     int32_t QueryRightRecordApps(int32_t uid, std::vector<std::string>& apps);
     int32_t QueryAllRightRecords(std::vector<SerialRightFullRecord>& records);
 
-    // OnStop 保存时批量插入
+    // Batch insert when saving during OnStop
     int32_t InsertAllRecords(const std::vector<SerialRightFullRecord>& records);
 
     // Database file operations
