@@ -203,9 +203,8 @@ bool SerialRightManager::HasRight(
     std::string actualBundleName = bundleName.empty() ? "serial_cli" : bundleName;
 
     SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d HasRight: deviceId=%{public}s, bundleName=%{public}s (actual=%{public}s)"
-        ", userId=%{public}d",
-        __func__, __LINE__, deviceId.c_str(), bundleName.c_str(), actualBundleName.c_str(), userId);
+        "%{public}s:%{public}d HasRight: bundleName=%{public}s (actual=%{public}s)",
+        __func__, __LINE__, bundleName.c_str(), actualBundleName.c_str());
 
 #if !DISABLE_CONSOLE_BYPASS
     // Normal mode: console bypass enabled
@@ -216,15 +215,13 @@ bool SerialRightManager::HasRight(
 
     if (userId == SERIAL_RIGHT_USERID_CONSOLE && IsTestModeEnabled()) {
         SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d TEST MODE: console bypass disabled, using userId=%{public}d", __func__, __LINE__,
-            userId);
+            "%{public}s:%{public}d TEST MODE: console bypass disabled", __func__, __LINE__);
     }
 #else
     // DISABLE_CONSOLE_BYPASS=1: force real auth flow for ALL users including console
     if (userId == SERIAL_RIGHT_USERID_CONSOLE) {
         SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d DISABLE_CONSOLE_BYPASS: forcing real auth for userId=%{public}d", __func__, __LINE__,
-            userId);
+            "%{public}s:%{public}d DISABLE_CONSOLE_BYPASS: forcing real auth", __func__, __LINE__);
     }
 #endif
 
@@ -240,8 +237,8 @@ bool SerialRightManager::HasRight(
 
 int32_t SerialRightManager::RequestRight(const SerialDeviceInfoForDialog& deviceInfo, const int32_t& userId)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d RequestRight: deviceId=%{public}s, bundleName=%{public}s",
-        __func__, __LINE__, deviceInfo.deviceId.c_str(), deviceInfo.bundleName.c_str());
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d RequestRight: bundleName=%{public}s",
+        __func__, __LINE__, deviceInfo.bundleName.c_str());
 
     if (HasRight(deviceInfo.deviceId, deviceInfo.bundleName, deviceInfo.tokenId, userId)) {
         SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Device already has right", __func__, __LINE__);
@@ -288,10 +285,8 @@ bool SerialRightManager::GetUserAgreementByDiag(const SerialDeviceInfoForDialog&
 bool SerialRightManager::ShowSerialDialog(const SerialDeviceInfoForDialog& deviceInfo, const int32_t userId)
 {
     SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d ShowSerialDialog: deviceId=%{public}s, bundleName=%{public}s"
-        ", tokenId=%{public}s, portId=%{public}d",
-        __func__, __LINE__, deviceInfo.deviceId.c_str(), deviceInfo.bundleName.c_str(), deviceInfo.tokenId.c_str(),
-        deviceInfo.portId);
+        "%{public}s:%{public}d ShowSerialDialog: bundleName=%{public}s",
+        __func__, __LINE__, deviceInfo.bundleName.c_str());
 
     // Convert tokenId to numeric for serial right API
     int32_t castId = 0;
@@ -300,7 +295,7 @@ bool SerialRightManager::ShowSerialDialog(const SerialDeviceInfoForDialog& devic
         castId = static_cast<int32_t>(std::stoul(deviceInfo.tokenId, nullptr, DECIMAL_BASE));
         if (errno == ERANGE || castId < 0) {
             SERIAL_HILOGE(
-                MODULE_SERVICE, "%{public}s:%{public}d tokenId cast failed %{public}d", __func__, __LINE__, castId);
+                MODULE_SERVICE, "%{public}s:%{public}d tokenId cast failed", __func__, __LINE__);
             return false;
         }
     }
@@ -406,8 +401,8 @@ bool SerialRightManager::AddDeviceRight(const std::string& deviceId, const std::
     }
 #else
     if (uid == SERIAL_RIGHT_USERID_CONSOLE) {
-        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d DISABLE_CONSOLE_BYPASS: proceeding with userId=%{public}d",
-            __func__, __LINE__, uid);
+        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d DISABLE_CONSOLE_BYPASS: proceeding",
+            __func__, __LINE__);
     }
 #endif
 
@@ -421,9 +416,8 @@ bool SerialRightManager::AddDeviceRight(
     std::string actualBundleName = bundleName.empty() ? "serial_cli" : bundleName;
 
     SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d AddDeviceRight: deviceId=%{public}s, bundleName=%{public}s (actual=%{public}s)"
-        ", userId=%{public}d",
-        __func__, __LINE__, deviceId.c_str(), bundleName.c_str(), actualBundleName.c_str(), userId);
+        "%{public}s:%{public}d AddDeviceRight: bundleName=%{public}s (actual=%{public}s)",
+        __func__, __LINE__, bundleName.c_str(), actualBundleName.c_str());
 
 #if !DISABLE_CONSOLE_BYPASS
     // Normal mode: console bypass enabled
@@ -434,15 +428,14 @@ bool SerialRightManager::AddDeviceRight(
 
     if (userId == SERIAL_RIGHT_USERID_CONSOLE && IsTestModeEnabled()) {
         SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d TEST MODE: console bypass disabled, proceeding with userId=%{public}d", __func__,
-            __LINE__, userId);
+            "%{public}s:%{public}d TEST MODE: console bypass disabled, proceeding", __func__,
+            __LINE__);
     }
 #else
     // DISABLE_CONSOLE_BYPASS=1: force real auth flow for ALL users including console
     if (userId == SERIAL_RIGHT_USERID_CONSOLE) {
         SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d DISABLE_CONSOLE_BYPASS: forcing real auth for userId=%{public}d", __func__, __LINE__,
-            userId);
+            "%{public}s:%{public}d DISABLE_CONSOLE_BYPASS: forcing real auth", __func__, __LINE__);
     }
 #endif
 
@@ -462,8 +455,8 @@ bool SerialRightManager::AddDeviceRight(
     std::string key = BuildCacheKey(deviceId, actualBundleName, tokenId, userId);
     rightCache_[key] = record;
 
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Added to cache: key=%{public}s, cache size=%{public}zu",
-        __func__, __LINE__, key.c_str(), rightCache_.size());
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Added to cache: cache size=%{public}zu",
+        __func__, __LINE__, rightCache_.size());
 
     return true;
 }
@@ -667,16 +660,15 @@ bool SerialRightManager::GetAppName(const std::string& bundleName, std::string& 
             (uint32_t)ResourceFlag::GET_RESOURCE_INFO_WITH_LABEL, info, userId);
         if (resRet == ERR_OK && !info.label.empty()) {
             appName = info.label;
-            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr: %{public}s",
-                __func__, __LINE__, appName.c_str());
+            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr", __func__, __LINE__);
             return true;
         }
         resRet = resMgr->GetBundleResourceInfo(bundleName,
             (uint32_t)ResourceFlag::GET_RESOURCE_INFO_WITH_LABEL, info);
         if (resRet == ERR_OK && !info.label.empty()) {
             appName = info.label;
-            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr (no userId): %{public}s",
-                __func__, __LINE__, appName.c_str());
+            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr (no userId)",
+                __func__, __LINE__);
             return true;
         }
         if (resRet != ERR_OK) {
@@ -685,8 +677,7 @@ bool SerialRightManager::GetAppName(const std::string& bundleName, std::string& 
         }
     }
 
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName use bundleName: %{public}s",
-        __func__, __LINE__, appName.c_str());
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName use bundleName", __func__, __LINE__);
     return true;
 }
 
