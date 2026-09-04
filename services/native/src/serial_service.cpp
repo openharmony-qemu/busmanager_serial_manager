@@ -14,8 +14,6 @@
  */
 
 #include <cinttypes>
-#include <iomanip>
-#include <sstream>
 
 #include "accesstoken_kit.h"
 #include "bundle_mgr_interface.h"
@@ -84,9 +82,6 @@ static int32_t SerialHdiToInternalCode(int32_t hdiCode)
     }
 }
 
-constexpr uint8_t ASCII_PRINTABLE_MIN = 32;
-constexpr uint8_t ASCII_PRINTABLE_MAX = 126;
-constexpr int HEX_WIDTH = 2;
 constexpr const char* RS232_MDM_PARAM = "persist.edm.rs232_serial_disable";
 constexpr const char* PORT_ID_CHARS = "0123456789";
 constexpr const char* PCIE_SERIAL_CONFIG_PATH = "etc/serial/pcie_serial_config.json";
@@ -166,8 +161,10 @@ int32_t SerialHdiCallback::OnDeviceOffline()
         service->HandleDeviceOffline(portName_);
     }
 
-    // Do not clear authorization records on device offline (cache mode: authorization valid for current boot cycle, cleared on reboot)
-    // When device is reinserted with same VID/PID but different portName, re-authorization is required
+    // Do not clear authorization records on device offline
+    // (cache mode: authorization valid for current boot cycle, cleared on reboot)
+    // When device is reinserted with same VID/PID but different portName,
+    // re-authorization is required
     return SERIAL_OK;
 }
 
@@ -175,8 +172,8 @@ SerialService::SerialService(int32_t systemAbilityId, bool runOnCreate)
     : SystemAbility(systemAbilityId, runOnCreate), unloadTimer_("SerialServiceUnload")
 {
     SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d SerialService constructed, systemAbilityId=%{public}d, runOnCreate=%{public}d", __func__,
-        __LINE__, systemAbilityId, runOnCreate);
+        "%{public}s:%{public}d SerialService constructed, runOnCreate=%{public}d", __func__,
+        __LINE__, runOnCreate);
 }
 
 SerialService::~SerialService()
@@ -422,9 +419,8 @@ int32_t SerialService::CheckPortAccessPermission(const DeviceContext* context, c
     std::string callerTokenId = GetCallingTokenId();
     if (context->tokenId != callerTokenId) {
         SERIAL_HILOGE(MODULE_SERVICE,
-            "%{public}s:%{public}d Not allowed to operate port %{public}s, "
-            "callerTokenId=%{public}s, ownerTokenId=%{public}s",
-            __func__, __LINE__, portName.c_str(), callerTokenId.c_str(), context->tokenId.c_str());
+            "%{public}s:%{public}d Not allowed to operate port %{public}s",
+            __func__, __LINE__, portName.c_str());
         return SERIAL_ERR_NOT_ALLOWED;
     }
     return SERIAL_OK;
@@ -497,8 +493,8 @@ std::string SerialService::FindPortNameForDevice(const SerialPortInfo& portInfo)
     }
 
     SERIAL_HILOGW(MODULE_SERVICE,
-        "%{public}s:%{public}d Cannot find portName for device (productId=%{public}d, vendorId=%{public}d)", __func__,
-        __LINE__, portInfo.productId, portInfo.vendorId);
+        "%{public}s:%{public}d Cannot find portName for device", __func__,
+        __LINE__);
     return "";
 }
 
@@ -596,10 +592,10 @@ int32_t SerialService::OpenSerial(
     const SerialPortInfo& portInfo, const SerialConfig& config, const sptr<ISerialServiceCallback>& token)
 {
     SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d OpenSerial called, portName=%{public}s, productId=%{public}d, vendorId=%{public}d, "
+        "%{public}s:%{public}d OpenSerial called, portName=%{public}s, "
         "manufacturer=%{public}s, baudRate=%{public}d, dataBits=%{public}d, stopBits=%{public}d, "
         "parity=%{public}d, rtscts=%{public}d, xon=%{public}d, xoff=%{public}d, xany=%{public}d, ",
-        __func__, __LINE__, portInfo.portName.c_str(), portInfo.productId, portInfo.vendorId,
+        __func__, __LINE__, portInfo.portName.c_str(),
         portInfo.manufacturer.c_str(), config.baudRate, config.dataBits, config.stopBits, config.parity, config.rtscts,
         config.xon, config.xoff, config.xany);
     ReportSerialOperationAudit(portInfo.portName, SERIAL_OPEN);
@@ -678,8 +674,8 @@ int32_t SerialService::OpenSerial(
     deviceContexts_[portName] = context;
 
     SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d OpenSerial success, portName=%{public}s, bundleName=%{public}s", __func__, __LINE__,
-        portName.c_str(), context->bundleName.c_str());
+        "%{public}s:%{public}d OpenSerial success, portName=%{public}s", __func__, __LINE__,
+        portName.c_str());
     return SERIAL_OK;
 }
 
@@ -770,9 +766,8 @@ void SerialService::OnClientDied(const std::string& portName)
 
     // Log client info
     SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d Cleaning up device %{public}s for bundle %{public}s, tokenId=%{public}s, "
-        "userId=%{public}d",
-        __func__, __LINE__, portName.c_str(), context->bundleName.c_str(), context->tokenId.c_str(), context->userId);
+        "%{public}s:%{public}d Cleaning up device %{public}s for bundle %{public}s",
+        __func__, __LINE__, portName.c_str(), context->bundleName.c_str());
 
     // Close HDI device
     if (context->hdiDevice != nullptr) {
@@ -887,8 +882,6 @@ int32_t SerialService::WriteSerial(
     if (checkRet != SERIAL_OK) {
         return checkRet;
     }
-
-    LogWriteData(data);
 
     int32_t ret = context->hdiDevice->Write(data, timeout, bytesWritten);
     if (ret != 0) {
@@ -1310,8 +1303,8 @@ int32_t SerialService::ValidateDialogHapCaller(AccessTokenID callerTokenId, HapT
     const std::string DIALOG_HAP_BUNDLE_NAME = "com.usb.right";
     if (callerTokenInfo.bundleName != DIALOG_HAP_BUNDLE_NAME) {
         SERIAL_HILOGE(MODULE_SERVICE,
-            "%{public}s:%{public}d ValidateDialogHapCaller denied: wrong bundleName=%{public}s, expected=%{public}s",
-            __func__, __LINE__, callerTokenInfo.bundleName.c_str(), DIALOG_HAP_BUNDLE_NAME.c_str());
+            "%{public}s:%{public}d ValidateDialogHapCaller denied: wrong bundleName",
+            __func__, __LINE__);
         return SERIAL_ERR_PERMISSION_DENIED;
     }
 
@@ -1324,8 +1317,8 @@ int32_t SerialService::ParseTargetTokenId(const std::string& tokenId, AccessToke
     errno = 0;
     unsigned long long parsedValue = strtoull(tokenId.c_str(), &endPtr, 10);
     if (errno != 0 || endPtr == tokenId.c_str() || *endPtr != '\0') {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d ParseTargetTokenId failed: invalid tokenId=%{public}s",
-            __func__, __LINE__, tokenId.c_str());
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d ParseTargetTokenId failed",
+            __func__, __LINE__);
         return SERIAL_ERR_INVALID_PARAM;
     }
     targetTokenId = static_cast<AccessTokenID>(parsedValue);
@@ -1335,8 +1328,8 @@ int32_t SerialService::ParseTargetTokenId(const std::string& tokenId, AccessToke
 int32_t SerialService::AddPortAuthorization(const std::string& tokenId, const std::string& deviceId)
 {
     SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d AddPortAuthorization called, tokenId=%{public}s, deviceId=%{public}s", __func__,
-        __LINE__, tokenId.c_str(), deviceId.c_str());
+        "%{public}s:%{public}d AddPortAuthorization called", __func__,
+        __LINE__);
 
     AccessTokenID callerTokenId = IPCSkeleton::GetCallingTokenID();
     HapTokenInfo callerTokenInfo;
@@ -1355,31 +1348,27 @@ int32_t SerialService::AddPortAuthorization(const std::string& tokenId, const st
     ret = AccessTokenKit::GetHapTokenInfo(targetTokenId, targetTokenInfo);
     if (ret != 0) {
         SERIAL_HILOGE(MODULE_SERVICE,
-            "%{public}s:%{public}d AddPortAuthorization denied: GetHapTokenInfo failed for target tokenId=%{public}s, "
-            "ret=%{public}d",
-            __func__, __LINE__, tokenId.c_str(), ret);
+            "%{public}s:%{public}d AddPortAuthorization denied: GetHapTokenInfo failed, ret=%{public}d",
+            __func__, __LINE__, ret);
         return SERIAL_ERR_INVALID_PARAM;
     }
 
     SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d AddPortAuthorization validated: caller=%{public}s, target=%{public}s, "
-        "userId=%{public}d, tokenId=%{public}s",
-        __func__, __LINE__, callerTokenInfo.bundleName.c_str(), targetTokenInfo.bundleName.c_str(),
-        targetTokenInfo.userID, tokenId.c_str());
+        "%{public}s:%{public}d AddPortAuthorization validated: caller=%{public}s, target=%{public}s",
+        __func__, __LINE__, callerTokenInfo.bundleName.c_str(), targetTokenInfo.bundleName.c_str());
 
     SerialRightManager& rightManager = SerialRightManager::GetInstance();
     bool result = rightManager.AddDeviceRight(deviceId, targetTokenInfo.bundleName, tokenId, targetTokenInfo.userID);
     if (!result) {
         SERIAL_HILOGE(MODULE_SERVICE,
-            "%{public}s:%{public}d AddDeviceRight failed for deviceId=%{public}s, userId=%{public}d", __func__,
-            __LINE__, deviceId.c_str(), targetTokenInfo.userID);
+            "%{public}s:%{public}d AddDeviceRight failed", __func__,
+            __LINE__);
         return SERIAL_ERR_SERVICE;
     }
 
     SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d AddPortAuthorization success, port=%{public}s, userId=%{public}d, tokenId=%{public}s, "
-        "bundleName=%{public}s",
-        __func__, __LINE__, deviceId.c_str(), targetTokenInfo.userID, tokenId.c_str(),
+        "%{public}s:%{public}d AddPortAuthorization success, port=%{public}s, bundleName=%{public}s",
+        __func__, __LINE__, deviceId.c_str(),
         targetTokenInfo.bundleName.c_str());
     return SERIAL_OK;
 }
@@ -1406,8 +1395,7 @@ int32_t SerialService::GetCallingUserIdFromToken()
         HapTokenInfo hapTokenInfo;
         int32_t ret = AccessTokenKit::GetHapTokenInfo(tokenId, hapTokenInfo);
         if (ret == RET_SUCCESS) {
-            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d HAP token userId=%{public}d", __func__, __LINE__,
-                hapTokenInfo.userID);
+            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d HAP token", __func__, __LINE__);
             return hapTokenInfo.userID;
         }
         SERIAL_HILOGE(
@@ -1460,8 +1448,8 @@ bool SerialService::CheckSerialPortRight(const std::string& portName, const std:
     std::string bundleName = GetCallingBundleName();
     std::string tokenId = GetCallingTokenId();
     SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d CheckSerialPortRight: portName=%{public}s, bundleName=%{public}s, userId=%{public}d",
-        __func__, __LINE__, portName.c_str(), bundleName.c_str(), userId);
+        "%{public}s:%{public}d CheckSerialPortRight: portName=%{public}s, bundleName=%{public}s",
+        __func__, __LINE__, portName.c_str(), bundleName.c_str());
 
     return rightManager.HasRight(portName, bundleName, tokenId, userId);
 }
@@ -1486,9 +1474,8 @@ int32_t SerialService::RequestSerialPortRight(const SerialPortInfo& portInfo)
     std::string portName = FindPortNameForDevice(portInfo);
 
     SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d RequestSerialPortRight: portName=%{public}s, "
-        "bundleName=%{public}s, userId=%{public}d, tokenId=%{public}s",
-        __func__, __LINE__, portName.c_str(), bundleName.c_str(), userId, tokenId.c_str());
+        "%{public}s:%{public}d RequestSerialPortRight: portName=%{public}s, bundleName=%{public}s",
+        __func__, __LINE__, portName.c_str(), bundleName.c_str());
 
     // Build device info for authorization dialog
     SerialDeviceInfoForDialog deviceInfo;
@@ -1516,8 +1503,7 @@ int32_t SerialService::RequestSerialPortRight(const SerialPortInfo& portInfo)
 
 int32_t SerialService::OnIdle(const SystemAbilityOnDemandReason& idleReason)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SerialService OnIdle, reasonId=%{public}d", __func__, __LINE__,
-        static_cast<int>(idleReason.GetId()));
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SerialService OnIdle", __func__, __LINE__);
     return 0;
 }
 
@@ -1676,9 +1662,6 @@ void SerialService::DumpOpenedDevices(int fd)
         for (const auto& pair : deviceContexts_) {
             const auto& ctx = pair.second;
             dprintf(fd, "  Port Name: %s\n", ctx->portName.c_str());
-            dprintf(fd, "    Bundle Name: %s\n", ctx->bundleName.c_str());
-            dprintf(fd, "    Token ID: %s\n", ctx->tokenId.c_str());
-            dprintf(fd, "    User ID: %d\n", ctx->userId);
             dprintf(fd, "    Config:\n");
             dprintf(fd, "      Baud Rate: %d\n", ctx->config.baudRate);
             dprintf(fd, "      Data Bits: %d\n", ctx->config.dataBits);
@@ -1838,27 +1821,6 @@ void SerialService::ResetFirstWrite(const std::string& portName)
 {
     std::lock_guard lock(writeStatusMutex_);
     portsHasBeenWritten_.erase(portName);
-}
-
-void SerialService::LogWriteData(const std::vector<uint8_t>& data)
-{
-    std::ostringstream hexStream;
-    std::ostringstream strStream;
-    for (size_t i = 0; i < data.size(); ++i) {
-        hexStream << std::hex << std::setfill('0') << std::setw(HEX_WIDTH) << static_cast<int>(data[i]);
-        if (i < data.size() - 1) {
-            hexStream << " ";
-        }
-        if (data[i] >= ASCII_PRINTABLE_MIN && data[i] <= ASCII_PRINTABLE_MAX) {
-            strStream << static_cast<char>(data[i]);
-        } else {
-            strStream << ".";
-        }
-    }
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d WriteSerial data hex: %{public}s", __func__, __LINE__,
-        hexStream.str().c_str());
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d WriteSerial data str: %{public}s", __func__, __LINE__,
-        strStream.str().c_str());
 }
 
 int32_t SerialService::CheckWritePreconditions(DeviceContext* context, const std::string& portName)
