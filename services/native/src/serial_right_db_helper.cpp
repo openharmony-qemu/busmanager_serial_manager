@@ -246,8 +246,7 @@ int32_t SerialRightDbHelper::InsertAllRecords(const std::vector<SerialRightFullR
         int32_t ret = rdbStore_->Insert(rowId, TABLE_NAME, values);
         if (ret != E_OK) {
             SERIAL_HILOGW(MODULE_SERVICE,
-                "%{public}s:%{public}d Insert failed for record: uid=%{public}d, device=%{public}s", __func__, __LINE__,
-                record.uid, record.deviceId.c_str());
+                "%{public}s:%{public}d Insert failed for record", __func__, __LINE__);
             continue;
         }
         successCount++;
