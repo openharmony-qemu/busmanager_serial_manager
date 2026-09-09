@@ -104,12 +104,12 @@ public:
     int32_t QueryRightRecordApps(int32_t uid, std::vector<std::string>& apps);
     int32_t QueryAllRightRecords(std::vector<SerialRightFullRecord>& records);
 
-    // Batch insert when saving during OnStop
+    // Batch insert when saving on OnStop
     int32_t InsertAllRecords(const std::vector<SerialRightFullRecord>& records);
 
     // Database file operations
     static std::string GetDatabasePath();
-    bool DeleteDatabaseFile(); // Non-static method, must call CloseDatabase() first
+    bool DeleteDatabaseFile(); // Non-static method, requires CloseDatabase() call first
 
 private:
     int32_t GetResultSetTableInfo(const std::shared_ptr<ResultSet>& resultSet, SerialRightTableInfo& table);
