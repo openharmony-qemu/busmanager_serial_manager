@@ -18,8 +18,6 @@
 #include <algorithm>
 #include <cJSON.h>
 #include <chrono>
-#include <cerrno>
-#include <regex>
 #include <semaphore.h>
 #include <unistd.h>
 
@@ -71,7 +69,7 @@ int32_t SerialRightManager::Init()
 {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SerialRightManager Init (OnStart)", __func__, __LINE__);
 
-    // Load cache: load from DB if exists, otherwise empty cache
+    // Load cache: from database if exists, otherwise empty cache
     LoadCacheFromDb();
 
     return SERIAL_RIGHT_OK;
@@ -107,7 +105,7 @@ bool SerialRightManager::LoadCacheFromDb()
         return false;
     }
 
-    // Try to open database (return false if not exists)
+    // Try to open database (returns false if not exists)
     if (!helper->OpenDatabaseIfExists()) {
         SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Database not exists, use empty cache", __func__, __LINE__);
         cacheLoaded_ = true;
@@ -183,11 +181,14 @@ bool SerialRightManager::HasRight(
     // Use default bundle name "serial_cli" for CLI tools when bundleName is empty
     std::string actualBundleName = bundleName.empty() ? "serial_cli" : bundleName;
 
-    SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d HasRight: bundleName=%{public}s (actual=%{public}s)",
-        __func__, __LINE__, bundleName.c_str(), actualBundleName.c_str());
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d HasRight", __func__, __LINE__);
 
-    // Query cache (no database access)
+    if (userId == SERIAL_RIGHT_USERID_CONSOLE) {
+        SERIAL_HILOGI(MODULE_SERVICE,
+            "%{public}s:%{public}d console user, proceeding with auth check", __func__, __LINE__);
+    }
+
+    // Query cache (does not access database)
     std::lock_guard<std::mutex> lock(cacheMutex_);
     std::string key = BuildCacheKey(deviceId, actualBundleName, tokenId, userId);
     bool hasRecord = rightCache_.find(key) != rightCache_.end();
@@ -199,8 +200,7 @@ bool SerialRightManager::HasRight(
 
 int32_t SerialRightManager::RequestRight(const SerialDeviceInfoForDialog& deviceInfo, const int32_t& userId)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d RequestRight: bundleName=%{public}s",
-        __func__, __LINE__, deviceInfo.bundleName.c_str());
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d RequestRight", __func__, __LINE__);
 
     if (HasRight(deviceInfo.deviceId, deviceInfo.bundleName, deviceInfo.tokenId, userId)) {
         SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Device already has right", __func__, __LINE__);
@@ -242,9 +242,7 @@ bool SerialRightManager::GetUserAgreementByDiag(const SerialDeviceInfoForDialog&
 
 bool SerialRightManager::ShowSerialDialog(const SerialDeviceInfoForDialog& deviceInfo, const int32_t userId)
 {
-    SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d ShowSerialDialog: bundleName=%{public}s",
-        __func__, __LINE__, deviceInfo.bundleName.c_str());
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d ShowSerialDialog", __func__, __LINE__);
 
     // Convert tokenId to numeric for serial right API
     int32_t castId = 0;
@@ -352,6 +350,11 @@ bool SerialRightManager::AddDeviceRight(const std::string& deviceId, const std::
         return false;
     }
 
+    if (uid == SERIAL_RIGHT_USERID_CONSOLE) {
+        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d console user, proceeding",
+            __func__, __LINE__);
+    }
+
     return AddDeviceRight(deviceId, hapTokenInfoRes.bundleName, tokenIdStr, uid);
 }
 
@@ -361,11 +364,14 @@ bool SerialRightManager::AddDeviceRight(
     // Use default bundle name "serial_cli" for CLI tools when bundleName is empty
     std::string actualBundleName = bundleName.empty() ? "serial_cli" : bundleName;
 
-    SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d AddDeviceRight: bundleName=%{public}s (actual=%{public}s)",
-        __func__, __LINE__, bundleName.c_str(), actualBundleName.c_str());
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d AddDeviceRight", __func__, __LINE__);
 
-    // Write cache (no database access)
+    if (userId == SERIAL_RIGHT_USERID_CONSOLE) {
+        SERIAL_HILOGI(MODULE_SERVICE,
+            "%{public}s:%{public}d console user, proceeding with auth", __func__, __LINE__);
+    }
+
+    // Write to cache (does not access database)
     std::lock_guard<std::mutex> lock(cacheMutex_);
 
     SerialRightFullRecord record = {};
@@ -381,27 +387,25 @@ bool SerialRightManager::AddDeviceRight(
     std::string key = BuildCacheKey(deviceId, actualBundleName, tokenId, userId);
     rightCache_[key] = record;
 
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Added to cache: key=%{public}s, cache size=%{public}zu",
-        __func__, __LINE__, key.c_str(), rightCache_.size());
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Added to cache: cache size=%{public}zu",
+        __func__, __LINE__, rightCache_.size());
 
     return true;
 }
 
 bool SerialRightManager::IsSystemAppOrSa()
 {
-    ATokenTypeEnum tokenType = AccessTokenKit::GetTokenType(IPCSkeleton::GetCallingTokenID());
-    if (tokenType == TOKEN_NATIVE) {
-        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: SA caller", __func__, __LINE__);
-        return true;
-    }
+    AccessTokenID callerTokenId = IPCSkeleton::GetCallingTokenID();
+    auto tokenType = AccessTokenKit::GetTokenTypeFlag(callerTokenId);
     if (tokenType == TOKEN_HAP) {
         uint64_t fullTokenId = IPCSkeleton::GetCallingFullTokenID();
         bool isSystemApp = TokenIdKit::IsSystemAppByFullTokenID(fullTokenId);
-        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: HAP caller, isSystemApp=%{public}d",
+        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: isSystemApp=%{public}d",
             __func__, __LINE__, static_cast<int32_t>(isSystemApp));
         return isSystemApp;
     }
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: not system app or SA", __func__, __LINE__);
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: tokenType=%{public}d, is SA",
+        __func__, __LINE__, static_cast<int32_t>(tokenType));
     return false;
 }
 
@@ -596,16 +600,15 @@ bool SerialRightManager::GetAppName(const std::string& bundleName, std::string& 
             (uint32_t)ResourceFlag::GET_RESOURCE_INFO_WITH_LABEL, info, userId);
         if (resRet == ERR_OK && !info.label.empty()) {
             appName = info.label;
-            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr: %{public}s",
-                __func__, __LINE__, appName.c_str());
+            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr", __func__, __LINE__);
             return true;
         }
         resRet = resMgr->GetBundleResourceInfo(bundleName,
             (uint32_t)ResourceFlag::GET_RESOURCE_INFO_WITH_LABEL, info);
         if (resRet == ERR_OK && !info.label.empty()) {
             appName = info.label;
-            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr (no userId): %{public}s",
-                __func__, __LINE__, appName.c_str());
+            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr (no userId)",
+                __func__, __LINE__);
             return true;
         }
         if (resRet != ERR_OK) {
@@ -614,8 +617,7 @@ bool SerialRightManager::GetAppName(const std::string& bundleName, std::string& 
         }
     }
 
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName use bundleName: %{public}s",
-        __func__, __LINE__, appName.c_str());
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName use bundleName", __func__, __LINE__);
     return true;
 }
 
