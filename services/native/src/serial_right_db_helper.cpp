@@ -114,7 +114,7 @@ bool SerialRightDbHelper::OpenDatabaseIfExists()
 {
     std::lock_guard<std::mutex> lock(databaseMutex_);
 
-    // Clear existing connection first
+    // Clean up old connection first
     rdbStore_ = nullptr;
 
     std::string dbPath = GetDatabasePath();
@@ -245,8 +245,7 @@ int32_t SerialRightDbHelper::InsertAllRecords(const std::vector<SerialRightFullR
         int64_t rowId = 0;
         int32_t ret = rdbStore_->Insert(rowId, TABLE_NAME, values);
         if (ret != E_OK) {
-            SERIAL_HILOGW(MODULE_SERVICE,
-                "%{public}s:%{public}d Insert failed for record", __func__, __LINE__);
+            SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d Insert failed for record", __func__, __LINE__);
             continue;
         }
         successCount++;
