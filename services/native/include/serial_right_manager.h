@@ -68,20 +68,20 @@ class SerialRightManager {
 public:
     static SerialRightManager& GetInstance();
 
-    // OnStart: Load cache (load from DB if exists, otherwise empty cache)
+    // OnStart: load cache (from database if exists, otherwise empty cache)
     int32_t Init();
 
-    // OnStop: Create database and save cache if cache has data
+    // OnStop: create database and save cache if cache has data
     int32_t OnStop();
 
-    // HasRight: Query cache (no database access)
+    // HasRight: query cache (does not access database)
     bool HasRight(
         const std::string& deviceId, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
 
-    // RequestRight: Dialog authorization flow
+    // RequestRight: dialog authorization flow
     int32_t RequestRight(const SerialDeviceInfoForDialog& deviceInfo, const int32_t& userId);
 
-    // AddDeviceRight: Write cache (no database access)
+    // AddDeviceRight: write to cache (does not access database)
     bool AddDeviceRight(const std::string& deviceId, const std::string& tokenIdStr);
     bool AddDeviceRight(
         const std::string& deviceId, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
