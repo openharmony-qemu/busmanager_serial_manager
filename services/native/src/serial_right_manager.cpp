@@ -404,7 +404,7 @@ bool SerialRightManager::IsSystemAppOrSa()
             __func__, __LINE__, static_cast<int32_t>(isSystemApp));
         return isSystemApp;
     }
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: tokenType=%{public}d, is SA",
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: tokenType=%{public}d, default false",
         __func__, __LINE__, static_cast<int32_t>(tokenType));
     return false;
 }
