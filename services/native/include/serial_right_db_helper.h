@@ -86,11 +86,11 @@ public:
         return rdbStore_ != nullptr;
     }
 
-    // 延迟创建模式：OnStart 时尝试打开已有数据库（不创建）
-    // OnStop 时创建数据库并保存缓存
+    // Lazy creation mode: OnStart tries to open existing database (no creation)
+    // OnStop creates database and saves cache
     bool OpenDatabaseIfExists();
     bool CreateDatabaseAndOpen();
-    void CloseDatabase(); // 关闭数据库连接
+    void CloseDatabase(); // Close database connection
 
     int32_t AddRightRecord(const std::string& deviceId, const std::string& bundleName, const std::string& tokenId,
         SerialRightAppInfo& info);
@@ -104,12 +104,12 @@ public:
     int32_t QueryRightRecordApps(int32_t uid, std::vector<std::string>& apps);
     int32_t QueryAllRightRecords(std::vector<SerialRightFullRecord>& records);
 
-    // OnStop 保存时批量插入
+    // Batch insert when saving on OnStop
     int32_t InsertAllRecords(const std::vector<SerialRightFullRecord>& records);
 
-    // 数据库文件操作
+    // Database file operations
     static std::string GetDatabasePath();
-    bool DeleteDatabaseFile(); // 非静态方法，需要调用 CloseDatabase()
+    bool DeleteDatabaseFile(); // Non-static method, requires CloseDatabase() call first
 
 private:
     int32_t GetResultSetTableInfo(const std::shared_ptr<ResultSet>& resultSet, SerialRightTableInfo& table);

@@ -18,8 +18,6 @@
 #include <algorithm>
 #include <cJSON.h>
 #include <chrono>
-#include <cstdlib>
-#include <regex>
 #include <semaphore.h>
 #include <unistd.h>
 
@@ -41,25 +39,6 @@ using namespace OHOS::Security::AccessToken;
 
 namespace OHOS {
 namespace Serial {
-
-// Authorization flow configuration:
-// 1. DISABLE_CONSOLE_BYPASS=0: Console users (userId=0) bypass auth check
-//    - Used for module testing and CLI tools
-// 2. DISABLE_CONSOLE_BYPASS=1: Force real auth flow for ALL users including console
-//    - Used for production deployment
-#define DISABLE_CONSOLE_BYPASS 1
-
-#if !DISABLE_CONSOLE_BYPASS
-// Test mode: when SERIAL_RIGHT_TEST_MODE=1, skip console bypass to test real auth flow
-static bool IsTestModeEnabled()
-{
-    const char* testMode = getenv("SERIAL_RIGHT_TEST_MODE");
-    if (testMode != nullptr && strcmp(testMode, "1") == 0) {
-        return true;
-    }
-    return false;
-}
-#endif
 
 constexpr int32_t MESSAGE_PARCEL_KEY_SIZE = 3;
 constexpr int32_t DECIMAL_BASE = 10;
@@ -90,7 +69,7 @@ int32_t SerialRightManager::Init()
 {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SerialRightManager Init (OnStart)", __func__, __LINE__);
 
-    // 加载缓存：数据库存在则加载，不存在则空缓存
+    // Load cache: from database if exists, otherwise empty cache
     LoadCacheFromDb();
 
     return SERIAL_RIGHT_OK;
@@ -100,7 +79,7 @@ int32_t SerialRightManager::OnStop()
 {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SerialRightManager OnStop", __func__, __LINE__);
 
-    // 缓存有数据时创建数据库并保存
+    // Create database and save if cache has data
     SaveCacheToDb();
 
     return SERIAL_RIGHT_OK;
@@ -109,7 +88,7 @@ int32_t SerialRightManager::OnStop()
 std::string SerialRightManager::BuildCacheKey(
     const std::string& deviceId, const std::string& bundleName, const std::string& tokenId, int32_t userId)
 {
-    // key格式: userId_deviceId_bundleName_tokenId
+    // Key format: userId_deviceId_bundleName_tokenId
     return std::to_string(userId) + "_" + deviceId + "_" + bundleName + "_" + tokenId;
 }
 
@@ -126,14 +105,14 @@ bool SerialRightManager::LoadCacheFromDb()
         return false;
     }
 
-    // 尝试打开数据库（不存在则返回false）
+    // Try to open database (returns false if not exists)
     if (!helper->OpenDatabaseIfExists()) {
         SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Database not exists, use empty cache", __func__, __LINE__);
         cacheLoaded_ = true;
-        return true; // 数据库不存在是正常情况，返回true
+        return true; // Database not existing is normal, return true
     }
 
-    // 加载所有记录到缓存
+    // Load all records into cache
     std::vector<SerialRightFullRecord> records;
     int32_t ret = helper->QueryAllRightRecords(records);
     if (ret <= 0) {
@@ -168,19 +147,19 @@ bool SerialRightManager::SaveCacheToDb()
         return false;
     }
 
-    // 创建数据库（如果不存在）
+    // Create database if not exists
     if (!helper->CreateDatabaseAndOpen()) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d CreateDatabase failed", __func__, __LINE__);
         return false;
     }
 
-    // 转换缓存为记录列表
+    // Convert cache to record list
     std::vector<SerialRightFullRecord> records;
     for (const auto& pair : rightCache_) {
         records.push_back(pair.second);
     }
 
-    // 批量插入
+    // Batch insert
     int32_t ret = helper->InsertAllRecords(records);
     if (ret != E_OK) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d InsertAllRecords failed", __func__, __LINE__);
@@ -190,7 +169,7 @@ bool SerialRightManager::SaveCacheToDb()
     SERIAL_HILOGI(
         MODULE_SERVICE, "%{public}s:%{public}d Cache saved: %{public}zu records", __func__, __LINE__, records.size());
 
-    // 清空缓存
+    // Clear cache
     rightCache_.clear();
 
     return true;
@@ -202,33 +181,14 @@ bool SerialRightManager::HasRight(
     // Use default bundle name "serial_cli" for CLI tools when bundleName is empty
     std::string actualBundleName = bundleName.empty() ? "serial_cli" : bundleName;
 
-    SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d HasRight: deviceId=%{public}s, bundleName=%{public}s (actual=%{public}s)"
-        ", userId=%{public}d",
-        __func__, __LINE__, deviceId.c_str(), bundleName.c_str(), actualBundleName.c_str(), userId);
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d HasRight", __func__, __LINE__);
 
-#if !DISABLE_CONSOLE_BYPASS
-    // Normal mode: console bypass enabled
-    if (userId == SERIAL_RIGHT_USERID_CONSOLE && !IsTestModeEnabled()) {
-        SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d console called, bypass (testMode=0)", __func__, __LINE__);
-        return true;
-    }
-
-    if (userId == SERIAL_RIGHT_USERID_CONSOLE && IsTestModeEnabled()) {
-        SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d TEST MODE: console bypass disabled, using userId=%{public}d", __func__, __LINE__,
-            userId);
-    }
-#else
-    // DISABLE_CONSOLE_BYPASS=1: force real auth flow for ALL users including console
     if (userId == SERIAL_RIGHT_USERID_CONSOLE) {
         SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d DISABLE_CONSOLE_BYPASS: forcing real auth for userId=%{public}d", __func__, __LINE__,
-            userId);
+            "%{public}s:%{public}d console user, proceeding with auth check", __func__, __LINE__);
     }
-#endif
 
-    // 查缓存（不访问数据库）
+    // Query cache (does not access database)
     std::lock_guard<std::mutex> lock(cacheMutex_);
     std::string key = BuildCacheKey(deviceId, actualBundleName, tokenId, userId);
     bool hasRecord = rightCache_.find(key) != rightCache_.end();
@@ -240,8 +200,7 @@ bool SerialRightManager::HasRight(
 
 int32_t SerialRightManager::RequestRight(const SerialDeviceInfoForDialog& deviceInfo, const int32_t& userId)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d RequestRight: deviceId=%{public}s, bundleName=%{public}s",
-        __func__, __LINE__, deviceInfo.deviceId.c_str(), deviceInfo.bundleName.c_str());
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d RequestRight", __func__, __LINE__);
 
     if (HasRight(deviceInfo.deviceId, deviceInfo.bundleName, deviceInfo.tokenId, userId)) {
         SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Device already has right", __func__, __LINE__);
@@ -258,10 +217,6 @@ int32_t SerialRightManager::RequestRight(const SerialDeviceInfoForDialog& device
 
 bool SerialRightManager::GetUserAgreementByDiag(const SerialDeviceInfoForDialog& deviceInfo, const int32_t& userId)
 {
-#ifdef SERIAL_RIGHT_TEST
-    return true;
-#endif
-
     // There can only be one dialog at a time
     std::lock_guard<std::mutex> guard(dialogRunning_);
 
@@ -287,11 +242,7 @@ bool SerialRightManager::GetUserAgreementByDiag(const SerialDeviceInfoForDialog&
 
 bool SerialRightManager::ShowSerialDialog(const SerialDeviceInfoForDialog& deviceInfo, const int32_t userId)
 {
-    SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d ShowSerialDialog: deviceId=%{public}s, bundleName=%{public}s"
-        ", tokenId=%{public}s, portId=%{public}d",
-        __func__, __LINE__, deviceInfo.deviceId.c_str(), deviceInfo.bundleName.c_str(), deviceInfo.tokenId.c_str(),
-        deviceInfo.portId);
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d ShowSerialDialog", __func__, __LINE__);
 
     // Convert tokenId to numeric for serial right API
     int32_t castId = 0;
@@ -300,7 +251,7 @@ bool SerialRightManager::ShowSerialDialog(const SerialDeviceInfoForDialog& devic
         castId = static_cast<int32_t>(std::stoul(deviceInfo.tokenId, nullptr, DECIMAL_BASE));
         if (errno == ERANGE || castId < 0) {
             SERIAL_HILOGE(
-                MODULE_SERVICE, "%{public}s:%{public}d tokenId cast failed %{public}d", __func__, __LINE__, castId);
+                MODULE_SERVICE, "%{public}s:%{public}d tokenId cast failed", __func__, __LINE__);
             return false;
         }
     }
@@ -399,17 +350,10 @@ bool SerialRightManager::AddDeviceRight(const std::string& deviceId, const std::
         return false;
     }
 
-#if !DISABLE_CONSOLE_BYPASS
-    if (uid == SERIAL_RIGHT_USERID_CONSOLE && !IsTestModeEnabled()) {
-        SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d console called, bypass (testMode=0)", __func__, __LINE__);
-        return true;
-    }
-#else
     if (uid == SERIAL_RIGHT_USERID_CONSOLE) {
-        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d DISABLE_CONSOLE_BYPASS: proceeding with userId=%{public}d",
-            __func__, __LINE__, uid);
+        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d console user, proceeding",
+            __func__, __LINE__);
     }
-#endif
 
     return AddDeviceRight(deviceId, hapTokenInfoRes.bundleName, tokenIdStr, uid);
 }
@@ -420,33 +364,14 @@ bool SerialRightManager::AddDeviceRight(
     // Use default bundle name "serial_cli" for CLI tools when bundleName is empty
     std::string actualBundleName = bundleName.empty() ? "serial_cli" : bundleName;
 
-    SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d AddDeviceRight: deviceId=%{public}s, bundleName=%{public}s (actual=%{public}s)"
-        ", userId=%{public}d",
-        __func__, __LINE__, deviceId.c_str(), bundleName.c_str(), actualBundleName.c_str(), userId);
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d AddDeviceRight", __func__, __LINE__);
 
-#if !DISABLE_CONSOLE_BYPASS
-    // Normal mode: console bypass enabled
-    if (userId == SERIAL_RIGHT_USERID_CONSOLE && !IsTestModeEnabled()) {
-        SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d console called, bypass (testMode=0)", __func__, __LINE__);
-        return true;
-    }
-
-    if (userId == SERIAL_RIGHT_USERID_CONSOLE && IsTestModeEnabled()) {
-        SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d TEST MODE: console bypass disabled, proceeding with userId=%{public}d", __func__,
-            __LINE__, userId);
-    }
-#else
-    // DISABLE_CONSOLE_BYPASS=1: force real auth flow for ALL users including console
     if (userId == SERIAL_RIGHT_USERID_CONSOLE) {
         SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d DISABLE_CONSOLE_BYPASS: forcing real auth for userId=%{public}d", __func__, __LINE__,
-            userId);
+            "%{public}s:%{public}d console user, proceeding with auth", __func__, __LINE__);
     }
-#endif
 
-    // 写缓存（不访问数据库）
+    // Write to cache (does not access database)
     std::lock_guard<std::mutex> lock(cacheMutex_);
 
     SerialRightFullRecord record = {};
@@ -457,22 +382,30 @@ bool SerialRightManager::AddDeviceRight(
     record.installTime = GetCurrentTimestamp();
     record.updateTime = GetCurrentTimestamp();
     record.requestTime = GetCurrentTimestamp();
-    record.validPeriod = SERIAL_RIGHT_VALID_PERIOD_MAX; // 永久有效
+    record.validPeriod = SERIAL_RIGHT_VALID_PERIOD_MAX; // Permanently valid
 
     std::string key = BuildCacheKey(deviceId, actualBundleName, tokenId, userId);
     rightCache_[key] = record;
 
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Added to cache: key=%{public}s, cache size=%{public}zu",
-        __func__, __LINE__, key.c_str(), rightCache_.size());
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Added to cache: cache size=%{public}zu",
+        __func__, __LINE__, rightCache_.size());
 
     return true;
 }
 
 bool SerialRightManager::IsSystemAppOrSa()
 {
-    // 临时禁用，用于测试授权弹窗
-    SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: temporarily returning false for testing",
-        __func__, __LINE__);
+    AccessTokenID callerTokenId = IPCSkeleton::GetCallingTokenID();
+    auto tokenType = AccessTokenKit::GetTokenTypeFlag(callerTokenId);
+    if (tokenType == TOKEN_HAP) {
+        uint64_t fullTokenId = IPCSkeleton::GetCallingFullTokenID();
+        bool isSystemApp = TokenIdKit::IsSystemAppByFullTokenID(fullTokenId);
+        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: isSystemApp=%{public}d",
+            __func__, __LINE__, static_cast<int32_t>(isSystemApp));
+        return isSystemApp;
+    }
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d IsSystemAppOrSa: tokenType=%{public}d, default false",
+        __func__, __LINE__, static_cast<int32_t>(tokenType));
     return false;
 }
 
@@ -667,16 +600,15 @@ bool SerialRightManager::GetAppName(const std::string& bundleName, std::string& 
             (uint32_t)ResourceFlag::GET_RESOURCE_INFO_WITH_LABEL, info, userId);
         if (resRet == ERR_OK && !info.label.empty()) {
             appName = info.label;
-            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr: %{public}s",
-                __func__, __LINE__, appName.c_str());
+            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr", __func__, __LINE__);
             return true;
         }
         resRet = resMgr->GetBundleResourceInfo(bundleName,
             (uint32_t)ResourceFlag::GET_RESOURCE_INFO_WITH_LABEL, info);
         if (resRet == ERR_OK && !info.label.empty()) {
             appName = info.label;
-            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr (no userId): %{public}s",
-                __func__, __LINE__, appName.c_str());
+            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName from resMgr (no userId)",
+                __func__, __LINE__);
             return true;
         }
         if (resRet != ERR_OK) {
@@ -685,8 +617,7 @@ bool SerialRightManager::GetAppName(const std::string& bundleName, std::string& 
         }
     }
 
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName use bundleName: %{public}s",
-        __func__, __LINE__, appName.c_str());
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d GetAppName use bundleName", __func__, __LINE__);
     return true;
 }
 

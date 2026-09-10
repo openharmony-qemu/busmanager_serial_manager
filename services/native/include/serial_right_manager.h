@@ -27,7 +27,7 @@
 #include "bundle_resource_interface.h"
 #include "serial_right_db_helper.h"
 
-// 前向声明，避免头文件依赖
+// Forward declaration to avoid header dependency
 namespace OHOS {
 namespace Security {
 namespace AccessToken {
@@ -68,20 +68,20 @@ class SerialRightManager {
 public:
     static SerialRightManager& GetInstance();
 
-    // OnStart: 加载缓存（数据库存在则加载，不存在则空缓存）
+    // OnStart: load cache (from database if exists, otherwise empty cache)
     int32_t Init();
 
-    // OnStop: 缓存有数据时创建数据库并保存
+    // OnStop: create database and save cache if cache has data
     int32_t OnStop();
 
-    // HasRight: 查缓存（不访问数据库）
+    // HasRight: query cache (does not access database)
     bool HasRight(
         const std::string& deviceId, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
 
-    // RequestRight: 弹窗授权流程
+    // RequestRight: dialog authorization flow
     int32_t RequestRight(const SerialDeviceInfoForDialog& deviceInfo, const int32_t& userId);
 
-    // AddDeviceRight: 写缓存（不访问数据库）
+    // AddDeviceRight: write to cache (does not access database)
     bool AddDeviceRight(const std::string& deviceId, const std::string& tokenIdStr);
     bool AddDeviceRight(
         const std::string& deviceId, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
@@ -113,19 +113,19 @@ private:
         int32_t lastResultCode_ = -1;
     };
 
-    // 授权弹窗相关
+    // Authorization dialog related
     bool GetUserAgreementByDiag(const SerialDeviceInfoForDialog& deviceInfo, const int32_t& userId);
     bool ShowSerialDialog(const SerialDeviceInfoForDialog& deviceInfo, const int32_t userId);
     int32_t ConnectAbility(const int32_t userId);
     bool UnShowSerialDialog();
 
-    // 缓存操作
+    // Cache operations
     bool LoadCacheFromDb();
     bool SaveCacheToDb();
     std::string BuildCacheKey(
         const std::string& deviceId, const std::string& bundleName, const std::string& tokenId, int32_t userId);
 
-    // 辅助函数
+    // Helper functions
     bool ValidateTokenAndGetHapInfo(const std::string& tokenIdStr, Security::AccessToken::AccessTokenID& tokenId,
         Security::AccessToken::HapTokenInfo& hapTokenInfoRes, int32_t& uid);
     uint64_t GetCurrentTimestamp();
@@ -140,7 +140,7 @@ private:
 
     std::mutex dialogRunning_;
     std::mutex cacheMutex_;
-    std::map<std::string, SerialRightFullRecord> rightCache_; // 权限缓存
+    std::map<std::string, SerialRightFullRecord> rightCache_; // Permission cache
     bool cacheLoaded_ = false;
     sptr<SerialAbilityConn> abilityConn_ = nullptr;
 };
