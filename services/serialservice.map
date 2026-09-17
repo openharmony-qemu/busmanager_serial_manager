@@ -15,7 +15,7 @@
   global:
     extern "C++" {
       *SerialService::SerialService*;
-      *GetGlobalInstance*;
+      *SerialService::GetGlobalInstance*;
     };
   local:
     *;
