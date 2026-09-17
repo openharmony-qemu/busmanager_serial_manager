@@ -55,6 +55,7 @@ if (serial_manager_feature_deploy_sa) {
     ]
     subsystem_name = "busmanager"
     innerapi_tags = [ "platformsdk" ]
+    version_script = "serialsrv_client.map"
     part_name = "serial_manager"
   }
 } else {
