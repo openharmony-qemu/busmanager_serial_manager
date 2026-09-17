@@ -16,7 +16,7 @@
  1.0 {
     global:
         extern "C++" {
-            *OHOS::Sserial::*;
+            *OHOS::Serial::*;
         };
     local:
         *;
