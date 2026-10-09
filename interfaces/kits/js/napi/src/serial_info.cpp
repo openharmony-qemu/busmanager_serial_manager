@@ -1073,7 +1073,7 @@ static bool ValidateWriteParams(
         napi_valuetype timeoutType;
         napi_typeof(env, argv[1], &timeoutType);
         if (timeoutType == napi_undefined) {
-            ThrowBusinessError(env, SERIAL_JS_ERR_PARAM_ERROR, "Undefined Parameter");
+            ThrowBusinessError(env, SERIAL_JS_ERR_PARAM_ERROR, "undefined is passed as the optional parameter.");
             return false;
         }
         if (timeoutType != napi_number) {
