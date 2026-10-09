@@ -1072,7 +1072,7 @@ static bool ValidateWriteParams(
     if (argc >= WRITE_MAX_ARGC) {
         napi_valuetype timeoutType;
         napi_typeof(env, argv[1], &timeoutType);
-        if (timeoutType != napi_undefined) {
+        if (timeoutType == napi_undefined) {
             ThrowBusinessError(env, SERIAL_JS_ERR_PARAM_ERROR, "Undefined Parameter");
             return false;
         }
