@@ -234,8 +234,17 @@ static void SerialPortFinalize(napi_env env, void* data, void* hint)
     if (native == nullptr) {
         return;
     }
-    SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] RECYCLE(GC): portName=%{public}s, wasInvalidated=%{public}d",
-        native->portName.c_str(), native->invalidated ? 1 : 0);
+    SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] RECYCLE(GC): portName=%{public}s, wasInvalidated=%{public}d, "
+        "wasOpened=%{public}d", native->portName.c_str(), native->invalidated ? 1 : 0, native->isOpened ? 1 : 0);
+    if (native->isOpened) {
+        SERIAL_HILOGW(MODULE_JS_NAPI,
+            "[LIFECYCLE] portName=%{public}s was opened but not closed before GC, cleaning up", native->portName.c_str());
+        RemoveAllListenersForPort(env, native->portName);
+        int32_t closeRet = g_serialClient.CloseSerial(native->portName);
+        if (closeRet != SERIAL_OK) {
+            SERIAL_HILOGW(MODULE_JS_NAPI, "[LIFECYCLE] CloseSerial during GC failed, ret=%{public}d", closeRet);
+        }
+    }
     {
         std::lock_guard<std::mutex> lock(g_portCacheMutex);
         auto activeIt = g_activePorts.find(native->portName);
