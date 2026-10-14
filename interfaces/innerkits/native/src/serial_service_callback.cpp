@@ -24,16 +24,23 @@ ErrCode SerialServiceCallback::onDataRead(const std::string& portName, const std
     SERIAL_HILOGD(
         MODULE_INNERKIT, "[onDataRead] portName=%{public}s, size=%{public}zu", portName.c_str(), buffer.size());
 
-    std::lock_guard<std::mutex> lock(listenerMutex_);
-    auto it = listeners_.find(portName);
-    if (it == listeners_.end() || it->second.empty()) {
-        SERIAL_HILOGW(MODULE_INNERKIT, "[onDataRead] No listener for portName=%{public}s", portName.c_str());
-        return ERR_OK;
+    std::vector<DataReceivedCallback> callbacksToInvoke;
+    {
+        std::lock_guard<std::mutex> lock(listenerMutex_);
+        auto it = listeners_.find(portName);
+        if (it == listeners_.end() || it->second.empty()) {
+            SERIAL_HILOGW(MODULE_INNERKIT, "[onDataRead] No listener for portName=%{public}s", portName.c_str());
+            return ERR_OK;
+        }
+        callbacksToInvoke.reserve(it->second.size());
+        for (const auto& pair : it->second) {
+            callbacksToInvoke.push_back(pair.second);
+        }
     }
 
-    for (const auto& pair : it->second) {
-        if (pair.second) {
-            pair.second(buffer);
+    for (const auto& cb : callbacksToInvoke) {
+        if (cb) {
+            cb(buffer);
         }
     }
 
@@ -117,16 +124,23 @@ ErrCode SerialServiceCallback::onDisconnect(const std::string& portName)
 {
     SERIAL_HILOGI(MODULE_INNERKIT, "[onDisconnect] portName=%{public}s", portName.c_str());
 
-    std::lock_guard<std::mutex> lock(disconnectedListenerMutex_);
-    auto it = disconnectedListeners_.find(portName);
-    if (it == disconnectedListeners_.end() || it->second.empty()) {
-        SERIAL_HILOGW(MODULE_INNERKIT, "[onDisconnect] No listener for portName=%{public}s", portName.c_str());
-        return ERR_OK;
+    std::vector<DisconnectedCallback> callbacksToInvoke;
+    {
+        std::lock_guard<std::mutex> lock(disconnectedListenerMutex_);
+        auto it = disconnectedListeners_.find(portName);
+        if (it == disconnectedListeners_.end() || it->second.empty()) {
+            SERIAL_HILOGW(MODULE_INNERKIT, "[onDisconnect] No listener for portName=%{public}s", portName.c_str());
+            return ERR_OK;
+        }
+        callbacksToInvoke.reserve(it->second.size());
+        for (const auto& pair : it->second) {
+            callbacksToInvoke.push_back(pair.second);
+        }
     }
 
-    for (const auto& pair : it->second) {
-        if (pair.second) {
-            pair.second(portName);
+    for (const auto& cb : callbacksToInvoke) {
+        if (cb) {
+            cb(portName);
         }
     }
 

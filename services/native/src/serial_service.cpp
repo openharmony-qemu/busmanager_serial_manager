@@ -444,17 +444,20 @@ int32_t SerialService::QuerySerialDevices(std::vector<SerialPortInfo>& devices)
 
     // Convert HDI device info to service layer device info
     devices.clear();
-    for (const auto& hdiDevice : hdiDevices) {
-        if (isRs232Disabled_ && !IsUsbSerial(hdiDevice.portName)) {
-            continue;
+    {
+        std::lock_guard<std::mutex> lock(serviceMutex_);
+        for (const auto& hdiDevice : hdiDevices) {
+            if (isRs232Disabled_ && !IsUsbSerial(hdiDevice.portName)) {
+                continue;
+            }
+            devices.push_back(ConvertDeviceInfo(hdiDevice));
+            // Store productId/vendorId mapping for device identification (without /dev/)
+            std::string portName = hdiDevice.portName;
+            if (portName.rfind(DEV_PREFIX, 0) == 0) {
+                portName = portName.substr(DEV_PREFIX_LEN);
+            }
+            productIdVendorIdToPortName_[std::make_pair(hdiDevice.productId, hdiDevice.vendorId)] = portName;
         }
-        devices.push_back(ConvertDeviceInfo(hdiDevice));
-        // Store productId/vendorId mapping for device identification (without /dev/)
-        std::string portName = hdiDevice.portName;
-        if (portName.rfind(DEV_PREFIX, 0) == 0) {
-            portName = portName.substr(DEV_PREFIX_LEN);
-        }
-        productIdVendorIdToPortName_[std::make_pair(hdiDevice.productId, hdiDevice.vendorId)] = portName;
     }
     if (isRs232Disabled_ && hdiDevices.size() > 0 && devices.size() == 0) {
         return SERIAL_ERR_ENTERPRISE_POLICY;
@@ -483,6 +486,7 @@ std::string SerialService::FindPortNameForDevice(const SerialPortInfo& portInfo)
     }
 
     // Strategy 2: Find by productId + vendorId (for device identification)
+    std::lock_guard<std::mutex> lock(serviceMutex_);
     auto itPv = productIdVendorIdToPortName_.find(std::make_pair(portInfo.productId, portInfo.vendorId));
     if (itPv != productIdVendorIdToPortName_.end()) {
         SERIAL_HILOGI(MODULE_SERVICE,
