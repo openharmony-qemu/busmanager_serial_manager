@@ -490,14 +490,8 @@ public:
     ~SerialPortHolder()
     {
         if (isOpened_.load()) {
-            SERIAL_HILOGW(MODULE_TAIHE,
-                "~SerialPortHolder: portName=%{public}s was opened but not closed before destruction, cleaning up",
-                portName_.c_str());
             RemoveAllCallbacksForPort(portName_);
-            int32_t closeRet = g_serialClient.CloseSerial(portName_);
-            if (closeRet != SERIAL_OK) {
-                SERIAL_HILOGW(MODULE_TAIHE, "~SerialPortHolder: CloseSerial failed, ret=%{public}d", closeRet);
-            }
+            g_serialClient.CloseSerial(portName_);
         }
         std::lock_guard<std::mutex> lock(g_holderRegistryMutex);
         auto range = g_holderRegistry.equal_range(portName_);

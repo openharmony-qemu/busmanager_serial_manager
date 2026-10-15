@@ -316,6 +316,7 @@ void SerialService::OnStop()
 void SerialService::InitHdiProxy()
 {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d InitHdiProxy: getting ISerials proxy", __func__, __LINE__);
+    std::lock_guard<std::mutex> lock(serviceMutex_);
     serialsProxy_ = ISerials::Get(true);
     if (serialsProxy_ == nullptr) {
         SERIAL_HILOGE(MODULE_SERVICE,
@@ -428,7 +429,7 @@ int32_t SerialService::CheckPortAccessPermission(const DeviceContext* context, c
 int32_t SerialService::QuerySerialDevices(std::vector<SerialPortInfo>& devices)
 {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d QuerySerialDevices called", __func__, __LINE__);
-
+    std::lock_guard<std::mutex> lock(serviceMutex_);
     if (serialsProxy_ == nullptr) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d HDI proxy not initialized", __func__, __LINE__);
         return SERIAL_ERR_SERVICE;
@@ -444,20 +445,17 @@ int32_t SerialService::QuerySerialDevices(std::vector<SerialPortInfo>& devices)
 
     // Convert HDI device info to service layer device info
     devices.clear();
-    {
-        std::lock_guard<std::mutex> lock(serviceMutex_);
-        for (const auto& hdiDevice : hdiDevices) {
-            if (isRs232Disabled_ && !IsUsbSerial(hdiDevice.portName)) {
-                continue;
-            }
-            devices.push_back(ConvertDeviceInfo(hdiDevice));
-            // Store productId/vendorId mapping for device identification (without /dev/)
-            std::string portName = hdiDevice.portName;
-            if (portName.rfind(DEV_PREFIX, 0) == 0) {
-                portName = portName.substr(DEV_PREFIX_LEN);
-            }
-            productIdVendorIdToPortName_[std::make_pair(hdiDevice.productId, hdiDevice.vendorId)] = portName;
+    for (const auto& hdiDevice : hdiDevices) {
+        if (isRs232Disabled_ && !IsUsbSerial(hdiDevice.portName)) {
+            continue;
         }
+        devices.push_back(ConvertDeviceInfo(hdiDevice));
+        // Store productId/vendorId mapping for device identification (without /dev/)
+        std::string portName = hdiDevice.portName;
+        if (portName.rfind(DEV_PREFIX, 0) == 0) {
+            portName = portName.substr(DEV_PREFIX_LEN);
+        }
+        productIdVendorIdToPortName_[std::make_pair(hdiDevice.productId, hdiDevice.vendorId)] = portName;
     }
     if (isRs232Disabled_ && hdiDevices.size() > 0 && devices.size() == 0) {
         return SERIAL_ERR_ENTERPRISE_POLICY;
@@ -478,6 +476,7 @@ int32_t SerialService::QuerySerialDevices(std::vector<SerialPortInfo>& devices)
 
 std::string SerialService::FindPortNameForDevice(const SerialPortInfo& portInfo)
 {
+    std::lock_guard<std::mutex> lock(serviceMutex_);
     // Strategy 1: Find by portName (most precise) - return directly
     if (!portInfo.portName.empty()) {
         SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Found portName directly: %{public}s", __func__, __LINE__,
@@ -486,7 +485,6 @@ std::string SerialService::FindPortNameForDevice(const SerialPortInfo& portInfo)
     }
 
     // Strategy 2: Find by productId + vendorId (for device identification)
-    std::lock_guard<std::mutex> lock(serviceMutex_);
     auto itPv = productIdVendorIdToPortName_.find(std::make_pair(portInfo.productId, portInfo.vendorId));
     if (itPv != productIdVendorIdToPortName_.end()) {
         SERIAL_HILOGI(MODULE_SERVICE,
@@ -611,16 +609,15 @@ int32_t SerialService::OpenSerial(
     if (paramRet != SERIAL_OK) {
         return paramRet;
     }
-
-    std::lock_guard<std::mutex> lock(serviceMutex_);
-
-    if (unloadTimerId_ != 0) {
-        unloadTimer_.Unregister(unloadTimerId_);
-        unloadTimerId_ = 0;
-        SERIAL_HILOGI(
-            MODULE_SERVICE, "%{public}s:%{public}d Cancelled unload timer on device open", __func__, __LINE__);
+    {
+        std::lock_guard<std::mutex> lock(serviceMutex_);
+        if (unloadTimerId_ != 0) {
+            unloadTimer_.Unregister(unloadTimerId_);
+            unloadTimerId_ = 0;
+            SERIAL_HILOGI(
+                MODULE_SERVICE, "%{public}s:%{public}d Cancelled unload timer on device open", __func__, __LINE__);
+        }
     }
-
     std::string portName = FindPortNameForDevice(portInfo);
     if (portName.empty()) {
         SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Cannot find device %{public}s", __func__, __LINE__,
@@ -658,7 +655,7 @@ int32_t SerialService::OpenSerial(
             __func__, __LINE__, portInfo.portName.c_str(), rightRet);
         return rightRet;
     }
-
+    std::lock_guard<std::mutex> lock(serviceMutex_);
     if (deviceContexts_.find(portName) != deviceContexts_.end()) {
         SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s already opened", __func__, __LINE__,
             portName.c_str());
