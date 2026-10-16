@@ -21,7 +21,6 @@
 #include <string>
 
 #include "hilog_wrapper.h"
-#include "serial_error_code.h"
 
 using namespace OHOS::Serial;
 using namespace taihe;
@@ -97,89 +96,75 @@ public:
     void open(optional_view<TaiheSerialConfigs> config)
     {
         SERIAL_HILOGW(MODULE_TAIHE, "open stub (service not deployed), portName=%{public}s", portName_.c_str());
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
     }
 
     void close()
     {
         SERIAL_HILOGW(MODULE_TAIHE, "close stub (service not deployed), portName=%{public}s", portName_.c_str());
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
     }
 
     int32_t write(array_view<uint8_t> data, optional_view<int32_t> timeout)
     {
         SERIAL_HILOGW(MODULE_TAIHE, "write stub (service not deployed), portName=%{public}s", portName_.c_str());
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
         return 0;
     }
 
     void onDataRead(taihe::callback<void(array_view<uint8_t>)> callback)
     {
         SERIAL_HILOGW(MODULE_TAIHE, "onDataRead stub (service not deployed), portName=%{public}s", portName_.c_str());
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
     }
 
     void offDataRead(optional_view<taihe::callback<void(array_view<uint8_t>)>> callback)
     {
         SERIAL_HILOGW(MODULE_TAIHE, "offDataRead stub (service not deployed), portName=%{public}s", portName_.c_str());
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
     }
 
     void flush()
     {
         SERIAL_HILOGW(MODULE_TAIHE, "flush stub (service not deployed), portName=%{public}s", portName_.c_str());
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
     }
 
     void drain()
     {
         SERIAL_HILOGW(MODULE_TAIHE, "drain stub (service not deployed), portName=%{public}s", portName_.c_str());
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
     }
 
     void setRts(bool enable)
     {
         SERIAL_HILOGW(MODULE_TAIHE, "setRts stub (service not deployed), portName=%{public}s", portName_.c_str());
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
     }
 
     bool getCts()
     {
         SERIAL_HILOGW(MODULE_TAIHE, "getCts stub (service not deployed), portName=%{public}s", portName_.c_str());
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
         return false;
     }
 
     void sendBrk()
     {
         SERIAL_HILOGW(MODULE_TAIHE, "sendBrk stub (service not deployed), portName=%{public}s", portName_.c_str());
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
     }
 
     void setDtr(bool enable)
     {
         SERIAL_HILOGW(MODULE_TAIHE, "setDtr stub (service not deployed), portName=%{public}s", portName_.c_str());
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
     }
 
     bool getDsr()
     {
         SERIAL_HILOGW(MODULE_TAIHE, "getDsr stub (service not deployed), portName=%{public}s", portName_.c_str());
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
         return false;
     }
 
     void onDisconnect(taihe::callback<void(uintptr_t)> callback)
     {
         SERIAL_HILOGW(MODULE_TAIHE, "onDisconnect stub (service not deployed), portName=%{public}s", portName_.c_str());
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
     }
 
     void offDisconnect(optional_view<taihe::callback<void(uintptr_t)>> callback)
     {
         SERIAL_HILOGW(
             MODULE_TAIHE, "offDisconnect stub (service not deployed), portName=%{public}s", portName_.c_str());
-        taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
     }
 
 private:
@@ -198,7 +183,6 @@ array<TaiheSerialPort> GetSerialPortListSync()
 void AddPortAuthorizationSync(taihe::string_view tokenId, taihe::string_view deviceId)
 {
     SERIAL_HILOGI(MODULE_TAIHE, "AddPortAuthorizationSync stub (service not deployed)");
-    taihe::set_business_error(SERIAL_JS_ERR_SERVICE, SerialJsErrorMessage(SERIAL_JS_ERR_SERVICE));
 }
 } // namespace
 

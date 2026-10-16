@@ -586,10 +586,9 @@ public:
             return;
         }
         SERIAL_HILOGE(MODULE_TAIHE, "close failed, ret=%{public}d", ret);
-        int32_t errCode = ret;
-        if (errCode != SERIAL_JS_ERR_DEVICE_NOT_OPENED && errCode != SERIAL_JS_ERR_DEVICE_DISCONNECTED) {
-            errCode = SERIAL_JS_ERR_SERVICE;
-        }
+        int32_t errCode = (ret == SERIAL_JS_ERR_DEVICE_NOT_OPENED || ret == SERIAL_JS_ERR_DEVICE_DISCONNECTED) ?
+            SERIAL_JS_ERR_DEVICE_NOT_OPENED :
+            SERIAL_JS_ERR_SERVICE;
         taihe::set_business_error(errCode, SerialJsErrorMessage(errCode));
     }
 
@@ -599,11 +598,6 @@ public:
         if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
-            return 0;
-        }
-        if (!isOpened_.load()) {
-            taihe::set_business_error(
-                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
             return 0;
         }
         if (!CheckAndThrowOnError(data.size() > 0 && data.size() <= WRITE_DATA_MAX_SIZE, SERIAL_JS_ERR_INVALID_PARAM,
@@ -755,11 +749,6 @@ public:
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return;
         }
-        if (!isOpened_.load()) {
-            taihe::set_business_error(
-                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
-            return;
-        }
         int32_t ret = g_serialClient.Flush(portName_);
         if (ret != SERIAL_OK) {
             SERIAL_HILOGE(MODULE_TAIHE, "flush failed, ret=%{public}d", ret);
@@ -775,11 +764,6 @@ public:
         if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
-            return;
-        }
-        if (!isOpened_.load()) {
-            taihe::set_business_error(
-                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
             return;
         }
         int32_t ret = g_serialClient.Drain(portName_);
@@ -799,11 +783,6 @@ public:
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return;
         }
-        if (!isOpened_.load()) {
-            taihe::set_business_error(
-                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
-            return;
-        }
         int32_t ret = g_serialClient.SetRtsSignal(portName_, enable);
         if (ret != SERIAL_OK) {
             SERIAL_HILOGE(MODULE_TAIHE, "setRts failed, ret=%{public}d", ret);
@@ -819,11 +798,6 @@ public:
         if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
-            return false;
-        }
-        if (!isOpened_.load()) {
-            taihe::set_business_error(
-                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
             return false;
         }
         bool cts = false;
@@ -845,11 +819,6 @@ public:
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return;
         }
-        if (!isOpened_.load()) {
-            taihe::set_business_error(
-                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
-            return;
-        }
         int32_t ret = g_serialClient.SendBrkSignal(portName_);
         if (ret != SERIAL_OK) {
             SERIAL_HILOGE(MODULE_TAIHE, "sendBrk failed, ret=%{public}d", ret);
@@ -867,11 +836,6 @@ public:
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return;
         }
-        if (!isOpened_.load()) {
-            taihe::set_business_error(
-                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
-            return;
-        }
         int32_t ret = g_serialClient.SetDtrSignal(portName_, enable);
         if (ret != SERIAL_OK) {
             SERIAL_HILOGE(MODULE_TAIHE, "setDtr failed, ret=%{public}d", ret);
@@ -887,11 +851,6 @@ public:
         if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
-            return false;
-        }
-        if (!isOpened_.load()) {
-            taihe::set_business_error(
-                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
             return false;
         }
         bool dsr = false;

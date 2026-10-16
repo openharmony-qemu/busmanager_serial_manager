@@ -423,10 +423,7 @@ static napi_value SerialPortToJSObject(napi_env env, const SerialPortInfo& devic
     if (wrapStatus != napi_ok) {
         SERIAL_HILOGE(MODULE_JS_NAPI, "[SerialPortToJSObject] napi_wrap failed for portName=%{public}s",
             native->portName.c_str());
-        delete native;
-        napi_value error = CreateBusinessError(env, SERIAL_JS_ERR_SERVICE, "napi_wrap failed");
-        napi_throw(env, error);
-        return nullptr;
+        return serialPortObj;
     }
 
     napi_create_reference(env, serialPortObj, NAPI_REF_COUNT_STRONG, &native->objectRef);
@@ -958,10 +955,10 @@ static void SerialCloseComplete(napi_env env, napi_status status, void* data)
         napi_get_undefined(env, &result);
     } else {
         SERIAL_HILOGE(MODULE_JS_NAPI, "close failed, ret=%{public}d", context->ret);
-        int32_t errCode = context->ret;
-        if (errCode != SERIAL_JS_ERR_DEVICE_NOT_OPENED && errCode != SERIAL_JS_ERR_DEVICE_DISCONNECTED) {
-            errCode = SERIAL_JS_ERR_SERVICE;
-        }
+        int32_t errCode =
+            (context->ret == SERIAL_JS_ERR_DEVICE_NOT_OPENED || context->ret == SERIAL_JS_ERR_DEVICE_DISCONNECTED) ?
+            SERIAL_JS_ERR_DEVICE_NOT_OPENED :
+            SERIAL_JS_ERR_SERVICE;
         result = CreateBusinessError(env, errCode, SerialJsErrorMessage(errCode));
     }
 
@@ -2052,7 +2049,7 @@ static napi_value SerialOnDisconnectNapi(napi_env env, napi_callback_info info)
     void* data = nullptr;
     napi_get_cb_info(env, info, &argc, argv, &thisVar, &data);
     if (IsPortInvalidated(env, thisVar)) {
-        ThrowBusinessError(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+        ThrowBusinessError(env, SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
         return nullptr;
     }
     if (!CheckPortOpened(env, thisVar)) {
