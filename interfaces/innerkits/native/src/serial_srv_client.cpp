@@ -413,6 +413,7 @@ int32_t SerialSrvClient::RegisterDataListener(
         return SERIAL_JS_ERR_SERVICE;
     }
 
+    std::lock_guard<std::mutex> lock(listenerMutex_);
     bool wasFirstListener = !callback_->HasListeners(portName);
 
     listenerHandle = callback_->AddListener(portName, callback);
@@ -455,6 +456,7 @@ int32_t SerialSrvClient::UnregisterDataListener(const std::string& portName, Lis
         return UNREGISTER_LISTENER_ERROR;
     }
 
+    std::lock_guard<std::mutex> lock(listenerMutex_);
     size_t countBefore = callback_->GetListenerCount(portName);
     if (countBefore == 0) {
         SERIAL_HILOGW(

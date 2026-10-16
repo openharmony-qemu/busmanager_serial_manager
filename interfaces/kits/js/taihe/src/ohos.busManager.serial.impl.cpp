@@ -513,6 +513,11 @@ public:
         return invalidated_.load();
     }
 
+    bool isOpened() const
+    {
+        return isOpened_.load();
+    }
+
     void markClosed()
     {
         isOpened_.store(false);
@@ -551,12 +556,15 @@ public:
         {
             std::string listenerName = portName_;
             ListenerHandle internalDiscHandle = 0;
-            g_serialClient.RegisterDisconnectedListener(
+            int32_t regRet = g_serialClient.RegisterDisconnectedListener(
                 listenerName,
                 [listenerName](const std::string&) {
                     InvalidateAllHoldersForPort(listenerName);
                 },
                 internalDiscHandle);
+            if (regRet != SERIAL_OK) {
+                SERIAL_HILOGE(MODULE_TAIHE, "RegisterDisconnectedListener failed, ret=%{public}d", regRet);
+            }
         }
         SERIAL_HILOGI(MODULE_TAIHE, "open finish.");
     }
@@ -591,6 +599,11 @@ public:
         if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+            return 0;
+        }
+        if (!isOpened_.load()) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
             return 0;
         }
         if (!CheckAndThrowOnError(data.size() > 0 && data.size() <= WRITE_DATA_MAX_SIZE, SERIAL_JS_ERR_INVALID_PARAM,
@@ -742,6 +755,11 @@ public:
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return;
         }
+        if (!isOpened_.load()) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
+            return;
+        }
         int32_t ret = g_serialClient.Flush(portName_);
         if (ret != SERIAL_OK) {
             SERIAL_HILOGE(MODULE_TAIHE, "flush failed, ret=%{public}d", ret);
@@ -757,6 +775,11 @@ public:
         if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+            return;
+        }
+        if (!isOpened_.load()) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
             return;
         }
         int32_t ret = g_serialClient.Drain(portName_);
@@ -776,6 +799,11 @@ public:
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return;
         }
+        if (!isOpened_.load()) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
+            return;
+        }
         int32_t ret = g_serialClient.SetRtsSignal(portName_, enable);
         if (ret != SERIAL_OK) {
             SERIAL_HILOGE(MODULE_TAIHE, "setRts failed, ret=%{public}d", ret);
@@ -791,6 +819,11 @@ public:
         if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+            return false;
+        }
+        if (!isOpened_.load()) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
             return false;
         }
         bool cts = false;
@@ -812,6 +845,11 @@ public:
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return;
         }
+        if (!isOpened_.load()) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
+            return;
+        }
         int32_t ret = g_serialClient.SendBrkSignal(portName_);
         if (ret != SERIAL_OK) {
             SERIAL_HILOGE(MODULE_TAIHE, "sendBrk failed, ret=%{public}d", ret);
@@ -829,6 +867,11 @@ public:
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return;
         }
+        if (!isOpened_.load()) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
+            return;
+        }
         int32_t ret = g_serialClient.SetDtrSignal(portName_, enable);
         if (ret != SERIAL_OK) {
             SERIAL_HILOGE(MODULE_TAIHE, "setDtr failed, ret=%{public}d", ret);
@@ -844,6 +887,11 @@ public:
         if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+            return false;
+        }
+        if (!isOpened_.load()) {
+            taihe::set_business_error(
+                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
             return false;
         }
         bool dsr = false;
@@ -1081,10 +1129,19 @@ private:
 
 void InvalidateAllHoldersForPort(const std::string& portName)
 {
-    std::lock_guard<std::mutex> lock(g_holderRegistryMutex);
-    auto range = g_holderRegistry.equal_range(portName);
-    for (auto it = range.first; it != range.second; ++it) {
-        it->second->markClosed();
+    bool needClose = false;
+    {
+        std::lock_guard<std::mutex> lock(g_holderRegistryMutex);
+        auto range = g_holderRegistry.equal_range(portName);
+        for (auto it = range.first; it != range.second; ++it) {
+            if (it->second->isOpened()) {
+                needClose = true;
+            }
+            it->second->markClosed();
+        }
+    }
+    if (needClose) {
+        g_serialClient.CloseSerial(portName);
     }
 }
 
@@ -1123,6 +1180,7 @@ void UpdateCachedPorts(const std::vector<OHOS::Serial::SerialPortInfo>& devices,
 array<TaiheSerialPort> GetSerialPortListSync()
 {
     SERIAL_HILOGI(MODULE_TAIHE, "GetSerialPortListSync start.");
+    EnsureNapiEnvStored();
     std::vector<OHOS::Serial::SerialPortInfo> devices;
     int32_t ret = g_serialClient.QuerySerialDevices(devices);
     if (ret != SERIAL_OK) {

@@ -61,11 +61,14 @@ declare namespace serial {
 
     /**
      * Enables the port. This API returns the result asynchronously through a promise.
+     * <br>Calling open clears all previously registered data and disconnect listeners for this port.
      *
      * @param { SerialConfigs } [config] - Serial port communication parameter.
      *     <br>Default value: Refer to the default value of SerialConfigs.
      *
      * @returns { Promise<void> } - Promise that returns no value.
+     * @throws { BusinessError } 203 - This function is prohibited by enterprise management policies.
+     * @throws { BusinessError } 401 - Parameter error. Possible causes: mandatory parameters are left unspecified; incorrect parameter types.
      * @throws { BusinessError } 35700001 - Service error.
      * @throws { BusinessError } 35700002 - Invalid parameter.
      * @throws { BusinessError } 35700003 - Virtual serial port disconnected.
@@ -81,7 +84,9 @@ declare namespace serial {
      * Closes the serial port device. This API returns the result asynchronously through a promise.
      *
      * @returns { Promise<void> } - Promise that returns no value.
+     * @throws { BusinessError } 203 - This function is prohibited by enterprise management policies.
      * @throws { BusinessError } 35700001 - Service error.
+     * @throws { BusinessError } 35700003 - Virtual serial port disconnected.
      * @throws { BusinessError } 35700005 - Port not open.
      * @syscap SystemCapability.BusManager.Serial
      * @stagemodelonly
@@ -98,6 +103,9 @@ declare namespace serial {
      *     <br>Length range: [0, 300000]. The value must be an integer, in milliseconds. The default value is 0,
      *     indicating that when data cannot be written to the port, the API does not wait and directly returns 0.
      * @returns { Promise<int> } - Promise used to return the length of the data written.
+     * <br>Returns 0 if no data was written (e.g., timeout with no data). An error is thrown via exception if the operation fails.
+     * @throws { BusinessError } 203 - This function is prohibited by enterprise management policies.
+     * @throws { BusinessError } 401 - Parameter error. Possible causes: mandatory parameters are left unspecified; incorrect parameter types.
      * @throws { BusinessError } 35700001 - Service error.
      * @throws { BusinessError } 35700002 - Invalid parameter.
      * @throws { BusinessError } 35700003 - Virtual serial port disconnected.
@@ -112,8 +120,11 @@ declare namespace serial {
     /**
      * Listens for data received by the serial port. This API uses an asynchronous callback to return the result.
      * When {@link close} is called, all callbacks are cleared.
+     * <br>If the same callback is registered more than once, the duplicate registration is silently ignored.
      *
      * @param { Callback<Uint8Array> } callback - Callback used to return the data received by the serial port.
+     * @throws { BusinessError } 203 - This function is prohibited by enterprise management policies.
+     * @throws { BusinessError } 401 - Parameter error. Possible causes: mandatory parameters are left unspecified; incorrect parameter types.
      * @throws { BusinessError } 35700001 - Service error.
      * @throws { BusinessError } 35700003 - Virtual serial port disconnected.
      * @throws { BusinessError } 35700005 - Port not open.
@@ -125,9 +136,11 @@ declare namespace serial {
 
     /**
      * Cancels listening for data receiving events on the serial port.
+     * <br>This API can be called on a disconnected port; it performs local cleanup only without contacting the service.
      *
      * @param { Callback<Uint8Array> } [callback] - Callback used to return the data received by the serial port.
      *     <br>Default value: Clear all listeners for data receiving events on the serial port.
+     * @throws { BusinessError } 401 - Parameter error. Possible causes: mandatory parameters are left unspecified; incorrect parameter types.
      * @throws { BusinessError } 35700001 - Service error.
      * @throws { BusinessError } 35700005 - Port not open.
      * @syscap SystemCapability.BusManager.Serial
@@ -140,6 +153,7 @@ declare namespace serial {
      * Flushes the serial port buffer. This API returns the result asynchronously through a promise.
      *
      * @returns { Promise<void> } - Promise that returns no value.
+     * @throws { BusinessError } 203 - This function is prohibited by enterprise management policies.
      * @throws { BusinessError } 35700001 - Service error.
      * @throws { BusinessError } 35700003 - Virtual serial port disconnected.
      * @throws { BusinessError } 35700005 - Port not open.
@@ -153,6 +167,7 @@ declare namespace serial {
      * Waits until all write requests are complete. This API returns the result asynchronously through a promise.
      *
      * @returns { Promise<void> } - Promise that returns no value.
+     * @throws { BusinessError } 203 - This function is prohibited by enterprise management policies.
      * @throws { BusinessError } 35700001 - Service error.
      * @throws { BusinessError } 35700003 - Virtual serial port disconnected.
      * @throws { BusinessError } 35700005 - Port not open.
@@ -167,6 +182,8 @@ declare namespace serial {
      *
      * @param { boolean } enable - RTS signal status, indicating whether to request sending data.
      * @returns { Promise<void> } - Promise that returns no value.
+     * @throws { BusinessError } 203 - This function is prohibited by enterprise management policies.
+     * @throws { BusinessError } 401 - Parameter error. Possible causes: mandatory parameters are left unspecified; incorrect parameter types.
      * @throws { BusinessError } 35700001 - Service error.
      * @throws { BusinessError } 35700003 - Virtual serial port disconnected.
      * @throws { BusinessError } 35700005 - Port not open.
@@ -181,6 +198,7 @@ declare namespace serial {
      *
      * @returns { Promise<boolean> } - Promise used to return the CTS signal status, indicating whether data can be
      *     sent.
+     * @throws { BusinessError } 203 - This function is prohibited by enterprise management policies.
      * @throws { BusinessError } 35700001 - Service error.
      * @throws { BusinessError } 35700003 - Virtual serial port disconnected.
      * @throws { BusinessError } 35700005 - Port not open.
@@ -194,6 +212,7 @@ declare namespace serial {
      * Sends a BRK signal. This API returns the result asynchronously through a promise.
      *
      * @returns { Promise<void> } - Promise that returns no value.
+     * @throws { BusinessError } 203 - This function is prohibited by enterprise management policies.
      * @throws { BusinessError } 35700001 - Service error.
      * @throws { BusinessError } 35700003 - Virtual serial port disconnected.
      * @throws { BusinessError } 35700005 - Port not open.
@@ -207,9 +226,13 @@ declare namespace serial {
      * This interface is used to listen to the disconnection event of the USB virtual serial port. Use Callback
      * asynchronous callback.
      * When the {@link close} interface is invoked, all callbacks are cleared.
+     * <br>If the same callback is registered more than once, the duplicate registration is silently ignored.
      *
      * @param { Callback<void> } callback - Callback of the USB virtual serial port disconnection event.
+     * @throws { BusinessError } 203 - This function is prohibited by enterprise management policies.
+     * @throws { BusinessError } 401 - Parameter error. Possible causes: mandatory parameters are left unspecified; incorrect parameter types.
      * @throws { BusinessError } 35700001 - Service error.
+     * @throws { BusinessError } 35700003 - Virtual serial port disconnected.
      * @throws { BusinessError } 35700005 - Port not open.
      * @syscap SystemCapability.BusManager.Serial
      * @stagemodelonly
@@ -219,9 +242,11 @@ declare namespace serial {
 
     /**
      * This command is used to cancel the monitoring of the USB virtual serial port disconnection event.
+     * <br>This API can be called on a disconnected port; it performs local cleanup only without contacting the service.
      *
      * @param { Callback<void> } [callback] - Callback of the USB virtual serial port disconnection event.
      *     <br>Default value: Clears all callbacks for USB virtual serial port disconnection events.
+     * @throws { BusinessError } 401 - Parameter error. Possible causes: mandatory parameters are left unspecified; incorrect parameter types.
      * @throws { BusinessError } 35700001 - Service error.
      * @throws { BusinessError } 35700005 - Port not open.
      * @syscap SystemCapability.BusManager.Serial
@@ -235,6 +260,8 @@ declare namespace serial {
      *
      * @param { boolean } enable - DTR signal status, indicating whether the local end is ready.
      * @returns { Promise<void> } - Promise that returns no value.
+     * @throws { BusinessError } 203 - This function is prohibited by enterprise management policies.
+     * @throws { BusinessError } 401 - Parameter error. Possible causes: mandatory parameters are left unspecified; incorrect parameter types.
      * @throws { BusinessError } 35700001 - Service error.
      * @throws { BusinessError } 35700003 - Virtual serial port disconnected.
      * @throws { BusinessError } 35700005 - Port not open.
@@ -249,6 +276,7 @@ declare namespace serial {
      *
      * @returns { Promise<boolean> } Promise used to return the result. The value **true** indicates the remote end
      *     is ready, and **false** indicates the remote end is not ready.
+     * @throws { BusinessError } 203 - This function is prohibited by enterprise management policies.
      * @throws { BusinessError } 35700001 - Service error.
      * @throws { BusinessError } 35700003 - Virtual serial port disconnected.
      * @throws { BusinessError } 35700005 - Port not open.
@@ -546,6 +574,7 @@ declare namespace serial {
    * combination of VID+PID+SN.
    * @returns { Promise<void> } - Promise that returns no value.
    * @throws { BusinessError } 202 - Permission denied. Called by non-system application
+   * @throws { BusinessError } 401 - Parameter error. Possible causes: mandatory parameters are left unspecified; incorrect parameter types.
    * @throws { BusinessError } 35700001 - Service error.
    * @throws { BusinessError } 35700002 - Invalid parameter.
    * @throws { BusinessError } 35700008 - Permission denied.
