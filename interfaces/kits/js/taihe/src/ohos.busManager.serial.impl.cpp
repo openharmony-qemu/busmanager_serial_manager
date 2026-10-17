@@ -628,7 +628,14 @@ public:
         bool needRegister, ListenerHandle existingHandle, taihe::callback<void(array_view<uint8_t>)> callback)
     {
         ListenerHandle finalHandle = existingHandle;
+        std::lock_guard<std::mutex> lock(g_callbackMutex);
         if (needRegister) {
+            if (g_innerkitHandles.find(portName_) != g_innerkitHandles.end()) {
+                finalHandle = g_innerkitHandles[portName_];
+                CallbackEntry entry {callback, finalHandle};
+                g_callbacks[portName_].push_back(entry);
+                return finalHandle;
+            }
             ListenerHandle newHandle = 0;
             std::string name = portName_;
             int32_t regRet = g_serialClient.RegisterDataListener(
@@ -643,20 +650,11 @@ public:
                 taihe::set_business_error(regRet, SerialJsErrorMessage(regRet));
                 return 0;
             }
-            {
-                std::lock_guard<std::mutex> lock(g_callbackMutex);
-                if (g_innerkitHandles.find(portName_) != g_innerkitHandles.end()) {
-                    g_serialClient.UnregisterDataListener(portName_, newHandle);
-                    finalHandle = g_innerkitHandles[portName_];
-                } else {
-                    g_innerkitHandles[portName_] = newHandle;
-                    finalHandle = newHandle;
-                }
-                CallbackEntry entry {callback, finalHandle};
-                g_callbacks[portName_].push_back(entry);
-            }
+            g_innerkitHandles[portName_] = newHandle;
+            finalHandle = newHandle;
+            CallbackEntry entry {callback, finalHandle};
+            g_callbacks[portName_].push_back(entry);
         } else {
-            std::lock_guard<std::mutex> lock(g_callbackMutex);
             CallbackEntry entry {callback, finalHandle};
             g_callbacks[portName_].push_back(entry);
         }
