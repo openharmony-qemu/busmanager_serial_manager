@@ -1456,6 +1456,7 @@ int32_t SerialService::RequestSerialPortRight(const SerialPortInfo& portInfo, co
 {
     SerialRightManager& rightManager = SerialRightManager::GetInstance();
 
+    // System app or SA bypass permission request
     if (rightManager.IsSystemAppOrSa()) {
         SERIAL_HILOGI(
             MODULE_SERVICE, "%{public}s:%{public}d System app or SA bypass permission request", __func__, __LINE__);
