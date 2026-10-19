@@ -628,14 +628,7 @@ public:
         bool needRegister, ListenerHandle existingHandle, taihe::callback<void(array_view<uint8_t>)> callback)
     {
         ListenerHandle finalHandle = existingHandle;
-        std::lock_guard<std::mutex> lock(g_callbackMutex);
         if (needRegister) {
-            if (g_innerkitHandles.find(portName_) != g_innerkitHandles.end()) {
-                finalHandle = g_innerkitHandles[portName_];
-                CallbackEntry entry {callback, finalHandle};
-                g_callbacks[portName_].push_back(entry);
-                return finalHandle;
-            }
             ListenerHandle newHandle = 0;
             std::string name = portName_;
             int32_t regRet = g_serialClient.RegisterDataListener(
@@ -650,11 +643,20 @@ public:
                 taihe::set_business_error(regRet, SerialJsErrorMessage(regRet));
                 return 0;
             }
-            g_innerkitHandles[portName_] = newHandle;
-            finalHandle = newHandle;
-            CallbackEntry entry {callback, finalHandle};
-            g_callbacks[portName_].push_back(entry);
+            {
+                std::lock_guard<std::mutex> lock(g_callbackMutex);
+                if (g_innerkitHandles.find(portName_) != g_innerkitHandles.end()) {
+                    g_serialClient.UnregisterDataListener(portName_, newHandle);
+                    finalHandle = g_innerkitHandles[portName_];
+                } else {
+                    g_innerkitHandles[portName_] = newHandle;
+                    finalHandle = newHandle;
+                }
+                CallbackEntry entry {callback, finalHandle};
+                g_callbacks[portName_].push_back(entry);
+            }
         } else {
+            std::lock_guard<std::mutex> lock(g_callbackMutex);
             CallbackEntry entry {callback, finalHandle};
             g_callbacks[portName_].push_back(entry);
         }
@@ -1086,19 +1088,10 @@ private:
 
 void InvalidateAllHoldersForPort(const std::string& portName)
 {
-    bool needClose = false;
-    {
-        std::lock_guard<std::mutex> lock(g_holderRegistryMutex);
-        auto range = g_holderRegistry.equal_range(portName);
-        for (auto it = range.first; it != range.second; ++it) {
-            if (it->second->isOpened()) {
-                needClose = true;
-            }
-            it->second->markClosed();
-        }
-    }
-    if (needClose) {
-        g_serialClient.CloseSerial(portName);
+    std::lock_guard<std::mutex> lock(g_holderRegistryMutex);
+    auto range = g_holderRegistry.equal_range(portName);
+    for (auto it = range.first; it != range.second; ++it) {
+        it->second->markClosed();
     }
 }
 
@@ -1137,7 +1130,6 @@ void UpdateCachedPorts(const std::vector<OHOS::Serial::SerialPortInfo>& devices,
 array<TaiheSerialPort> GetSerialPortListSync()
 {
     SERIAL_HILOGI(MODULE_TAIHE, "GetSerialPortListSync start.");
-    EnsureNapiEnvStored();
     std::vector<OHOS::Serial::SerialPortInfo> devices;
     int32_t ret = g_serialClient.QuerySerialDevices(devices);
     if (ret != SERIAL_OK) {

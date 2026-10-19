@@ -155,7 +155,6 @@ private:
     int32_t GetCallingUserId();
     int32_t GetCallingUserIdFromToken();
     bool CheckSerialPortRight(const std::string& portName, const std::string& productName);
-    int32_t RequestSerialPortRight(const SerialPortInfo& portInfo);
     int32_t RequestSerialPortRight(const SerialPortInfo& portInfo, const std::string& portName);
 
     void ScheduleUnloadSa();
