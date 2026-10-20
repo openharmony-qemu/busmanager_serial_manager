@@ -661,9 +661,17 @@ static void SerialOpenComplete(napi_env env, napi_status status, void* data)
     napi_value result = nullptr;
 
     if (context->ret == SERIAL_OK) {
+        {
+            std::lock_guard<std::mutex> lock(g_portCacheMutex);
+            auto it = g_activePorts.find(context->portInfo.portName);
+            if (it != g_activePorts.end() && it->second != nullptr) {
+                it->second->isOpened = true;
+                it->second->invalidated = false;
+            }
+        }
         std::string openPortName = context->portInfo.portName;
         ListenerHandle internalHandle = 0;
-        int32_t regRet = g_serialClient.RegisterDisconnectedListener(
+        g_serialClient.RegisterDisconnectedListener(
             openPortName,
             [openPortName](const std::string&) {
                 std::lock_guard<std::mutex> lock(g_portCacheMutex);
@@ -676,18 +684,6 @@ static void SerialOpenComplete(napi_env env, napi_status status, void* data)
                 }
             },
             internalHandle);
-        if (regRet != SERIAL_OK) {
-            SERIAL_HILOGE(MODULE_JS_NAPI, "[SerialOpenComplete] RegisterDisconnectedListener failed, ret=%{public}d",
-                regRet);
-        }
-        {
-            std::lock_guard<std::mutex> lock(g_portCacheMutex);
-            auto it = g_activePorts.find(context->portInfo.portName);
-            if (it != g_activePorts.end() && it->second != nullptr) {
-                it->second->isOpened.store(true);
-                it->second->invalidated.store(false);
-            }
-        }
         napi_get_undefined(env, &result);
     } else {
         result = CreateBusinessError(env, context->ret, SerialJsErrorMessage(context->ret));

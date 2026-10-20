@@ -869,7 +869,7 @@ public:
         SERIAL_HILOGI(MODULE_TAIHE, "onDisconnect start, portName=%{public}s", portName_.c_str());
         if (invalidated_.load()) {
             taihe::set_business_error(
-                SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
             return;
         }
         if (!isOpened_.load()) {
