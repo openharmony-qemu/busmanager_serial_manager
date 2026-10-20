@@ -130,11 +130,11 @@ ErrCode SerialServiceCallback::onDisconnect(const std::string& portName)
         auto it = disconnectedListeners_.find(portName);
         if (it == disconnectedListeners_.end() || it->second.empty()) {
             SERIAL_HILOGW(MODULE_INNERKIT, "[onDisconnect] No listener for portName=%{public}s", portName.c_str());
-            return ERR_OK;
-        }
-        callbacksToInvoke.reserve(it->second.size());
-        for (const auto& pair : it->second) {
-            callbacksToInvoke.push_back(pair.second);
+        } else {
+            callbacksToInvoke.reserve(it->second.size());
+            for (const auto& pair : it->second) {
+                callbacksToInvoke.push_back(pair.second);
+            }
         }
     }
 
@@ -143,6 +143,10 @@ ErrCode SerialServiceCallback::onDisconnect(const std::string& portName)
             cb(portName);
         }
     }
+
+    RemoveAllListeners(portName);
+    SERIAL_HILOGI(MODULE_INNERKIT, "[onDisconnect] cleaned up data listeners for portName=%{public}s",
+        portName.c_str());
 
     return ERR_OK;
 }
