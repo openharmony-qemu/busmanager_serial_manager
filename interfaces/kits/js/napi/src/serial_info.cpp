@@ -1114,9 +1114,6 @@ static napi_value SerialWriteNapi(napi_env env, napi_callback_info info)
     if (IsPortInvalidated(env, thisVar)) {
         return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
     }
-    if (!CheckPortOpened(env, thisVar)) {
-        return nullptr;
-    }
 
     std::vector<uint8_t> writeData;
     int32_t timeout = 0;
@@ -1508,9 +1505,6 @@ static napi_value SerialFlushNapi(napi_env env, napi_callback_info info)
     if (IsPortInvalidated(env, thisVar)) {
         return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
     }
-    if (!CheckPortOpened(env, thisVar)) {
-        return nullptr;
-    }
 
     SerialFlushAsyncContext* context = new SerialFlushAsyncContext();
     context->env = env;
@@ -1572,9 +1566,6 @@ static napi_value SerialDrainNapi(napi_env env, napi_callback_info info)
     if (IsPortInvalidated(env, thisVar)) {
         return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
     }
-    if (!CheckPortOpened(env, thisVar)) {
-        return nullptr;
-    }
 
     SerialDrainAsyncContext* context = new SerialDrainAsyncContext();
     context->env = env;
@@ -1635,9 +1626,6 @@ static napi_value SerialSetRtsNapi(napi_env env, napi_callback_info info)
 
     if (IsPortInvalidated(env, thisVar)) {
         return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
-    }
-    if (!CheckPortOpened(env, thisVar)) {
-        return nullptr;
     }
 
     if (argc < 1) {
@@ -1716,9 +1704,6 @@ static napi_value SerialSendBrkNapi(napi_env env, napi_callback_info info)
     if (IsPortInvalidated(env, thisVar)) {
         return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
     }
-    if (!CheckPortOpened(env, thisVar)) {
-        return nullptr;
-    }
 
     SerialSendBrkAsyncContext* context = new SerialSendBrkAsyncContext();
     context->env = env;
@@ -1779,9 +1764,6 @@ static napi_value SerialGetCtsNapi(napi_env env, napi_callback_info info)
 
     if (IsPortInvalidated(env, thisVar)) {
         return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
-    }
-    if (!CheckPortOpened(env, thisVar)) {
-        return nullptr;
     }
 
     SerialGetCtsAsyncContext* context = new SerialGetCtsAsyncContext();
@@ -1844,9 +1826,6 @@ static napi_value SerialSetDtrNapi(napi_env env, napi_callback_info info)
 
     if (IsPortInvalidated(env, thisVar)) {
         return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
-    }
-    if (!CheckPortOpened(env, thisVar)) {
-        return nullptr;
     }
 
     if (argc < 1) {
@@ -1924,9 +1903,6 @@ static napi_value SerialGetDsrNapi(napi_env env, napi_callback_info info)
 
     if (IsPortInvalidated(env, thisVar)) {
         return CreateRejectedPromise(env, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
-    }
-    if (!CheckPortOpened(env, thisVar)) {
-        return nullptr;
     }
 
     SerialGetDsrAsyncContext* context = new SerialGetDsrAsyncContext();

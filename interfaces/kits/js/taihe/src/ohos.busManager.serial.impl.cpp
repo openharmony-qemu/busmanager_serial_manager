@@ -513,11 +513,6 @@ public:
         return invalidated_.load();
     }
 
-    bool isOpened() const
-    {
-        return isOpened_.load();
-    }
-
     void markClosed()
     {
         isOpened_.store(false);
