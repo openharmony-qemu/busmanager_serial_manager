@@ -78,6 +78,7 @@ private:
     sptr<IRemoteObject::DeathRecipient> deathRecipient_ = nullptr;
     sptr<SerialServiceCallback> callback_ = nullptr;
     std::mutex mutex_;
+    std::mutex listenerMutex_;
 };
 
 } // namespace Serial

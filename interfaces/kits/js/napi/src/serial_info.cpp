@@ -170,8 +170,8 @@ static std::map<std::string, std::map<napi_ref, DisconnectedCallbackInfo>> g_dis
 struct SerialPortNative {
     std::string portName;
     SerialPortInfo info;
-    bool invalidated = false;
-    bool isOpened = false;
+    std::atomic<bool> invalidated = false;
+    std::atomic<bool> isOpened = false;
     napi_ref objectRef = nullptr;
     napi_env env = nullptr;
 };
@@ -212,13 +212,15 @@ static void RemoveAllListenersForPort(napi_env env, const std::string& portName)
     }
     {
         std::vector<std::pair<napi_ref, DisconnectedCallbackInfo>> discEntries;
-        std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
-        auto discIt = g_disconnectedCallbacks.find(portName);
-        if (discIt != g_disconnectedCallbacks.end()) {
-            for (auto& pair : discIt->second) {
-                discEntries.push_back(pair);
+        {
+            std::lock_guard<std::mutex> lock(g_disconnectedCallbackMutex);
+            auto discIt = g_disconnectedCallbacks.find(portName);
+            if (discIt != g_disconnectedCallbacks.end()) {
+                for (auto& pair : discIt->second) {
+                    discEntries.push_back(pair);
+                }
+                g_disconnectedCallbacks.erase(discIt);
             }
-            g_disconnectedCallbacks.erase(discIt);
         }
         for (auto& entry : discEntries) {
             g_serialClient.UnregisterDisconnectedListener(portName, entry.second.listenerHandle);
@@ -235,7 +237,11 @@ static void SerialPortFinalize(napi_env env, void* data, void* hint)
         return;
     }
     SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] RECYCLE(GC): portName=%{public}s, wasInvalidated=%{public}d",
-        native->portName.c_str(), native->invalidated ? 1 : 0);
+        native->portName.c_str(), native->invalidated.load() ? 1 : 0);
+    if (native->isOpened.load() && !native->invalidated.load()) {
+        RemoveAllListenersForPort(env, native->portName);
+        g_serialClient.CloseSerial(native->portName);
+    }
     {
         std::lock_guard<std::mutex> lock(g_portCacheMutex);
         auto activeIt = g_activePorts.find(native->portName);
@@ -276,7 +282,7 @@ static bool IsPortInvalidated(napi_env env, napi_value thisVar)
     void* nativePtr = nullptr;
     napi_unwrap(env, thisVar, &nativePtr);
     SerialPortNative* native = static_cast<SerialPortNative*>(nativePtr);
-    if (native != nullptr && native->invalidated) {
+    if (native != nullptr && native->invalidated.load()) {
         SERIAL_HILOGW(MODULE_JS_NAPI, "[IsPortInvalidated] Operation on invalidated port: portName=%{public}s",
             native->portName.c_str());
         return true;
@@ -299,7 +305,7 @@ static bool CheckPortOpened(napi_env env, napi_value thisVar)
     void* nativePtr = nullptr;
     napi_unwrap(env, thisVar, &nativePtr);
     SerialPortNative* native = static_cast<SerialPortNative*>(nativePtr);
-    if (native != nullptr && !native->isOpened) {
+    if (native != nullptr && !native->isOpened.load()) {
         SERIAL_HILOGW(
             MODULE_JS_NAPI, "[CheckPortOpened] Port not opened: portName=%{public}s", native->portName.c_str());
         ThrowBusinessError(env, SERIAL_JS_ERR_DEVICE_NOT_OPENED, "Port not open");
@@ -427,7 +433,7 @@ static napi_value SerialPortToJSObject(napi_env env, const SerialPortInfo& devic
 
 static void InvalidatePort(napi_env env, SerialPortNative* native)
 {
-    native->invalidated = true;
+    native->invalidated.store(true);
     RemoveAllListenersForPort(env, native->portName);
 
     napi_value oldObj = nullptr;
@@ -457,7 +463,7 @@ static napi_value RestoreInvalidatedPort(napi_env env, const SerialPortInfo& dev
                 deviceInfo.portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
             napi_delete_reference(env, native->objectRef);
             napi_create_reference(env, jsObj, NAPI_REF_COUNT_STRONG, &native->objectRef);
-            native->invalidated = false;
+            native->invalidated.store(false);
             g_activePorts[deviceInfo.portName] = native;
             g_invalidatedPorts.erase(it);
             return jsObj;
@@ -502,10 +508,10 @@ static bool TryReuseActivePort(napi_env env, const SerialPortInfo& deviceInfo, u
         napi_value serialPortObj = nullptr;
         napi_get_reference_value(env, native->objectRef, &serialPortObj);
         if (serialPortObj != nullptr) {
-            if (native->invalidated) {
+            if (native->invalidated.load()) {
                 SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] RESTORE(reconnect): portName=%{public}s, ptr=0x%{public}04x",
                     deviceInfo.portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
-                native->invalidated = false;
+                native->invalidated.store(false);
             }
             SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] REUSE(active): portName=%{public}s, ptr=0x%{public}04x",
                 deviceInfo.portName.c_str(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(native) & 0xFFFF));
@@ -528,7 +534,7 @@ static napi_value CreateNewPortObject(napi_env env, const SerialPortInfo& device
     SerialPortNative* native = new SerialPortNative();
     native->portName = deviceInfo.portName;
     native->info = deviceInfo;
-    native->invalidated = false;
+    native->invalidated.store(false);
     native->env = env;
 
     napi_value serialPortObj = SerialPortToJSObject(env, deviceInfo, native);
@@ -673,8 +679,8 @@ static void SerialOpenComplete(napi_env env, napi_status status, void* data)
                 if (it != g_activePorts.end()) {
                     SERIAL_HILOGI(MODULE_JS_NAPI, "[LIFECYCLE] INVALIDATE(disconnect): portName=%{public}s",
                         openPortName.c_str());
-                    it->second->invalidated = true;
-                    it->second->isOpened = false;
+                    it->second->invalidated.store(true);
+                    it->second->isOpened.store(false);
                 }
             },
             internalHandle);
@@ -1977,8 +1983,8 @@ static napi_value RegisterOnDisconnect(
                 if (it != g_activePorts.end()) {
                     SERIAL_HILOGI(
                         MODULE_JS_NAPI, "[LIFECYCLE] INVALIDATE(disconnect): portName=%{public}s", cbPortName.c_str());
-                    it->second->invalidated = true;
-                    it->second->isOpened = false;
+                    it->second->invalidated.store(true);
+                    it->second->isOpened.store(false);
                 }
             }
             napi_status status =

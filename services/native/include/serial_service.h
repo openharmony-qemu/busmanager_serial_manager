@@ -155,7 +155,7 @@ private:
     int32_t GetCallingUserId();
     int32_t GetCallingUserIdFromToken();
     bool CheckSerialPortRight(const std::string& portName, const std::string& productName);
-    int32_t RequestSerialPortRight(const SerialPortInfo& portInfo);
+    int32_t RequestSerialPortRight(const SerialPortInfo& portInfo, const std::string& portName);
 
     void ScheduleUnloadSa();
     void CancelUnloadSa();
@@ -197,7 +197,7 @@ private:
     uint32_t unloadTimerId_ = 0;
     static constexpr uint32_t UNLOAD_SA_DELAY_MS = 30000;
 
-    bool isRs232Disabled_ = false;
+    std::atomic<bool> isRs232Disabled_ = false;
     bool reportManageFlag_ = false;
     std::map<std::string, int32_t> pcieSerialOffsets_;
     std::unordered_set<std::string> portsHasBeenRead_;

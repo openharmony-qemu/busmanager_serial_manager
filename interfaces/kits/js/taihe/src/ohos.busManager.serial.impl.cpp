@@ -26,6 +26,7 @@
 #include "serial_service_callback.h"
 #include "serial_srv_client.h"
 
+#include <atomic>
 #include <map>
 #include <mutex>
 #include <set>
@@ -488,6 +489,10 @@ public:
 
     ~SerialPortHolder()
     {
+        if (isOpened_.load()) {
+            RemoveAllCallbacksForPort(portName_);
+            g_serialClient.CloseSerial(portName_);
+        }
         std::lock_guard<std::mutex> lock(g_holderRegistryMutex);
         auto range = g_holderRegistry.equal_range(portName_);
         for (auto it = range.first; it != range.second; ++it) {
@@ -500,18 +505,18 @@ public:
 
     void setInvalidated(bool value)
     {
-        invalidated_ = value;
+        invalidated_.store(value);
     }
 
     bool isInvalidated() const
     {
-        return invalidated_;
+        return invalidated_.load();
     }
 
     void markClosed()
     {
-        isOpened_ = false;
-        invalidated_ = true;
+        isOpened_.store(false);
+        invalidated_.store(true);
     }
 
     TaiheSerialPortInfo getPortInfo() const
@@ -539,19 +544,22 @@ public:
             taihe::set_business_error(ret, SerialJsErrorMessage(ret));
             return;
         }
-        isOpened_ = true;
-        invalidated_ = false;
+        isOpened_.store(true);
+        invalidated_.store(false);
         ClearDataCallbackState();
         ClearDisconnectedState();
         {
             std::string listenerName = portName_;
             ListenerHandle internalDiscHandle = 0;
-            g_serialClient.RegisterDisconnectedListener(
+            int32_t regRet = g_serialClient.RegisterDisconnectedListener(
                 listenerName,
                 [listenerName](const std::string&) {
                     InvalidateAllHoldersForPort(listenerName);
                 },
                 internalDiscHandle);
+            if (regRet != SERIAL_OK) {
+                SERIAL_HILOGE(MODULE_TAIHE, "RegisterDisconnectedListener failed, ret=%{public}d", regRet);
+            }
         }
         SERIAL_HILOGI(MODULE_TAIHE, "open finish.");
     }
@@ -560,8 +568,8 @@ public:
     {
         SERIAL_HILOGI(MODULE_TAIHE, "close start, portName=%{public}s", portName_.c_str());
         RemoveAllCallbacksForPort(portName_);
-        isOpened_ = false;
-        if (invalidated_) {
+        isOpened_.store(false);
+        if (invalidated_.load()) {
             SERIAL_HILOGI(MODULE_TAIHE,
                 "close: port invalidated (disconnected), skipping service call: portName=%{public}s",
                 portName_.c_str());
@@ -582,7 +590,7 @@ public:
     int32_t write(array_view<uint8_t> data, optional_view<int32_t> timeout)
     {
         SERIAL_HILOGI(MODULE_TAIHE, "write start, portName=%{public}s", portName_.c_str());
-        if (invalidated_) {
+        if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return 0;
@@ -653,12 +661,12 @@ public:
     void onDataRead(taihe::callback<void(array_view<uint8_t>)> callback)
     {
         SERIAL_HILOGI(MODULE_TAIHE, "onDataRead start, portName=%{public}s", portName_.c_str());
-        if (invalidated_) {
+        if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return;
         }
-        if (!isOpened_) {
+        if (!isOpened_.load()) {
             SERIAL_HILOGE(MODULE_TAIHE, "onDataRead failed: port not opened, portName=%{public}s", portName_.c_str());
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
@@ -684,7 +692,7 @@ public:
     void offDataRead(optional_view<taihe::callback<void(array_view<uint8_t>)>> callback)
     {
         SERIAL_HILOGI(MODULE_TAIHE, "offDataRead start, portName=%{public}s", portName_.c_str());
-        if (!isOpened_ && !invalidated_) {
+        if (!isOpened_.load() && !invalidated_.load()) {
             SERIAL_HILOGE(MODULE_TAIHE, "offDataRead failed: port not opened, portName=%{public}s", portName_.c_str());
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
@@ -731,7 +739,7 @@ public:
     void flush()
     {
         SERIAL_HILOGI(MODULE_TAIHE, "flush start, portName=%{public}s", portName_.c_str());
-        if (invalidated_) {
+        if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return;
@@ -748,7 +756,7 @@ public:
     void drain()
     {
         SERIAL_HILOGI(MODULE_TAIHE, "drain start, portName=%{public}s", portName_.c_str());
-        if (invalidated_) {
+        if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return;
@@ -765,7 +773,7 @@ public:
     void setRts(bool enable)
     {
         SERIAL_HILOGI(MODULE_TAIHE, "setRts start, portName=%{public}s", portName_.c_str());
-        if (invalidated_) {
+        if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return;
@@ -782,7 +790,7 @@ public:
     bool getCts()
     {
         SERIAL_HILOGI(MODULE_TAIHE, "getCts start, portName=%{public}s", portName_.c_str());
-        if (invalidated_) {
+        if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return false;
@@ -801,7 +809,7 @@ public:
     void sendBrk()
     {
         SERIAL_HILOGI(MODULE_TAIHE, "sendBrk start, portName=%{public}s", portName_.c_str());
-        if (invalidated_) {
+        if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return;
@@ -818,7 +826,7 @@ public:
     void setDtr(bool enable)
     {
         SERIAL_HILOGI(MODULE_TAIHE, "setDtr start, portName=%{public}s", portName_.c_str());
-        if (invalidated_) {
+        if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return;
@@ -835,7 +843,7 @@ public:
     bool getDsr()
     {
         SERIAL_HILOGI(MODULE_TAIHE, "getDsr start, portName=%{public}s", portName_.c_str());
-        if (invalidated_) {
+        if (invalidated_.load()) {
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
             return false;
@@ -854,12 +862,12 @@ public:
     void onDisconnect(taihe::callback<void(uintptr_t)> callback)
     {
         SERIAL_HILOGI(MODULE_TAIHE, "onDisconnect start, portName=%{public}s", portName_.c_str());
-        if (invalidated_) {
+        if (invalidated_.load()) {
             taihe::set_business_error(
-                SERIAL_JS_ERR_DEVICE_DISCONNECTED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_DISCONNECTED));
+                SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
             return;
         }
-        if (!isOpened_) {
+        if (!isOpened_.load()) {
             SERIAL_HILOGE(MODULE_TAIHE, "onDisconnect failed: port not opened, portName=%{public}s", portName_.c_str());
             taihe::set_business_error(
                 SERIAL_JS_ERR_DEVICE_NOT_OPENED, SerialJsErrorMessage(SERIAL_JS_ERR_DEVICE_NOT_OPENED));
@@ -878,7 +886,7 @@ public:
     void offDisconnect(optional_view<taihe::callback<void(uintptr_t)>> callback)
     {
         SERIAL_HILOGI(MODULE_TAIHE, "offDisconnect start, portName=%{public}s", portName_.c_str());
-        if (!isOpened_ && !invalidated_) {
+        if (!isOpened_.load() && !invalidated_.load()) {
             SERIAL_HILOGE(
                 MODULE_TAIHE, "offDisconnect failed: port not opened, portName=%{public}s", portName_.c_str());
             taihe::set_business_error(
@@ -1069,8 +1077,8 @@ private:
     int32_t productId_;
     int32_t vendorId_;
     std::string manufacturer_;
-    bool isOpened_;
-    bool invalidated_;
+    std::atomic<bool> isOpened_;
+    std::atomic<bool> invalidated_;
 };
 
 void InvalidateAllHoldersForPort(const std::string& portName)
