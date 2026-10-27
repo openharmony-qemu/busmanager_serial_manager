@@ -40,7 +40,7 @@ Serial Manager 是一个基于OpenHarmony系统的串口设备管理服务组件
 ┌────────────────────▼─────────────────────────┐
 │        System Ability 服务 (libserialservice.z.so) │
 │  SerialService extends SystemAbility + Stub    │
-│  当前为桩实现：所有方法记录日志后返回成功            │
+│  对接 HDI ISerials，实现真实串口 I/O         │
 └──────────────────────────────────────────────┘
 ```
 
@@ -67,6 +67,45 @@ Serial Manager 是一个基于OpenHarmony系统的串口设备管理服务组件
 │        InnerAPI 客户端 → IPC → SA 服务           │
 └──────────────────────────────────────────────┘
 ```
+
+## 与 usb_manager 的关系与兼容性
+
+USB 转串口的通信能力最初实现于 `usb_manager` 仓内的 serial 模块。随着串口场景从 USB 转串口扩展到板载串口，本仓将通用串口管理能力独立为 System Ability，两者能力互补、边界清晰：
+
+| 能力维度 | usb_manager 的 serial 模块 | serial_manager（本仓） |
+| --- | --- | --- |
+| 设备范围 | USB 转串口（`ttyUSB`，按 portId 标识） | 板载串口（`ttyS`）、USB 转串口（`ttyUSB`）、USB CDC-ACM（`ttyACM`） |
+| 对外接口 | `@ohos.usbManager.serial` | `@ohos.busManager.serial` |
+| 数据收发 | 同步/异步 `read`、`write` | 异步写入 + `onDataRead` 回调推送 |
+| 串口信号 | 不涉及 | RTS/CTS、DTR/DSR 读写 |
+| 缓冲控制 | 不涉及 | `flush` / `drain` / `sendBrk` |
+| 通信参数 | 属性读写（`getAttribute` / `setAttribute`） | 打开时配置波特率、数据位、停止位、校验位、软硬件流控 |
+| 权限模型 | 按 tokenId 校验端口归属，提供 has/request/add/cancel 权限接口 | 应用级授权（弹窗 + token 校验 + RDB 持久化），支持 EDM 企业策略 |
+| 服务形态 | `usb_manager` SA 内的模块 | 独立 System Ability（SA 4202），按需加载、自动重启 |
+
+**两仓在串口链路上的分工**
+
+```
+                    ArkTS 应用
+          ┌──────────────┴──────────────┐
+          │                             │
+   serial_manager                  usb_manager
+   通用串口管理                   USB 基础能力（含 serial 模块）
+   多串口类型 + 完整信号管理         USB 转串口基础通信
+          │                             │
+   HDI ISerials V1_0              USB HAL（USB Serial HDI）
+          │                             │
+          └──────────────┬──────────────┘
+                         ▼
+          /dev/ttyS*、/dev/ttyUSB*、/dev/ttyACM*
+```
+
+### 兼容说明
+
+1. **端口标识不同**：本仓以设备名（如 `ttyUSB0`）标识端口，`usb_manager` 以 `portId`（对应 USB 设备的 bus/dev、VID/PID、序列号）标识端口，两者最终操作同一批 USB 转串口设备。同一端口不宜同时由两个服务打开：本仓在服务内对已打开的端口返回 `35700004`（端口已被占用），跨服务的并发访问需由应用侧规避。
+2. **能力互补**：仅需 USB 转串口的基础收发，可继续使用 `usb_manager`；需要板载串口、流控信号或缓冲控制时，应使用本仓。
+3. **接口差异**：本仓以 `onDataRead` 回调推送数据，并额外提供 `setDtr`/`getDsr`、`flush`/`drain`/`sendBrk`，以及按应用与设备维度的持久化授权（RDB）与企业管控（EDM）策略；`usb_manager` 提供同步/异步 `read`、`write` 与更细粒度的权限接口。
+4. **迁移建议**：新增串口业务统一使用 `@ohos.busManager.serial`；存量 USB 业务无需改造，两者按上述边界并行演进。
 
 ## 项目结构
 
@@ -109,7 +148,7 @@ serial_manager/
 │       ├── include/
 │       │   └── serial_service.h                 # 服务头文件
 │       └── src/
-│           └── serial_service.cpp               # 服务实现（桩）
+│           └── serial_service.cpp               # 服务实现（HDI 对接）
 ├── sa_profile/
 │   ├── 4202.json                                # SA配置文件
 │   └── BUILD.gn                                 # SA构建配置
@@ -150,7 +189,7 @@ struct SerialConfig {
 };
 ```
 
-### ISerialServer.idl — 主接口（12个方法）
+### ISerialServer.idl — 主接口（14 个方法）
 
 | 方法 | 签名 | 说明 |
 |------|------|------|
@@ -221,6 +260,10 @@ await ports[0].close();
 | `SerialPort.setRts(enable)` | Promise | 设置 RTS 信号 |
 | `SerialPort.sendBrk()` | Promise | 发送中断信号 |
 | `SerialPort.getCts()` | Promise\<boolean\> | 获取 CTS 信号状态 |
+| `SerialPort.setDtr(enable)` | Promise | 设置 DTR 信号 |
+| `SerialPort.getDsr()` | Promise\<boolean\> | 获取 DSR 信号状态 |
+| `SerialPort.onDisconnect(callback)` | 同步 | 注册端口断连回调 |
+| `SerialPort.offDisconnect([callback])` | 同步 | 取消断连回调 |
 
 ### 枚举
 
@@ -257,13 +300,10 @@ enum Parity    { NONE = 'none', EVEN = 'even', ODD = 'odd', MARK = 'mark', SPACE
 
 ### 2. 服务端（SerialService）
 
-- **SA注册**：`REGISTER_SYSTEM_ABILITY_BY_ID(SerialService, SERIAL_SYSTEM_ABILITY_ID, true)`，run-on-create=true
-- **当前桩实现**（`serial_service.cpp`）：
-  - 所有12个IDL方法仅记录日志后返回 `SERIAL_OK`，无真实硬件I/O
-  - `QuerySerialDevices` 返回空设备列表（不填充 devices）
-  - `WriteSerial` 记录数据并返回 `data.size()`
-  - `GetCtsSignal` 固定返回 `cts=false`
-  - `Flush` / `Drain` / `SendBrkSignal` / `SetRtsSignal` / `AddPortAuthorization` 为空操作桩
+- **SA注册**：`REGISTER_SYSTEM_ABILITY_BY_ID(SerialService, SERIAL_SYSTEM_ABILITY_ID, true)`；`sa_profile/4202.json` 中配置 `run-on-create=false` 与 `start-on-demand`，实现按需加载、自动重启
+- **硬件接入**（`serial_service.cpp`）：通过 HDI 获取 `ISerials` 代理，`QueryDevices` 枚举设备、`OpenDevice` 打开端口、`Write` 下发数据、`StartRead`/`StopRead` 启停异步读，设备离线由 `OnDeviceOffline` 回调通知客户端
+- **权限与审计**：`SerialRightManager` 负责授权弹窗与 RDB 持久化，`SerialSecurityReport` 上报串口操作审计事件，`AddPortAuthorization` 供系统应用为指定应用（tokenId）授权指定设备
+- **生命周期**：无打开设备时延时 30 秒卸载 SA；客户端进程死亡、设备离线时清理端口上下文
 - **测试变体实现**（`test/develop/`）：
   - `serial_service_lifecycle_test.cpp`：模拟设备枚举（多场景轮替）+ 端口占用检测 + 环回读线程
   - `serial_service_errcodetest.cpp`：基于 `TestScenario` 按轮次返回预设错误码，覆盖全部错误码场景
@@ -385,16 +425,16 @@ API声明文件位于 `interfaces/kits/js/@ohos.busManager.serial.d.ts`，模块
 1. **添加新接口**：在 `ISerialServer.idl` 中定义新方法
 2. **实现新功能**：在 `serial_service.cpp` 中实现对应 override 方法
 3. **添加NAPI绑定**：在 `serial_info.cpp` 中添加 NAPI 函数并导出
-4. **替换模拟实现**：在 `serial_service.cpp` 中将桩逻辑替换为真实硬件 I/O（操作 `/dev/ttyS*`、`/dev/ttyUSB*`）
+4. **适配新的 HDI 实现**：在 `serial_service.cpp` 中通过 `ISerials` 对接新的串口 HDI，适配不同板卡的 `/dev/ttyS*`、`/dev/ttyUSB*` 设备
 5. **新增错误码**：同步更新 `serial_error_code.h/cpp`、`.d.ts` 的 `@throws` 声明
 
 ## 当前实现状态
 
 - 完整的目录结构和代码框架
 - 3个IDL接口定义和代码生成（ISerialServer + ISerialServiceCallback + SerialServerTypes）
-- InnerAPI客户端实现（12个方法 + 监听器管理 + 死亡通知重连）
-- System Ability服务实现（12个方法，当前为桩实现）
-- 完整NAPI绑定层（12个JS API + 3个枚举 + SerialPort对象 + Promise模式）
+- InnerAPI客户端实现（14 个方法 + 监听器管理 + 死亡通知重连）
+- System Ability服务实现（14 个方法，对接 HDI ISerials 实现真实串口 I/O）
+- 完整NAPI绑定层（16 个 JS API + 3 个枚举 + SerialPort 对象 + Promise 模式）
 - 完整Taihe绑定层（interface SerialPort + 枚举/结构体 + ANI桥接）
 - SA配置和注册（SA 4202 + Init配置）
 - 编译系统集成，成功编译通过
@@ -414,7 +454,7 @@ API声明文件位于 `interfaces/kits/js/@ohos.busManager.serial.d.ts`，模块
 通常节省50-70%编译时间，因为跳过了GN生成阶段。
 
 ### Q4: onDataRead 回调没有触发？
-主服务当前为桩实现，不包含环回逻辑。如需测试环回行为，请部署 `serial_service_lifecycle_test` 测试变体。
+主服务已对接真实 HDI 设备，不包含环回逻辑。如需在无硬件环境验证读写与回调，请部署 `serial_service_lifecycle_test` 测试变体（内置环回读线程）。
 
 ### Q5: 如何部署测试变体到设备？
 将测试变体 so 替换正式 `libserialservice.z.so` 部署到设备对应路径，重启服务即可。
