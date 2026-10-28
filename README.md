@@ -204,6 +204,8 @@ struct SerialConfig {
 | `SendBrkSignal` | `[in] String portName` | 发送中断信号 |
 | `SetRtsSignal` | `[in] String portName, [in] boolean rts` | 设置RTS信号 |
 | `GetCtsSignal` | `[in] String portName, [out] boolean cts` | 获取CTS信号 |
+| `SetDtrSignal` | `[in] String portName, [in] boolean dtr` | 设置DTR信号 |
+| `GetDsrSignal` | `[in] String portName, [out] boolean dsr` | 获取DSR信号 |
 | `AddPortAuthorization` | `[in] String authToken, [in] String deviceId` | 端口授权 |
 
 ### ISerialServiceCallback.idl — 数据回调
