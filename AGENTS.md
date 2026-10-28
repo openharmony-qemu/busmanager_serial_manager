@@ -231,7 +231,7 @@ test/
 ### 错误码测试（serialservice_errcodetest）
 
 - **独立源文件** `test/develop/serial_service_errcodetest.cpp`，不依赖 `#ifdef` 宏分支
-- 包含与正式 `serial_service.cpp` 相同的 SA 框架代码（构造/析构/OnStart/OnStop）和独立的读线程逻辑（本地 `ReadContext` + `ReadThreadFunc`），仅 12 个 IDL 方法使用 `TestScenario` 按轮次返回预设错误码
+- 包含与正式 `serial_service.cpp` 相同的 SA 框架代码（构造/析构/OnStart/OnStop）和独立的读线程逻辑（本地 `ReadContext` + `ReadThreadFunc`），14 个 IDL 方法均使用 `TestScenario` 按轮次返回预设错误码
 - `install_enable = false`，不会随系统安装
 - 编译时抑制 `-Wno-unused-variable` / `-Wno-unused-function`（测试代码存在未使用的场景字段）
 - 覆盖所有错误码场景：`SERIAL_OK`、`SERIAL_ERR_SERVICE`、`SERIAL_ERR_INVALID_PARAM`、`SERIAL_ERR_DEVICE_DISCONNECTED`、`SERIAL_ERR_DEVICE_BUSY`、`SERIAL_ERR_DEVICE_NOT_OPENED`、`SERIAL_ERR_TIMEOUT`、`SERIAL_ERR_PERMISSION_DENIED`、`SERIAL_ERR_NOT_ALLOWED`、未知错误码
