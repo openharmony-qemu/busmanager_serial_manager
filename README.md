@@ -373,7 +373,7 @@ enum Parity    { NONE = 'none', EVEN = 'even', ODD = 'odd', MARK = 'mark', SPACE
 - SA ID: 4202
 - 进程名: `serial_service`，以 `serial` 用户/组运行
 - 按需加载（ondemand），开机完成事件触发启动（`bootevent.boot.completed`），自动重启
-- SA配置文件: `sa_profile/4202.json`（run-on-create=true, auto-restart=true）
+- SA配置文件: `sa_profile/4202.json`（run-on-create=false，按需加载；auto-restart=true）
 - Init配置: `services/serial_service.cfg`
 
 ## IDL 代码生成说明
