@@ -41,7 +41,7 @@
 
 OpenHarmony 串口设备管理服务组件（SA 4202），参考 USB Manager 架构。子系统 `busmanager`，部件 `serial_manager`。
 
-当前服务端为**桩实现**（所有 IDL 方法仅记录日志后返回 `SERIAL_OK`），未接入真实硬件。环回读线程仅在测试变体（`test/develop/`）中实现。
+服务端已对接 HDI `ISerials`，实现真实串口 I/O；权限校验、操作审计、企业策略与 SA 生命周期管理均在服务内完成。环回读线程仅在测试变体（`test/develop/`）中实现。
 
 ## 架构
 
@@ -61,22 +61,22 @@ JS 应用 → Taihe ABC (serial_manager_abc.abc) → ANI Bridge (serial_manager_
 
 | 文件 | 职责 |
 |------|------|
-| `interfaces/innerkits/ISerialServer.idl` | 主接口定义（12个方法），修改后需同步 service/client 的 override 签名 |
+| `interfaces/innerkits/ISerialServer.idl` | 主接口定义（14 个方法），修改后需同步 service/client 的 override 签名 |
 | `interfaces/innerkits/ISerialServiceCallback.idl` | 数据回调 `[oneway]`，服务端→客户端推送 |
 | `interfaces/innerkits/SerialServerTypes.idl` | `SerialPortInfo`(portName, productId, vendorId, manufacturer) + `SerialConfig` 数据结构 |
 | `interfaces/innerkits/native/src/serial_srv_client.cpp` | 客户端单例，SA 4202 连接管理 + 死亡通知重连 |
 | `interfaces/innerkits/native/src/serial_service_callback.cpp` | 监听器管理，`onDataRead` 分发到多个 JS 回调 |
-| `interfaces/kits/js/napi/src/serial_info.cpp` | NAPI 完整实现（~1395行），所有 JS API + SerialPort 对象 |
+| `interfaces/kits/js/napi/src/serial_info.cpp` | NAPI 完整实现（~2340 行），所有 JS API + SerialPort 对象 |
 | `interfaces/kits/js/@ohos.busManager.serial.d.ts` | ArkTS API 声明 |
 | `interfaces/kits/js/taihe/idl/ohos.busManager.serial.taihe` | Taihe IDL 定义（interface SerialPort + struct/enum） |
 | `interfaces/kits/js/taihe/src/ohos.busManager.serial.impl.cpp` | Taihe C++ 实现（SerialPortHolder 类，持有端口状态） |
 | `interfaces/kits/js/taihe/src/ani_constructor.cpp` | ANI 入口，注册 Taihe 模块 |
 | `interfaces/kits/js/taihe/BUILD.gn` | Taihe 编译配置（IDL→ANI→共享库→ABC→安装） |
-| `services/native/src/serial_service.cpp` | SA 服务实现，桩实现（仅记录日志返回成功） |
+| `services/native/src/serial_service.cpp` | SA 服务实现，对接 HDI 完成设备发现、打开、读写与信号控制 |
 | `services/native/include/serial_service.h` | `SerialService` 类定义 |
-| `sa_profile/4202.json` | SA 配置，run-on-create=true，auto-restart=true |
+| `sa_profile/4202.json` | SA 配置，run-on-create=false（按需加载），auto-restart=true |
 | `services/serial_service.cfg` | Init 进程配置，uid=serial，ondemand |
-| `bundle.json` | 组件定义，syscap `SystemCapability.USB.SerialManager` |
+| `bundle.json` | 组件定义，syscap `SystemCapability.BusManager.Serial` |
 | `serialmgr.gni` | 全局路径变量 `serial_manager_path` |
 
 ## IDL 代码生成
@@ -88,19 +88,20 @@ JS 应用 → Taihe ABC (serial_manager_abc.abc) → ANI Bridge (serial_manager_
 2. 检查生成文件中的虚函数签名
 3. 同步更新 `serial_service.h/cpp` 和 `serial_srv_client.h/cpp` 的 override 方法签名
 
-## 服务端模拟行为
+## 服务端实现要点
 
-| 方法 | 行为 |
+| 方法 | 实现 |
 |------|------|
-| `QuerySerialDevices` | 返回空设备列表（不填充 devices） |
-| `OpenSerial` | 仅记录日志，存储回调参数，返回 `SERIAL_OK` |
-| `CloseSerial` | 仅记录日志，返回 `SERIAL_OK` |
-| `WriteSerial` | 记录数据（十六进制+可打印字符），返回 `data.size()`，无真实I/O |
-| `StartRead` / `StopRead` | 仅记录日志，返回 `SERIAL_OK` |
-| `Flush`/`Drain`/`SendBrkSignal`/`SetRtsSignal`/`AddPortAuthorization` | 空操作，返回 `SERIAL_OK` |
-| `GetCtsSignal` | 固定返回 `cts=false` |
+| `QuerySerialDevices` | 经 HDI `QueryDevices` 枚举设备；企业策略禁用 RS-232 时仅保留 USB 串口 |
+| `OpenSerial` | 校验参数与权限，经 HDI `OpenDevice` 打开端口并注册设备回调与死亡通知 |
+| `CloseSerial` | 权限校验后经 HDI `Close` 关闭端口，清理端口上下文 |
+| `WriteSerial` | 经 HDI `Write` 下发数据，返回实际写入字节数 |
+| `StartRead` / `StopRead` | 经 HDI 启停异步读，数据由 `OnReadData` 回调推送 |
+| `Flush` / `Drain` / `SendBrkSignal` | 经 HDI 执行缓冲区清理、等待发送完成、发送断帧信号 |
+| `SetRtsSignal` / `GetCtsSignal` / `SetDtrSignal` / `GetDsrSignal` | 经 HDI 读写流控与调制解调器信号 |
+| `AddPortAuthorization` | 系统应用为指定应用（tokenId）授权指定设备，结果记录到权限缓存并落库 |
 
-> **注意**：`ReadContext`、`ReadThreadFunc`、`readContexts_`、`serviceMutex_` 等成员在正式服务中未使用，仅供 `test/develop/` 下的测试变体（lifecycle_test、errcodetest、paramtest）使用。
+> **注意**：无打开设备时延时 30 秒卸载 SA；客户端进程死亡、设备离线时清理端口上下文。`test/develop/` 下的测试变体自行维护环回读线程，正式服务不含该逻辑。
 
 ## 客户端关键模式
 
@@ -112,7 +113,7 @@ JS 应用 → Taihe ABC (serial_manager_abc.abc) → ANI Bridge (serial_manager_
 ## NAPI 关键模式
 
 - 所有变更操作用 `napi_create_async_work`（Worker 执行 + JS 线程 Complete）
-- `getSerialPortList` 支持 Callback 和 Promise 双模式
+- `getSerialPortList` 仅提供 Promise 调用（不接收回调参数）；数据经 `onDataRead` 回调推送
 - `SerialPort` JS 对象通过 `napi_wrap` 绑定 `SerialPortNative*`，支持缓存复用/失效/恢复/GC 回收
 - `onDataRead` 注册时创建 C++ lambda，通过 `napi_async_work` 调度到 JS 线程
 
@@ -327,7 +328,7 @@ if (data[i] >= 32 && data[i] <= 126) { ... }
 
 1. **改了 BUILD.gn 用 --fast-rebuild** → "Duplicate definition" 错误，改用完整编译
 2. **改了 IDL 未同步签名** → override 不匹配编译错误，先检查生成文件签名
-3. **onDataRead 不触发** → 正式服务为桩实现不产生数据，需部署测试变体（lifecycle_test/errcodetest/paramtest）才有环回回显
+3. **onDataRead 不触发** → 正式服务依赖真实 HDI 设备产生数据；无硬件时部署测试变体（lifecycle_test/errcodetest/paramtest）才有环回回显
 4. **delayed_sp_singleton.h 未使用** — 客户端用的是 static 局部变量单例，非此模板
 5. **RECYCLE(GC) 不触发** — `g_activePorts` 持有强引用(ref=1)阻止 GC，必须先 INVALIDATE(ref→0)后 GC 才能回收
 
