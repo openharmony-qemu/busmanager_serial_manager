@@ -43,6 +43,21 @@ OpenHarmony 串口设备管理服务组件（SA 4202），参考 USB Manager 架
 
 服务端已对接 HDI `ISerials`，实现真实串口 I/O；权限校验、操作审计、企业策略与 SA 生命周期管理均在服务内完成。环回读线程仅在测试变体（`test/develop/`）中实现。
 
+## Where to look
+
+本仓无嵌套 `AGENTS.md`，子目录一律以本文件为准。动手前先说明：本次任务属于哪一类、读了哪些文档、发现了哪些约束。任务描述、日志或代码中出现 `EDM`、`RDB`、`审计`、`NAPI`、`Taihe`、`HDI` 等术语时，按下表对应行先读相关文件，不要凭猜测修改。
+
+| 任务类型 | 先看 | 同时读 |
+|---|---|---|
+| 新增或修改对外接口 | `interfaces/innerkits/ISerialServer.idl`、`interfaces/kits/js/@ohos.busManager.serial.d.ts` | README「IDL 接口定义」「错误码」 |
+| 端口打开 / 关闭 / 读写 | `services/native/src/serial_service.cpp` | `interfaces/innerkits/native/src/serial_srv_client.cpp` |
+| 权限、授权弹窗、EDM、审计 | `services/native/src/serial_right_manager.cpp`、`serial_right_db_helper.cpp`、`serial_security_report.cpp` | `sa_profile/4202.json`、`services/serial_service.cfg` |
+| HDI 适配与设备枚举 | `serial_service.cpp` 的 `InitHdiProxy` / `QuerySerialDevices` / `OpenHdiDevice` | `bundle.json` 中的 `drivers_interface_serial` |
+| NAPI 与 Taihe 绑定 | `interfaces/kits/js/napi/src/serial_info.cpp`、`interfaces/kits/js/taihe/src/ohos.busManager.serial.impl.cpp` | 对应的 `.d.ts` 与 `.taihe` |
+| 错误码 | `utils/native/include/serial_error_code.h` | `.d.ts` 中的 `@throws` |
+| SA 配置与进程属性 | `sa_profile/4202.json`、`services/serial_service.cfg` | 本文件「关键文件速查」 |
+| 测试 | `test/unittest/`、`test/develop/`、`test/module_test/` | 本文件「测试构建」 |
+
 ## 架构
 
 ### NAPI 路径
@@ -332,6 +347,27 @@ if (data[i] >= 32 && data[i] <= 126) { ... }
 4. **delayed_sp_singleton.h 未使用** — 客户端用的是 static 局部变量单例，非此模板
 5. **RECYCLE(GC) 不触发** — `g_activePorts` 持有强引用(ref=1)阻止 GC，必须先 INVALIDATE(ref→0)后 GC 才能回收
 
+## 禁止与请示
+
+**Do not**
+
+- 不得直接编辑 IDL 生成物（`out/.../gen/.../interfaces/innerkits/` 下的 `*_proxy`、`*_stub`、`*_types`）。
+- 不得绕过 `CheckPortAccessPermission()` 的 tokenId 校验去读写端口。
+- 不得跳过 `SerialSecurityReport` 的审计上报。
+- 不得修改日志域 `0xD002A08` 与审计事件 ID `0x030000100` / `0x030000101`：DFX 采集与安全审计依赖固定取值。
+- 不得在正式服务中引入仅测试用的宏或环境变量开关。
+- 不得在单个函数内堆叠超过 50 行逻辑（见「编码规范」）。
+
+**Ask before**
+
+- 修改 `ISerialServer.idl` 已有方法签名、`.d.ts` 中已发布接口，或 `SerialPortInfo` / `SerialConfig` 字段（公开 API 兼容性）。
+- 修改错误码数值或语义（`serial_error_code.h` 与 `.d.ts` 需同步）。
+- 修改权限缓存表结构或缓存键（`serial_right_db_helper`）。
+- 修改 EDM 开关参数名 `persist.edm.rs232_serial_disable`。
+- 新增或升级第三方依赖，或修改 `bundle.json` 的 `deps` / `license` 字段（依赖与许可证合规）。
+- 修改 SA profile 的 `run-on-create`、`auto-restart`、`start-on-demand`，或 Init 配置中的 `uid`、`secon` 标签。
+- 执行可能影响真实设备的命令（直接读写 `/dev/tty*`、`dd`、批量删除）。
+
 ## ArkTS 语法约束
 
 编写 `.ets` 测试代码或应用层代码时必须遵守：
@@ -440,3 +476,29 @@ export default function listTest() {
   serialXxxTest();
 }
 ```
+
+## 完成标准
+
+**最小检查**
+
+- 改动 `bundle.json` 或任何 `BUILD.gn`：执行完整编译，不可用 `--fast-rebuild`。
+- 仅改 `.cpp` / `.h` / `.idl`：可用 `--fast-rebuild`。
+- C/C++ 改动后执行 `clang-format -i`；`BUILD.gn` 改动后执行 `gn format`。
+
+**任务相关检查**
+
+- 改 IDL：编译后核对生成物中的虚函数签名，并同步 `serial_service.*`、`serial_srv_client.*`。
+- 改权限或审计：编译 `serial_manager_tests`，在设备侧运行 `SerialRightTest` 与 `SerialServiceTest`。
+- 改 NAPI：编译 `serial` 目标，确认导出函数与 `.d.ts` 一致。
+
+**Done 定义**
+
+编译通过、相关测试通过、格式已统一，三者齐备才算完成。
+
+**最终回复**
+
+写明改动的文件、执行的检查、未执行的检查及残留风险。
+
+**无法验证时**
+
+说明哪一步没跑、原因（无设备、无构建环境等）以及由此带来的风险，不得默认「应该没问题」。
