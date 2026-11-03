@@ -372,7 +372,7 @@ enum Parity    { NONE = 'none', EVEN = 'even', ODD = 'odd', MARK = 'mark', SPACE
 - 组件注册到 `busmanager` 子系统，部件名 `serial_manager`
 - SA ID: 4202
 - 进程名: `serial_service`，以 `serial` 用户/组运行
-- 按需加载（ondemand），开机完成事件触发启动（`bootevent.boot.completed`），自动重启
+- 按需加载（ondemand），客户端首次调用时由 `start-on-demand` 拉起，异常退出后自动重启（auto-restart）
 - SA配置文件: `sa_profile/4202.json`（run-on-create=false，按需加载；auto-restart=true）
 - Init配置: `services/serial_service.cfg`
 
