@@ -484,7 +484,7 @@ export default function listTest() {
 
 - 改动 `bundle.json` 或任何 `BUILD.gn`：执行完整编译，不可用 `--fast-rebuild`。
 - 仅改 `.cpp` / `.h` / `.idl`：可用 `--fast-rebuild`。
-- C/C++ 改动后执行 `clang-format -i`；`BUILD.gn` 改动后执行 `gn format`。
+- C/C++ 改动后执行「代码格式化」一节中的格式化命令；`BUILD.gn` 改动后执行 `gn format`。
 
 **任务相关检查**
 
