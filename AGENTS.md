@@ -41,7 +41,22 @@
 
 OpenHarmony 串口设备管理服务组件（SA 4202），参考 USB Manager 架构。子系统 `busmanager`，部件 `serial_manager`。
 
-当前服务端为**桩实现**（所有 IDL 方法仅记录日志后返回 `SERIAL_OK`），未接入真实硬件。环回读线程仅在测试变体（`test/develop/`）中实现。
+服务端已对接 HDI `ISerials`，实现真实串口 I/O；权限校验、操作审计、企业策略与 SA 生命周期管理均在服务内完成。环回读线程仅在测试变体（`test/develop/`）中实现。
+
+## Where to look
+
+本仓无嵌套 `AGENTS.md`，子目录一律以本文件为准。动手前先说明：本次任务属于哪一类、读了哪些文档、发现了哪些约束。任务描述、日志或代码中出现 `EDM`、`RDB`、`审计`、`NAPI`、`Taihe`、`HDI` 等术语时，按下表对应行先读相关文件，不要凭猜测修改。若任务只是定位某个功能的入口或单个符号，直接用 grep 搜索，不要按表逐项遍历。
+
+| 任务类型 | 先看 | 同时读 |
+|---|---|---|
+| 新增或修改对外接口 | `interfaces/innerkits/ISerialServer.idl`、`interfaces/kits/js/@ohos.busManager.serial.d.ts` | README「IDL 接口定义」「错误码」 |
+| 端口打开 / 关闭 / 读写 | `services/native/src/serial_service.cpp` | `interfaces/innerkits/native/src/serial_srv_client.cpp` |
+| 权限、授权弹窗、EDM、审计 | `services/native/src/serial_right_manager.cpp`、`serial_right_db_helper.cpp`、`serial_security_report.cpp` | `sa_profile/4202.json`、`services/serial_service.cfg` |
+| HDI 适配与设备枚举 | `serial_service.cpp` 的 `InitHdiProxy` / `QuerySerialDevices` / `OpenHdiDevice` | `bundle.json` 中的 `drivers_interface_serial` |
+| NAPI 与 Taihe 绑定 | `interfaces/kits/js/napi/src/serial_info.cpp`、`interfaces/kits/js/taihe/src/ohos.busManager.serial.impl.cpp` | 对应的 `.d.ts` 与 `.taihe` |
+| 错误码 | `utils/native/include/serial_error_code.h` | `.d.ts` 中的 `@throws` |
+| SA 配置与进程属性 | `sa_profile/4202.json`、`services/serial_service.cfg` | 本文件「关键文件速查」 |
+| 测试 | `test/unittest/`、`test/develop/`、`test/module_test/` | 本文件「测试构建」 |
 
 ## 架构
 
@@ -61,22 +76,22 @@ JS 应用 → Taihe ABC (serial_manager_abc.abc) → ANI Bridge (serial_manager_
 
 | 文件 | 职责 |
 |------|------|
-| `interfaces/innerkits/ISerialServer.idl` | 主接口定义（12个方法），修改后需同步 service/client 的 override 签名 |
+| `interfaces/innerkits/ISerialServer.idl` | 主接口定义（14 个方法），修改后需同步 service/client 的 override 签名 |
 | `interfaces/innerkits/ISerialServiceCallback.idl` | 数据回调 `[oneway]`，服务端→客户端推送 |
 | `interfaces/innerkits/SerialServerTypes.idl` | `SerialPortInfo`(portName, productId, vendorId, manufacturer) + `SerialConfig` 数据结构 |
 | `interfaces/innerkits/native/src/serial_srv_client.cpp` | 客户端单例，SA 4202 连接管理 + 死亡通知重连 |
 | `interfaces/innerkits/native/src/serial_service_callback.cpp` | 监听器管理，`onDataRead` 分发到多个 JS 回调 |
-| `interfaces/kits/js/napi/src/serial_info.cpp` | NAPI 完整实现（~1395行），所有 JS API + SerialPort 对象 |
+| `interfaces/kits/js/napi/src/serial_info.cpp` | NAPI 完整实现（~2340 行），所有 JS API + SerialPort 对象 |
 | `interfaces/kits/js/@ohos.busManager.serial.d.ts` | ArkTS API 声明 |
 | `interfaces/kits/js/taihe/idl/ohos.busManager.serial.taihe` | Taihe IDL 定义（interface SerialPort + struct/enum） |
 | `interfaces/kits/js/taihe/src/ohos.busManager.serial.impl.cpp` | Taihe C++ 实现（SerialPortHolder 类，持有端口状态） |
 | `interfaces/kits/js/taihe/src/ani_constructor.cpp` | ANI 入口，注册 Taihe 模块 |
 | `interfaces/kits/js/taihe/BUILD.gn` | Taihe 编译配置（IDL→ANI→共享库→ABC→安装） |
-| `services/native/src/serial_service.cpp` | SA 服务实现，桩实现（仅记录日志返回成功） |
+| `services/native/src/serial_service.cpp` | SA 服务实现，对接 HDI 完成设备发现、打开、读写与信号控制 |
 | `services/native/include/serial_service.h` | `SerialService` 类定义 |
-| `sa_profile/4202.json` | SA 配置，run-on-create=true，auto-restart=true |
+| `sa_profile/4202.json` | SA 配置，run-on-create=false（按需加载），auto-restart=true |
 | `services/serial_service.cfg` | Init 进程配置，uid=serial，ondemand |
-| `bundle.json` | 组件定义，syscap `SystemCapability.USB.SerialManager` |
+| `bundle.json` | 组件定义，syscap `SystemCapability.BusManager.Serial` |
 | `serialmgr.gni` | 全局路径变量 `serial_manager_path` |
 
 ## IDL 代码生成
@@ -88,19 +103,20 @@ JS 应用 → Taihe ABC (serial_manager_abc.abc) → ANI Bridge (serial_manager_
 2. 检查生成文件中的虚函数签名
 3. 同步更新 `serial_service.h/cpp` 和 `serial_srv_client.h/cpp` 的 override 方法签名
 
-## 服务端模拟行为
+## 服务端实现要点
 
-| 方法 | 行为 |
+| 方法 | 实现 |
 |------|------|
-| `QuerySerialDevices` | 返回空设备列表（不填充 devices） |
-| `OpenSerial` | 仅记录日志，存储回调参数，返回 `SERIAL_OK` |
-| `CloseSerial` | 仅记录日志，返回 `SERIAL_OK` |
-| `WriteSerial` | 记录数据（十六进制+可打印字符），返回 `data.size()`，无真实I/O |
-| `StartRead` / `StopRead` | 仅记录日志，返回 `SERIAL_OK` |
-| `Flush`/`Drain`/`SendBrkSignal`/`SetRtsSignal`/`AddPortAuthorization` | 空操作，返回 `SERIAL_OK` |
-| `GetCtsSignal` | 固定返回 `cts=false` |
+| `QuerySerialDevices` | 经 HDI `QueryDevices` 枚举设备；企业策略禁用 RS-232 时仅保留 USB 串口 |
+| `OpenSerial` | 校验参数与权限，经 HDI `OpenDevice` 打开端口并注册设备回调与死亡通知 |
+| `CloseSerial` | 权限校验后经 HDI `Close` 关闭端口，清理端口上下文 |
+| `WriteSerial` | 经 HDI `Write` 下发数据，返回实际写入字节数 |
+| `StartRead` / `StopRead` | 经 HDI 启停异步读，数据由 `OnReadData` 回调推送 |
+| `Flush` / `Drain` / `SendBrkSignal` | 经 HDI 执行缓冲区清理、等待发送完成、发送断帧信号 |
+| `SetRtsSignal` / `GetCtsSignal` / `SetDtrSignal` / `GetDsrSignal` | 经 HDI 读写流控与调制解调器信号 |
+| `AddPortAuthorization` | 系统应用为指定应用（tokenId）授权指定设备，结果记录到权限缓存并落库 |
 
-> **注意**：`ReadContext`、`ReadThreadFunc`、`readContexts_`、`serviceMutex_` 等成员在正式服务中未使用，仅供 `test/develop/` 下的测试变体（lifecycle_test、errcodetest、paramtest）使用。
+> **注意**：无打开设备时延时 30 秒卸载 SA；客户端进程死亡、设备离线时清理端口上下文。`test/develop/` 下的测试变体自行维护环回读线程，正式服务不含该逻辑。
 
 ## 客户端关键模式
 
@@ -112,7 +128,7 @@ JS 应用 → Taihe ABC (serial_manager_abc.abc) → ANI Bridge (serial_manager_
 ## NAPI 关键模式
 
 - 所有变更操作用 `napi_create_async_work`（Worker 执行 + JS 线程 Complete）
-- `getSerialPortList` 支持 Callback 和 Promise 双模式
+- `getSerialPortList` 仅提供 Promise 调用（不接收回调参数）；数据经 `onDataRead` 回调推送
 - `SerialPort` JS 对象通过 `napi_wrap` 绑定 `SerialPortNative*`，支持缓存复用/失效/恢复/GC 回收
 - `onDataRead` 注册时创建 C++ lambda，通过 `napi_async_work` 调度到 JS 线程
 
@@ -230,7 +246,7 @@ test/
 ### 错误码测试（serialservice_errcodetest）
 
 - **独立源文件** `test/develop/serial_service_errcodetest.cpp`，不依赖 `#ifdef` 宏分支
-- 包含与正式 `serial_service.cpp` 相同的 SA 框架代码（构造/析构/OnStart/OnStop）和独立的读线程逻辑（本地 `ReadContext` + `ReadThreadFunc`），仅 12 个 IDL 方法使用 `TestScenario` 按轮次返回预设错误码
+- 包含与正式 `serial_service.cpp` 相同的 SA 框架代码（构造/析构/OnStart/OnStop）和独立的读线程逻辑（本地 `ReadContext` + `ReadThreadFunc`），14 个 IDL 方法均使用 `TestScenario` 按轮次返回预设错误码
 - `install_enable = false`，不会随系统安装
 - 编译时抑制 `-Wno-unused-variable` / `-Wno-unused-function`（测试代码存在未使用的场景字段）
 - 覆盖所有错误码场景：`SERIAL_OK`、`SERIAL_ERR_SERVICE`、`SERIAL_ERR_INVALID_PARAM`、`SERIAL_ERR_DEVICE_DISCONNECTED`、`SERIAL_ERR_DEVICE_BUSY`、`SERIAL_ERR_DEVICE_NOT_OPENED`、`SERIAL_ERR_TIMEOUT`、`SERIAL_ERR_PERMISSION_DENIED`、`SERIAL_ERR_NOT_ALLOWED`、未知错误码
@@ -327,9 +343,31 @@ if (data[i] >= 32 && data[i] <= 126) { ... }
 
 1. **改了 BUILD.gn 用 --fast-rebuild** → "Duplicate definition" 错误，改用完整编译
 2. **改了 IDL 未同步签名** → override 不匹配编译错误，先检查生成文件签名
-3. **onDataRead 不触发** → 正式服务为桩实现不产生数据，需部署测试变体（lifecycle_test/errcodetest/paramtest）才有环回回显
+3. **onDataRead 不触发** → 正式服务依赖真实 HDI 设备产生数据；无硬件时部署测试变体（lifecycle_test/errcodetest/paramtest）才有环回回显
 4. **delayed_sp_singleton.h 未使用** — 客户端用的是 static 局部变量单例，非此模板
 5. **RECYCLE(GC) 不触发** — `g_activePorts` 持有强引用(ref=1)阻止 GC，必须先 INVALIDATE(ref→0)后 GC 才能回收
+
+## 禁止与请示
+
+**Do not**
+
+- 不得直接编辑 IDL 生成物（`out/.../gen/.../interfaces/innerkits/` 下的 `*_proxy`、`*_stub`、`*_types`）。
+- 不得把「基线已具备」当作不实现需求的理由；题面要求新增或修改时，必须产出实际代码改动。
+- 不得绕过 `CheckPortAccessPermission()` 的 tokenId 校验去读写端口。
+- 不得跳过 `SerialSecurityReport` 的审计上报。
+- 不得修改日志域 `0xD002A08` 与审计事件 ID `0x030000100` / `0x030000101`：DFX 采集与安全审计依赖固定取值。
+- 不得在正式服务中引入仅测试用的宏或环境变量开关。
+- 不得在单个函数内堆叠超过 50 行逻辑（见「编码规范」）。
+
+**Ask before**
+
+- 修改 `ISerialServer.idl` 已有方法签名、`.d.ts` 中已发布接口，或 `SerialPortInfo` / `SerialConfig` 字段（公开 API 兼容性）。
+- 修改错误码数值或语义（`serial_error_code.h` 与 `.d.ts` 需同步）。
+- 修改权限缓存表结构或缓存键（`serial_right_db_helper`）。
+- 修改 EDM 开关参数名 `persist.edm.rs232_serial_disable`。
+- 新增或升级第三方依赖，或修改 `bundle.json` 的 `deps` / `license` 字段（依赖与许可证合规）。
+- 修改 SA profile 的 `run-on-create`、`auto-restart`、`start-on-demand`，或 Init 配置中的 `uid`、`secon` 标签。
+- 执行可能影响真实设备的命令（直接读写 `/dev/tty*`、`dd`、批量删除）。
 
 ## ArkTS 语法约束
 
@@ -439,3 +477,29 @@ export default function listTest() {
   serialXxxTest();
 }
 ```
+
+## 完成标准
+
+**最小检查**
+
+- 改动 `bundle.json` 或任何 `BUILD.gn`：执行完整编译，不可用 `--fast-rebuild`。
+- 仅改 `.cpp` / `.h` / `.idl`：可用 `--fast-rebuild`。
+- C/C++ 改动后执行「代码格式化」一节中的格式化命令；`BUILD.gn` 改动后执行 `gn format`。
+
+**任务相关检查**
+
+- 改 IDL：编译后核对生成物中的虚函数签名，并同步 `serial_service.*`、`serial_srv_client.*`。
+- 改权限或审计：编译 `serial_manager_tests`，在设备侧运行 `SerialRightTest` 与 `SerialServiceTest`。
+- 改 NAPI：编译 `serial` 目标，确认导出函数与 `.d.ts` 一致。
+
+**Done 定义**
+
+编译通过、相关测试通过、格式已统一，三者齐备才算完成。
+
+**最终回复**
+
+写明改动的文件、执行的检查、未执行的检查及残留风险。
+
+**无法验证时**
+
+说明哪一步没跑、原因（无设备、无构建环境等）以及由此带来的风险，不得默认「应该没问题」。
