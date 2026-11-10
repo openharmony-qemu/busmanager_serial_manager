@@ -58,6 +58,21 @@ OpenHarmony 串口设备管理服务组件（SA 4202），参考 USB Manager 架
 | SA 配置与进程属性 | `sa_profile/4202.json`、`services/serial_service.cfg` | 本文件「关键文件速查」 |
 | 测试 | `test/unittest/`、`test/develop/`、`test/module_test/` | 本文件「测试构建」 |
 
+## 知识路由
+
+`docs/knowledge/` 下维护了六篇知识文档（插件级结构），按问题类型先读对应文档，不要一次加载全部：
+
+| 问题 | 先读 |
+|---|---|
+| 业务定位、职责边界与上下游 | [docs/knowledge/business-context.md](docs/knowledge/business-context.md) |
+| 架构、调用关系、部署与并发边界 | [docs/knowledge/architecture.md](docs/knowledge/architecture.md) |
+| 修改代码前的领域约束 | [docs/knowledge/coding-standards.md](docs/knowledge/coding-standards.md) |
+| 术语和易混概念（portName/deviceId/错误码体系/801 stub 等） | [docs/knowledge/glossary.md](docs/knowledge/glossary.md) |
+| 实体、状态、关系和生命周期（DeviceContext、授权记录、监听器、端口对象等） | [docs/knowledge/serial-Entity.md](docs/knowledge/serial-Entity.md) |
+| 技术原理、使用方式和限制（IPC、SA 生命周期、HDI、授权、EDM、审计、错误码映射等） | [docs/knowledge/serial-Technology.md](docs/knowledge/serial-Technology.md) |
+
+按需阅读顺序建议：动代码前先读 coding-standards.md 确认红线；涉及授权/审计/EDM/回调链等机制改动时读 serial-Technology.md 对应机制节；定位数据结构或生命周期问题读 serial-Entity.md；不确定术语先查 glossary.md；需要整体理解分层与约束读 architecture.md，业务边界读 business-context.md。
+
 ## 架构
 
 ### NAPI 路径
