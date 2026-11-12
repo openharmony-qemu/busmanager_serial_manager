@@ -1,0 +1,100 @@
+# Copyright (c) 2026 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import("//build/test.gni")
+import("../../../serialmgr.gni")
+
+if (serial_manager_feature_deploy_sa) {
+  config("mock_hdi_coverage_config") {
+    include_dirs = [
+      "${serial_manager_path}/test/unittest/include",
+      "${serial_manager_path}/test/unittest/serial_service",
+      "${serial_manager_path}/services/native/include",
+      "${serial_manager_path}/interfaces/innerkits/native/include",
+      "${serial_manager_path}/utils/native/include",
+    ]
+  }
+
+  # SerialMockHdiTest - Mock HDI 覆盖测试（环回数据通路/设备枚举场景/企业策略）
+  # 全部用例基于 MockSerials 运行，无需真实串口设备；
+  # 无真实设备环境时相关用例默认返回 success。
+  ohos_unittest("SerialMockHdiTest") {
+    module_out_path = "busmanager/serial_manager"
+
+    sanitize = {
+      integer_overflow = true
+      ubsan = true
+      boundary_sanitize = true
+      cfi = true
+      cfi_cross_dso = true
+      debug = false
+    }
+    branch_protector_ret = "pac_ret"
+
+    sources = [
+      "${serial_manager_path}/services/native/src/serial_right_db_helper.cpp",
+      "${serial_manager_path}/services/native/src/serial_right_manager.cpp",
+      "${serial_manager_path}/services/native/src/serial_security_report.cpp",
+      "${serial_manager_path}/services/native/src/serial_service.cpp",
+      "mock_hdi_env.cpp",
+      "serial_mock_hdi_device_env_test.cpp",
+      "serial_mock_hdi_errcode_test.cpp",
+      "serial_mock_hdi_loopback_test.cpp",
+      "serial_mock_hdi_param_test.cpp",
+      "serial_mock_hdi_twodevice_test.cpp",
+    ]
+
+    cflags_cc = [
+      "-Wno-unused-variable",
+      "-Wno-unused-function",
+    ]
+
+    configs = [ ":mock_hdi_coverage_config" ]
+
+    deps = [
+      "../serial_service:mock_serial_hdi_src",
+      "${serial_manager_path}/interfaces/innerkits:serial_server_stub",
+      "${serial_manager_path}/utils:serial_error_code",
+    ]
+
+    external_deps = [
+      "ability_base:want",
+      "ability_runtime:ability_connect_callback_stub",
+      "ability_runtime:ability_manager",
+      "access_token:libaccesstoken_sdk",
+      "access_token:libtokenid_sdk",
+      "bundle_framework:appexecfwk_base",
+      "bundle_framework:appexecfwk_core",
+      "cJSON:cjson",
+      "c_utils:utils",
+      "common_event_service:cesfwk_innerkits",
+      "drivers_interface_serial:libserials_proxy_1.0",
+      "drivers_interface_serial:serials_idl_headers",
+      "googletest:gmock",
+      "googletest:gtest_main",
+      "hilog:libhilog",
+      "ipc:ipc_core",
+      "os_account:os_account_innerkits",
+      "relational_store:native_rdb",
+    ]
+
+    defines = [ "private=public" ]
+  }
+}
+
+group("mock_hdi_coverage") {
+  testonly = true
+  if (serial_manager_feature_deploy_sa) {
+    deps = [ ":SerialMockHdiTest" ]
+  }
+}
