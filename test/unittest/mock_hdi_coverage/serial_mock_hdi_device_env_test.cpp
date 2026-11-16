@@ -298,7 +298,10 @@ HWTEST_F(SerialMockHdiDeviceEnvTest, ConvertConfig_MapsAllFields, TestSize.Level
     serviceConfig.xoff = false;
     serviceConfig.xany = true;
 
-    SerialConfig hdiConfig = service_->ConvertConfig(serviceConfig);
+    // 与生产代码一致（serial_service.cpp:542）：ConvertConfig 返回 HDI 类型，
+    // 显式限定为 OHOS::HDI::Serial::V1_0::SerialConfig，避免被 using 解析为 IDL 的
+    // OHOS::Serial::SerialConfig（两者为不同类型且无隐式转换）
+    OHOS::HDI::Serial::V1_0::SerialConfig hdiConfig = service_->ConvertConfig(serviceConfig);
 
     EXPECT_EQ(hdiConfig.baudRate, TEST_BAUD_RATE);
     EXPECT_EQ(hdiConfig.dataBits, TEST_DATA_BITS);
