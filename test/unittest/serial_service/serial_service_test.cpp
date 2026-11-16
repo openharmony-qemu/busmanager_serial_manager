@@ -32,9 +32,12 @@
 #include <gtest/gtest.h>
 
 #include "hilog_wrapper.h"
+#include "ipc_skeleton.h"
 #include "mock_serial_hdi.h"
+#include "os_account_manager.h"
 #include "serial_error_code.h"
 #include "serial_hdi_stub.h"
+#include "serial_right_manager.h"
 #include "serial_service.h"
 #include "serial_service_callback.h"
 #include "system_ability_definition.h"
@@ -1017,6 +1020,54 @@ HWTEST_F(SerialServiceTest, FindPortNameForDevice_NoMatch_ReturnsEmpty, TestSize
     EXPECT_TRUE(result.empty() || result == "");
 
     SERIAL_HILOGI(MODULE_SERVICE, "FindPortNameForDevice_NoMatch_ReturnsEmpty: success");
+}
+
+/**
+ * @brief 测试 GetCallingAppUid 与 GetCallingUid 等值性：迁移 GetCallingUid→GetCallingAppUid
+ *        的行为不变式；当前 IPC 实现中两者一致，IPC 层后续分化语义时该用例报警提示复核。
+ */
+HWTEST_F(SerialServiceTest, GetCallingAppUid_EqualsGetCallingUid, TestSize.Level1)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "GetCallingAppUid_EqualsGetCallingUid: start");
+
+    EXPECT_EQ(IPCSkeleton::GetCallingAppUid(), IPCSkeleton::GetCallingUid());
+
+    SERIAL_HILOGI(MODULE_SERVICE, "GetCallingAppUid_EqualsGetCallingUid: success");
+}
+
+/**
+ * @brief 测试 GetCallingUserId：以 GetCallingAppUid 经账号服务推导 userId，
+ *        结果与直接调用 GetOsAccountLocalIdFromUid(GetCallingAppUid()) 一致；
+ *        账号服务失败时回落 SERIAL_RIGHT_USERID_DEFAULT(100)。
+ */
+HWTEST_F(SerialServiceTest, GetCallingUserId_MatchesOsAccountOracle, TestSize.Level1)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "GetCallingUserId_MatchesOsAccountOracle: start");
+
+    int32_t userId = service_->GetCallingUserId();
+
+    int32_t oracle = -1;
+    int32_t ret = AccountSA::OsAccountManager::GetOsAccountLocalIdFromUid(IPCSkeleton::GetCallingAppUid(), oracle);
+    int32_t expected = (ret == 0) ? oracle : SERIAL_RIGHT_USERID_DEFAULT;
+    EXPECT_EQ(userId, expected);
+    EXPECT_GE(userId, 0);
+
+    SERIAL_HILOGI(
+        MODULE_SERVICE, "GetCallingUserId_MatchesOsAccountOracle: ret=%{public}d userId=%{public}d", ret, userId);
+}
+
+/**
+ * @brief 测试 ReportSerialOperationAudit：使用 GetCallingAppUid 记录审计 uid，
+ *        调用完成后无崩溃（事件经 hisysevent 上报）。
+ */
+HWTEST_F(SerialServiceTest, ReportSerialOperationAudit_CompletesWithoutCrash, TestSize.Level1)
+{
+    SERIAL_HILOGI(MODULE_SERVICE, "ReportSerialOperationAudit_CompletesWithoutCrash: start");
+
+    service_->ReportSerialOperationAudit("/dev/ttyUSB0", "open");
+    EXPECT_EQ(IPCSkeleton::GetCallingAppUid(), IPCSkeleton::GetCallingUid());
+
+    SERIAL_HILOGI(MODULE_SERVICE, "ReportSerialOperationAudit_CompletesWithoutCrash: success");
 }
 
 } // namespace Serial
