@@ -15,6 +15,7 @@
 
 #include "serial_right_db_helper.h"
 
+#include <cerrno>
 #include <ctime>
 #include <mutex>
 #include <sys/stat.h>
@@ -110,8 +111,7 @@ bool SerialRightDbHelper::DeleteDatabaseFile()
     return false;
 }
 
-bool SerialRightDbHelper::OpenDatabaseIfExists()
-{
+bool SerialRightDbHelper::OpenDatabaseIfExists() {
     std::lock_guard<std::mutex> lock(databaseMutex_);
 
     // Clean up old connection first
@@ -127,6 +127,7 @@ bool SerialRightDbHelper::OpenDatabaseIfExists()
 
     RdbStoreConfig config(dbPath);
     config.SetSecurityLevel(SecurityLevel::S1);
+    config.SetCreateNecessary(false);
 
     SerialRightRdbOpenCallback callback;
     int32_t errCode = E_OK;
@@ -139,6 +140,33 @@ bool SerialRightDbHelper::OpenDatabaseIfExists()
 
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Database opened successfully", __func__, __LINE__);
     return true;
+}
+
+int32_t SerialRightDbHelper::DeleteDeviceRightRecords(const std::string& deviceId) {
+    if (deviceId.empty()) {
+        return E_ERROR;
+    }
+    std::lock_guard<std::mutex> lock(databaseMutex_);
+    if (rdbStore_ == nullptr) {
+        std::string path = GetDatabasePath();
+        struct stat metadata = {};
+        if (stat(path.c_str(), &metadata) != 0) {
+            return errno == ENOENT ? E_OK : E_ERROR;
+        }
+        RdbStoreConfig config(path);
+        config.SetSecurityLevel(SecurityLevel::S1);
+        config.SetCreateNecessary(false);
+        SerialRightRdbOpenCallback callback;
+        int32_t error = E_OK;
+        rdbStore_ = RdbHelper::GetRdbStore(config, DATABASE_VERSION, callback, error);
+        if (rdbStore_ == nullptr) {
+            return error == E_OK ? E_ERROR : error;
+        }
+    }
+    RdbPredicates predicates(TABLE_NAME);
+    predicates.EqualTo("device_id", deviceId);
+    int32_t deletedRows = 0;
+    return rdbStore_->Delete(deletedRows, predicates);
 }
 
 bool SerialRightDbHelper::CreateDatabaseAndOpen()

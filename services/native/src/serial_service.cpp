@@ -17,8 +17,8 @@
 
 #include "accesstoken_kit.h"
 #include "bundle_mgr_interface.h"
-#include "config_policy_utils.h"
 #include "common_timer_errors.h"
+#include "config_policy_utils.h"
 #include "hdf_types.h"
 #include "hilog_wrapper.h"
 #include "if_system_ability_manager.h"
@@ -27,9 +27,11 @@
 #include "os_account_manager.h"
 #include "parameter.h"
 #include "parameters.h"
+#include "serial_device_identity.h"
 #include "serial_error_code.h"
 #include "serial_right_manager.h"
 #include "serial_service.h"
+#include "serial_token_id.h"
 #include "system_ability_definition.h"
 #include "system_ability_ondemand_reason.h"
 #include "tokenid_kit.h"
@@ -85,6 +87,7 @@ static int32_t SerialHdiToInternalCode(int32_t hdiCode)
 constexpr const char* RS232_MDM_PARAM = "persist.edm.rs232_serial_disable";
 constexpr const char* PORT_ID_CHARS = "0123456789";
 constexpr const char* PCIE_SERIAL_CONFIG_PATH = "etc/serial/pcie_serial_config.json";
+constexpr size_t SERIAL_USB_ID_BUFFER_SIZE = 32;
 sptr<SerialService> g_serviceInstance = nullptr;
 
 REGISTER_SYSTEM_ABILITY_BY_ID(SerialService, SERIAL_SYSTEM_ABILITY_ID, true);
@@ -108,25 +111,26 @@ sptr<SerialService> SerialService::GetGlobalInstance()
     return g_serviceInstance;
 }
 
-SerialClientDeathRecipient::SerialClientDeathRecipient(const std::string& portName, SerialService* service)
-    : portName_(portName), service_(service)
-{
+SerialClientDeathRecipient::SerialClientDeathRecipient(
+    const std::string& portName, SerialService* service, const std::weak_ptr<DeviceContext>& context)
+    : portName_(portName), service_(service), context_(context) {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SerialClientDeathRecipient created for port %{public}s",
         __func__, __LINE__, portName.c_str());
 }
 
-void SerialClientDeathRecipient::OnRemoteDied(const wptr<IRemoteObject>& object)
-{
+void SerialClientDeathRecipient::OnRemoteDied(const wptr<IRemoteObject>& object) {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Client died for port %{public}s, cleaning up resources",
         __func__, __LINE__, portName_.c_str());
-    if (service_ != nullptr) {
-        service_->OnClientDied(portName_);
+    auto service = service_.promote();
+    auto context = context_.lock();
+    if (service != nullptr && context != nullptr) {
+        service->OnClientDied(portName_, context);
     }
 }
 
-SerialHdiCallback::SerialHdiCallback(const sptr<ISerialServiceCallback>& serviceCallback, const std::string& deviceId)
-    : serviceCallback_(serviceCallback), portName_(deviceId)
-{
+SerialHdiCallback::SerialHdiCallback(
+    const sptr<ISerialServiceCallback>& serviceCallback, const std::string& portName, const std::string& deviceId)
+    : serviceCallback_(serviceCallback), portName_(portName), deviceId_(deviceId) {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SerialHdiCallback created", __func__, __LINE__);
 }
 
@@ -150,20 +154,17 @@ int32_t SerialHdiCallback::OnReadData(const std::vector<int8_t>& data, uint32_t 
     return SERIAL_OK;
 }
 
-int32_t SerialHdiCallback::OnDeviceOffline()
-{
+int32_t SerialHdiCallback::OnDeviceOffline() {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d SerialHdiCallback::OnDeviceOffline, port=%{public}s", __func__,
         __LINE__, portName_.c_str());
 
+    // Revoke before waiting for serviceMutex_: OpenSerial may be awaiting UI.
+    SerialRightManager::GetInstance().RevokeDeviceRights(deviceId_);
     auto service = SerialService::GetGlobalInstance();
     if (service != nullptr) {
-        service->HandleDeviceOffline(portName_);
+        service->HandleDeviceOffline(portName_, deviceId_);
     }
 
-    // Do not clear authorization records on device offline
-    // (cache mode: authorization valid for this launch cycle, cleared on restart)
-    // When device is reconnected, if VID/PID are the same but portName changes,
-    // re-authorization is required
     return SERIAL_OK;
 }
 
@@ -400,10 +401,9 @@ SerialPortInfo SerialService::ConvertDeviceInfo(const SerialDeviceInfo& hdiInfo)
     return serviceInfo;
 }
 
-DeviceContext* SerialService::FindDeviceContext(const std::string& portName)
-{
+DeviceContext* SerialService::FindDeviceContext(const std::string& portName) {
     auto it = deviceContexts_.find(portName);
-    if (it != deviceContexts_.end()) {
+    if (it != deviceContexts_.end() && it->second != nullptr && !it->second->closing) {
         return it->second.get();
     }
     return nullptr;
@@ -557,8 +557,7 @@ int32_t SerialService::OpenHdiDevice(const std::string& portName, const SerialCo
 
 std::shared_ptr<DeviceContext> SerialService::BuildDeviceContext(const std::string& portName,
     const SerialConfig& config, const sptr<ISerialServiceCallback>& token,
-    const sptr<OHOS::HDI::Serial::V1_0::ISerialDevice>& hdiDevice, const sptr<SerialHdiCallback>& hdiCallback)
-{
+    const sptr<OHOS::HDI::Serial::V1_0::ISerialDevice>& hdiDevice, const sptr<SerialHdiCallback>& hdiCallback) {
     auto context = std::make_shared<DeviceContext>();
     context->hdiDevice = hdiDevice;
     context->hdiCallback = hdiCallback;
@@ -570,7 +569,7 @@ std::shared_ptr<DeviceContext> SerialService::BuildDeviceContext(const std::stri
     context->openTime = std::chrono::steady_clock::now();
     context->config = config;
 
-    sptr<SerialClientDeathRecipient> deathRecipient = new SerialClientDeathRecipient(portName, this);
+    sptr<SerialClientDeathRecipient> deathRecipient = new SerialClientDeathRecipient(portName, this, context);
     auto tokenObject = token->AsObject();
     if (tokenObject == nullptr) {
         SERIAL_HILOGW(MODULE_SERVICE,
@@ -587,231 +586,168 @@ std::shared_ptr<DeviceContext> SerialService::BuildDeviceContext(const std::stri
     return context;
 }
 
-int32_t SerialService::OpenSerial(
-    const SerialPortInfo& portInfo, const SerialConfig& config, const sptr<ISerialServiceCallback>& token)
-{
-    SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d OpenSerial called, portName=%{public}s, productId=%{public}d, vendorId=%{public}d, "
-        "manufacturer=%{public}s, baudRate=%{public}d, dataBits=%{public}d, stopBits=%{public}d, "
-        "parity=%{public}d, rtscts=%{public}d, xon=%{public}d, xoff=%{public}d, xany=%{public}d, ",
-        __func__, __LINE__, portInfo.portName.c_str(), portInfo.productId, portInfo.vendorId,
-        portInfo.manufacturer.c_str(), config.baudRate, config.dataBits, config.stopBits, config.parity, config.rtscts,
-        config.xon, config.xoff, config.xany);
-    ReportSerialOperationAudit(portInfo.portName, SERIAL_OPEN);
-    if (isRs232Disabled_ && !IsUsbSerial(portInfo.portName)) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
-        return SERIAL_ERR_SERVICE;
-    }
-
-    int32_t paramRet = ValidateOpenSerialParams(portInfo, config, token);
-    if (paramRet != SERIAL_OK) {
-        return paramRet;
-    }
-
-    std::lock_guard<std::mutex> lock(serviceMutex_);
-
-    if (unloadTimerId_ != 0) {
-        unloadTimer_.Unregister(unloadTimerId_);
-        unloadTimerId_ = 0;
-        SERIAL_HILOGI(
-            MODULE_SERVICE, "%{public}s:%{public}d Cancelled unload timer on device open", __func__, __LINE__);
-    }
-
-    std::string portName = FindPortNameForDevice(portInfo);
+int32_t SerialService::ValidateConnectedPort(const SerialPortInfo& portInfo, const std::string& portName) {
     if (portName.empty()) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Cannot find device %{public}s", __func__, __LINE__,
-            portInfo.portName.c_str());
         return SERIAL_ERR_DEVICE_DISCONNECTED;
     }
-
     std::vector<SerialPortInfo> currentDevices;
     int32_t queryRet = QuerySerialDevices(currentDevices);
     if (queryRet != SERIAL_OK) {
-        SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d QuerySerialDevices failed before open, ret=%{public}d",
-            __func__, __LINE__, queryRet);
-    } else {
-        bool portFound = false;
-        for (const auto& dev : currentDevices) {
-            if (dev.portName == portName && dev.vendorId == portInfo.vendorId && dev.productId == portInfo.productId &&
-                dev.manufacturer == portInfo.manufacturer) {
-                portFound = true;
-                break;
-            }
-        }
-        if (!portFound) {
-            SERIAL_HILOGE(MODULE_SERVICE,
-                "%{public}s:%{public}d Port %{public}s not found or mismatch "
-                "(expected: vid=0x%{public}04x, pid=0x%{public}04x, manufacturer=%{public}s)",
-                __func__, __LINE__, portName.c_str(), portInfo.vendorId, portInfo.productId,
-                portInfo.manufacturer.c_str());
-            return SERIAL_ERR_DEVICE_DISCONNECTED;
+        return queryRet;
+    }
+    for (const auto& device : currentDevices) {
+        if (device.portName == portName && device.vendorId == portInfo.vendorId &&
+            device.productId == portInfo.productId && device.manufacturer == portInfo.manufacturer) {
+            return SERIAL_OK;
         }
     }
+    return SERIAL_ERR_DEVICE_DISCONNECTED;
+}
 
-    int32_t rightRet = RequestSerialPortRight(portInfo);
-    if (rightRet != SERIAL_OK) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d Permission denied for port %{public}s, ret=%{public}d",
-            __func__, __LINE__, portInfo.portName.c_str(), rightRet);
-        return rightRet;
+int32_t SerialService::OpenAuthorizedSerial(const SerialPortInfo& portInfo, const SerialConfig& config,
+    const sptr<ISerialServiceCallback>& token, const std::string& portName, const std::string& deviceId,
+    std::unique_lock<std::mutex>& serviceLock) {
+    if (deviceId.empty() || BuildDeviceId(portInfo) != deviceId) {
+        SerialRightManager::GetInstance().RevokeDeviceRights(deviceId);
+        return SERIAL_ERR_DEVICE_DISCONNECTED;
     }
-
     if (deviceContexts_.find(portName) != deviceContexts_.end()) {
-        SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s already opened", __func__, __LINE__,
-            portName.c_str());
         return SERIAL_ERR_DEVICE_BUSY;
     }
-
     std::string hdiPortName = DEV_PREFIX + portName;
     sptr<OHOS::HDI::Serial::V1_0::ISerialDevice> hdiDevice;
-    sptr<SerialHdiCallback> hdiCallback = new SerialHdiCallback(token, portName);
+    sptr<SerialHdiCallback> hdiCallback = new SerialHdiCallback(token, portName, deviceId);
     int32_t hdiRet = OpenHdiDevice(hdiPortName, config, token, hdiDevice, hdiCallback);
     if (hdiRet != SERIAL_OK) {
         return hdiRet;
     }
-
+    // HDI opens by pathname, not by a caller-supplied verified fd. Recheck
+    // after its open too; a replacement must never inherit the old grant.
+    if (BuildDeviceId(portInfo) != deviceId) {
+        SerialRightManager::GetInstance().RevokeDeviceRights(deviceId);
+        // NotifyDeviceOffline holds the HDI shared mutex while calling us;
+        // release our lock before Close takes its exclusive mutex.
+        serviceLock.unlock();
+        hdiDevice->Close();
+        return SERIAL_ERR_DEVICE_DISCONNECTED;
+    }
     auto context = BuildDeviceContext(portName, config, token, hdiDevice, hdiCallback);
+    context->deviceId = deviceId;
     deviceContexts_[portName] = context;
-
-    SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d OpenSerial success, portName=%{public}s", __func__, __LINE__,
-        portName.c_str());
     return SERIAL_OK;
 }
 
-int32_t SerialService::CloseSerial(const std::string& portName)
-{
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d CloseSerial called, portName=%{public}s", __func__, __LINE__,
-        portName.c_str());
-    ReportSerialOperationAudit(portName, SERIAL_CLOSE);
-    if (isRs232Disabled_ && !IsUsbSerial(portName)) {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:operation denied by enterprise.", __func__);
+int32_t SerialService::OpenSerial(
+    const SerialPortInfo& portInfo, const SerialConfig& config, const sptr<ISerialServiceCallback>& token) {
+    ReportSerialOperationAudit(portInfo.portName, SERIAL_OPEN);
+    if (isRs232Disabled_ && !IsUsbSerial(portInfo.portName)) {
         return SERIAL_ERR_SERVICE;
     }
+    int32_t result = ValidateOpenSerialParams(portInfo, config, token);
+    if (result != SERIAL_OK) {
+        return result;
+    }
+    std::unique_lock<std::mutex> lock(serviceMutex_);
+    if (unloadTimerId_ != 0) {
+        unloadTimer_.Unregister(unloadTimerId_);
+        unloadTimerId_ = 0;
+    }
+    std::string portName = FindPortNameForDevice(portInfo);
+    result = ValidateConnectedPort(portInfo, portName);
+    if (result != SERIAL_OK) {
+        return result;
+    }
+    std::string deviceId = BuildDeviceId(portInfo);
+    if (deviceId.empty()) {
+        return SERIAL_ERR_DEVICE_DISCONNECTED;
+    }
+    result = RequestSerialPortRight(portInfo, deviceId);
+    if (result != SERIAL_OK) {
+        return result;
+    }
+    return OpenAuthorizedSerial(portInfo, config, token, portName, deviceId, lock);
+}
+
+int32_t SerialService::CompleteContextClose(
+    const std::string& portName, const std::shared_ptr<DeviceContext>& context) {
     ResetFirstRead(portName);
     ResetFirstWrite(portName);
-
-    std::lock_guard<std::mutex> lock(serviceMutex_);
-
-    DeviceContext* context = FindDeviceContext(portName);
-    if (context == nullptr) {
-        SERIAL_HILOGE(
-            MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s not opened", __func__, __LINE__, portName.c_str());
-        return SERIAL_ERR_DEVICE_NOT_OPENED;
-    }
-
-    int32_t permRet = CheckPortAccessPermission(context, portName);
-    if (permRet != SERIAL_OK) {
-        return permRet;
-    }
-
-    // Remove death recipient before closing
     if (context->deathRecipient != nullptr && context->serviceCallback != nullptr) {
-        auto callbackObject = context->serviceCallback->AsObject();
-        if (callbackObject != nullptr) {
-            callbackObject->RemoveDeathRecipient(context->deathRecipient);
-            SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d Death recipient removed for port %{public}s", __func__,
-                __LINE__, portName.c_str());
-        } else {
-            SERIAL_HILOGW(MODULE_SERVICE,
-                "%{public}s:%{public}d serviceCallback->AsObject() is null for port %{public}s", __func__, __LINE__,
-                portName.c_str());
+        auto remote = context->serviceCallback->AsObject();
+        if (remote != nullptr) {
+            remote->RemoveDeathRecipient(context->deathRecipient);
         }
     }
-
-    if (context->hdiDevice != nullptr) {
-        std::string hdiPortName = DEV_PREFIX + portName;
-        int32_t ret = context->hdiDevice->Close();
-        if (ret != 0) {
-            SERIAL_HILOGW(
-                MODULE_SERVICE, "%{public}s:%{public}d HDI Close failed, ret=%{public}d", __func__, __LINE__, ret);
+    // The map retains this closing context as a reservation. No serviceMutex
+    // is held while HDI Close waits for an in-flight offline callback.
+    int32_t result =
+        context->hdiDevice == nullptr ? SERIAL_ERR_SERVICE : SerialHdiToInternalCode(context->hdiDevice->Close());
+    if (result != SERIAL_OK) {
+        SERIAL_HILOGW(MODULE_SERVICE, "%{public}s: HDI close failed %{public}d", __func__, result);
+    }
+    {
+        std::lock_guard<std::mutex> lock(serviceMutex_);
+        auto it = deviceContexts_.find(portName);
+        if (it != deviceContexts_.end() && it->second == context) {
+            deviceContexts_.erase(it);
         }
     }
-
-    deviceContexts_.erase(portName);
-
-    // Schedule unload timer if no devices are opened
-    if (deviceContexts_.empty()) {
-        SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d No devices open, scheduling UnloadSystemAbility", __func__,
-            __LINE__);
-        // First cancel existing timer
-        if (unloadTimerId_ != 0) {
-            unloadTimer_.Unregister(unloadTimerId_);
-            unloadTimerId_ = 0;
-        }
-        auto task = [this]() {
-            DoUnloadSa();
-        };
-        unloadTimerId_ = unloadTimer_.Register(task, UNLOAD_SA_DELAY_MS, true);
-    }
-
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d CloseSerial success, portName=%{public}s", __func__, __LINE__,
-        portName.c_str());
-    return SERIAL_OK;
+    ScheduleUnloadSa();
+    return result;
 }
 
-void SerialService::OnClientDied(const std::string& portName)
-{
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d OnClientDied: client process died for port %{public}s",
-        __func__, __LINE__, portName.c_str());
-
-    std::lock_guard<std::mutex> lock(serviceMutex_);
-
-    DeviceContext* context = FindDeviceContext(portName);
-    if (context == nullptr) {
-        SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s already cleaned up", __func__, __LINE__,
-            portName.c_str());
-        return;
+int32_t SerialService::CloseSerial(const std::string& portName) {
+    ReportSerialOperationAudit(portName, SERIAL_CLOSE);
+    if (isRs232Disabled_ && !IsUsbSerial(portName)) {
+        return SERIAL_ERR_SERVICE;
     }
-
-    // Log client info
-    SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d Cleaning up device %{public}s for client",
-        __func__, __LINE__, portName.c_str());
-
-    // Close HDI device
-    if (context->hdiDevice != nullptr) {
-        int32_t ret = context->hdiDevice->Close();
-        if (ret != 0) {
-            SERIAL_HILOGW(MODULE_SERVICE,
-                "%{public}s:%{public}d HDI Close failed during client death cleanup, ret=%{public}d", __func__,
-                __LINE__, ret);
+    std::shared_ptr<DeviceContext> context;
+    {
+        std::lock_guard<std::mutex> lock(serviceMutex_);
+        auto it = deviceContexts_.find(portName);
+        if (it == deviceContexts_.end() || it->second == nullptr || it->second->closing) {
+            return SERIAL_ERR_DEVICE_NOT_OPENED;
         }
-    }
-
-    // Remove device context from map
-    deviceContexts_.erase(portName);
-
-    // Schedule unload timer if no devices are opened
-    if (deviceContexts_.empty()) {
-        SERIAL_HILOGI(MODULE_SERVICE,
-            "%{public}s:%{public}d No devices after client death, scheduling UnloadSystemAbility", __func__, __LINE__);
-        if (unloadTimerId_ != 0) {
-            unloadTimer_.Unregister(unloadTimerId_);
-            unloadTimerId_ = 0;
+        int32_t permission = CheckPortAccessPermission(it->second.get(), portName);
+        if (permission != SERIAL_OK) {
+            return permission;
         }
-        auto task = [this]() {
-            DoUnloadSa();
-        };
-        unloadTimerId_ = unloadTimer_.Register(task, UNLOAD_SA_DELAY_MS, true);
+        context = it->second;
+        context->closing = true;
     }
-
-    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d OnClientDied cleanup complete for port %{public}s", __func__,
-        __LINE__, portName.c_str());
+    return CompleteContextClose(portName, context);
 }
 
-void SerialService::HandleDeviceOffline(const std::string& portName)
-{
+void SerialService::OnClientDied(const std::string& portName, const std::shared_ptr<DeviceContext>& expected) {
+    std::shared_ptr<DeviceContext> context;
+    {
+        std::lock_guard<std::mutex> lock(serviceMutex_);
+        auto it = deviceContexts_.find(portName);
+        if (it == deviceContexts_.end() || it->second == nullptr || it->second->closing ||
+            (expected != nullptr && it->second != expected)) {
+            return;
+        }
+        context = it->second;
+        context->closing = true;
+    }
+    CompleteContextClose(portName, context);
+}
+
+void SerialService::HandleDeviceOffline(const std::string& portName, const std::string& deviceId) {
     SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d HandleDeviceOffline called, portName=%{public}s", __func__,
         __LINE__, portName.c_str());
 
     std::lock_guard<std::mutex> lock(serviceMutex_);
 
     auto it = deviceContexts_.find(portName);
-    if (it == deviceContexts_.end()) {
+    if (it == deviceContexts_.end() || it->second == nullptr || it->second->closing ||
+        (!deviceId.empty() && it->second->deviceId != deviceId)) {
         SERIAL_HILOGW(MODULE_SERVICE, "%{public}s:%{public}d Device %{public}s not found in contexts", __func__,
             __LINE__, portName.c_str());
         return;
     }
+
+    SerialRightManager::GetInstance().RevokeDeviceRights(it->second->deviceId);
 
     if (it->second->serviceCallback != nullptr) {
         it->second->serviceCallback->onDisconnect(portName);
@@ -1310,24 +1246,17 @@ int32_t SerialService::ValidateDialogHapCaller(AccessTokenID callerTokenId, HapT
     return SERIAL_OK;
 }
 
-int32_t SerialService::ParseTargetTokenId(const std::string& tokenId, AccessTokenID& targetTokenId)
-{
-    char* endPtr = nullptr;
-    errno = 0;
-    unsigned long long parsedValue = strtoull(tokenId.c_str(), &endPtr, 10);
-    if (errno != 0 || endPtr == tokenId.c_str() || *endPtr != '\0') {
-        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d ParseTargetTokenId failed: invalid tokenId",
-            __func__, __LINE__);
+int32_t SerialService::ParseTargetTokenId(const std::string& tokenId, AccessTokenID& targetTokenId) {
+    if (!ParseSerialTokenId(tokenId, targetTokenId)) {
+        SERIAL_HILOGE(
+            MODULE_SERVICE, "%{public}s:%{public}d ParseTargetTokenId failed: invalid tokenId", __func__, __LINE__);
         return SERIAL_ERR_INVALID_PARAM;
     }
-    targetTokenId = static_cast<AccessTokenID>(parsedValue);
     return SERIAL_OK;
 }
 
-int32_t SerialService::AddPortAuthorization(const std::string& tokenId, const std::string& deviceId)
-{
-    SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d AddPortAuthorization called", __func__, __LINE__);
+int32_t SerialService::AddPortAuthorization(const std::string& tokenId, const std::string& deviceId) {
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d AddPortAuthorization called", __func__, __LINE__);
 
     AccessTokenID callerTokenId = IPCSkeleton::GetCallingTokenID();
     HapTokenInfo callerTokenInfo;
@@ -1352,26 +1281,24 @@ int32_t SerialService::AddPortAuthorization(const std::string& tokenId, const st
         return SERIAL_ERR_INVALID_PARAM;
     }
 
-    SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d AddPortAuthorization validated",
-        __func__, __LINE__);
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d AddPortAuthorization validated", __func__, __LINE__);
 
     SerialRightManager& rightManager = SerialRightManager::GetInstance();
-    bool result = rightManager.AddDeviceRight(deviceId, targetTokenInfo.bundleName, tokenId, targetTokenInfo.userID);
+    if (callerTokenInfo.userID != targetTokenInfo.userID) {
+        return SERIAL_ERR_NOT_ALLOWED;
+    }
+    bool result =
+        rightManager.AuthorizePendingRequest(deviceId, targetTokenInfo.bundleName, tokenId, targetTokenInfo.userID);
     if (!result) {
-        SERIAL_HILOGE(MODULE_SERVICE,
-            "%{public}s:%{public}d AddDeviceRight failed", __func__, __LINE__);
-        return SERIAL_ERR_SERVICE;
+        SERIAL_HILOGE(MODULE_SERVICE, "%{public}s:%{public}d AddDeviceRight failed", __func__, __LINE__);
+        return SERIAL_ERR_NOT_ALLOWED;
     }
 
-    SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d AddPortAuthorization success",
-        __func__, __LINE__);
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d AddPortAuthorization success", __func__, __LINE__);
     return SERIAL_OK;
 }
 
-int32_t SerialService::GetCallingUserId()
-{
+int32_t SerialService::GetCallingUserId() {
     int32_t userId = SERIAL_RIGHT_USERID_DEFAULT;
     int32_t ret = AccountSA::OsAccountManager::GetOsAccountLocalIdFromUid(IPCSkeleton::GetCallingUid(), userId);
     if (ret != 0) {
@@ -1451,8 +1378,7 @@ bool SerialService::CheckSerialPortRight(const std::string& portName, const std:
     return rightManager.HasRight(portName, bundleName, tokenId, userId);
 }
 
-int32_t SerialService::RequestSerialPortRight(const SerialPortInfo& portInfo)
-{
+int32_t SerialService::RequestSerialPortRight(const SerialPortInfo& portInfo, const std::string& deviceId) {
     SerialRightManager& rightManager = SerialRightManager::GetInstance();
 
     // System app or SA bypass permission request
@@ -1470,9 +1396,8 @@ int32_t SerialService::RequestSerialPortRight(const SerialPortInfo& portInfo)
     // Find the portName for the device
     std::string portName = FindPortNameForDevice(portInfo);
 
-    SERIAL_HILOGI(MODULE_SERVICE,
-        "%{public}s:%{public}d RequestSerialPortRight: portName=%{public}s",
-        __func__, __LINE__, portName.c_str());
+    SERIAL_HILOGI(MODULE_SERVICE, "%{public}s:%{public}d RequestSerialPortRight: portName=%{public}s", __func__,
+        __LINE__, portName.c_str());
 
     // Build device info for authorization dialog
     SerialDeviceInfoForDialog deviceInfo;
@@ -1484,7 +1409,7 @@ int32_t SerialService::RequestSerialPortRight(const SerialPortInfo& portInfo)
     deviceInfo.productId = std::to_string(portInfo.productId);
     deviceInfo.vendorId = std::to_string(portInfo.vendorId);
     deviceInfo.serialNumber = "";
-    deviceInfo.deviceId = BuildDeviceId(portInfo);
+    deviceInfo.deviceId = deviceId.empty() ? BuildDeviceId(portInfo) : deviceId;
     deviceInfo.portId = 0; // No longer used in new API
 
     // Request permission - will show dialog if not authorized
@@ -1589,19 +1514,20 @@ void SerialService::DoUnloadSa()
     }
 }
 
-std::string SerialService::BuildDeviceId(const SerialPortInfo& portInfo)
-{
+std::string SerialService::BuildDeviceId(const SerialPortInfo& portInfo) {
     std::string deviceId;
 
     if (portInfo.vendorId != 0) {
-        char vendorIdBuf[32];
-        (void)snprintf_s(vendorIdBuf, sizeof(vendorIdBuf), sizeof(vendorIdBuf) - 1, "%04x", portInfo.vendorId);
+        char vendorIdBuf[SERIAL_USB_ID_BUFFER_SIZE];
+        static_cast<void>(
+            snprintf_s(vendorIdBuf, sizeof(vendorIdBuf), sizeof(vendorIdBuf) - 1, "%04x", portInfo.vendorId));
         deviceId += vendorIdBuf;
     }
 
     if (portInfo.productId != 0) {
-        char productIdBuf[32];
-        (void)snprintf_s(productIdBuf, sizeof(productIdBuf), sizeof(productIdBuf) - 1, "%04x", portInfo.productId);
+        char productIdBuf[SERIAL_USB_ID_BUFFER_SIZE];
+        static_cast<void>(
+            snprintf_s(productIdBuf, sizeof(productIdBuf), sizeof(productIdBuf) - 1, "%04x", portInfo.productId));
         deviceId += "_" + std::string(productIdBuf);
     }
 
@@ -1610,6 +1536,13 @@ std::string SerialService::BuildDeviceId(const SerialPortInfo& portInfo)
     }
 
     deviceId += "_" + portInfo.portName;
+    if (IsSerialUsbAttachment(portInfo.portName)) {
+        std::string identity;
+        if (!ReadSerialAttachmentIdentity(portInfo.portName, identity)) {
+            return {};
+        }
+        deviceId += SERIAL_ATTACHMENT_SEPARATOR + identity;
+    }
     return deviceId;
 }
 

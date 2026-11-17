@@ -106,6 +106,7 @@ public:
 
     // Batch insert when saving on OnStop
     int32_t InsertAllRecords(const std::vector<SerialRightFullRecord>& records);
+    int32_t DeleteDeviceRightRecords(const std::string& deviceId);
 
     // Database file operations
     static std::string GetDatabasePath();

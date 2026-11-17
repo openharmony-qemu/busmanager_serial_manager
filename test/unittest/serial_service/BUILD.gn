@@ -85,6 +85,7 @@ if (serial_manager_feature_deploy_sa) {
     sources = [
       "${serial_manager_path}/services/native/src/serial_right_db_helper.cpp",
       "${serial_manager_path}/services/native/src/serial_right_manager.cpp",
+      "serial_authorization_boundary_test.cpp",
       "serial_right_test.cpp",
     ]
 

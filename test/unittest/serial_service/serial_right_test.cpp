@@ -52,6 +52,7 @@ constexpr const char* TEST_DEVICE_ID_1 = "5678_1234_ttyUSB0";
 constexpr const char* TEST_DEVICE_ID_2 = "2222_1111_ttyUSB1";
 constexpr const char* TEST_DEVICE_ID_WITH_SN = "5678_1234_SN123456_ttyUSB0";
 constexpr uint64_t TEST_TIMESTAMP = 1700000000;
+constexpr size_t EXPECTED_REMAINING_RECORDS = 2;
 } // namespace
 
 // ============================================================================
@@ -119,6 +120,40 @@ HWTEST_F(SerialRightDbHelperTest, CreateDatabaseAndOpen_Success, TestSize.Level1
     bool result = dbHelper_->CreateDatabaseAndOpen();
     EXPECT_TRUE(result);
     EXPECT_TRUE(dbHelper_->IsDatabaseValid());
+}
+
+HWTEST_F(SerialRightDbHelperTest, DeleteAttachmentPreservesOtherDevicesAndUsers, TestSize.Level1) {
+    ASSERT_TRUE(dbHelper_->CreateDatabaseAndOpen());
+    std::vector<SerialRightFullRecord> records;
+    for (int32_t user : {TEST_USER_ID, TEST_USER_ID_2}) {
+        SerialRightFullRecord record = {};
+        record.uid = user;
+        record.bundleName = TEST_BUNDLE_NAME;
+        record.tokenId = TEST_TOKEN_ID;
+        record.deviceId = TEST_DEVICE_ID_1;
+        records.push_back(record);
+        record.deviceId = TEST_DEVICE_ID_2;
+        records.push_back(record);
+    }
+    ASSERT_EQ(dbHelper_->InsertAllRecords(records), E_OK);
+    ASSERT_EQ(dbHelper_->DeleteDeviceRightRecords(TEST_DEVICE_ID_1), E_OK);
+    dbHelper_->CloseDatabase();
+    ASSERT_TRUE(dbHelper_->OpenDatabaseIfExists());
+    records.clear();
+    EXPECT_EQ(dbHelper_->QueryAllRightRecords(records), static_cast<int32_t>(EXPECTED_REMAINING_RECORDS));
+    ASSERT_EQ(records.size(), EXPECTED_REMAINING_RECORDS);
+    for (const auto& record : records) {
+        EXPECT_EQ(record.deviceId, TEST_DEVICE_ID_2);
+    }
+    EXPECT_NE(records.front().uid, records.back().uid);
+    EXPECT_EQ(dbHelper_->DeleteDeviceRightRecords(TEST_DEVICE_ID_1), E_OK);
+}
+
+HWTEST_F(SerialRightDbHelperTest, RevokeMissingDatabaseDoesNotCreateIt, TestSize.Level1) {
+    EXPECT_EQ(dbHelper_->DeleteDeviceRightRecords(TEST_DEVICE_ID_1), E_OK);
+    struct stat metadata = {};
+    EXPECT_NE(stat(SerialRightDbHelper::GetDatabasePath().c_str(), &metadata), 0);
+    EXPECT_FALSE(dbHelper_->IsDatabaseValid());
 }
 
 HWTEST_F(SerialRightDbHelperTest, CreateDatabaseAndOpen_ThenOpenIfExists_ReturnsTrue, TestSize.Level1)

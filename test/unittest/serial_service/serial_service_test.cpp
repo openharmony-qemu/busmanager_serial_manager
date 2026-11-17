@@ -28,11 +28,14 @@
  * @since 2026-04-24
  */
 
+#include <future>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <thread>
 
 #include "hilog_wrapper.h"
 #include "mock_serial_hdi.h"
+#include "serial_device_identity.h"
 #include "serial_error_code.h"
 #include "serial_hdi_stub.h"
 #include "serial_service.h"
@@ -51,6 +54,12 @@ namespace Serial {
 namespace {
 constexpr const char* TEST_DEVICE_ID_1 = "5678_1234_ttyUSB0";
 constexpr const char* TEST_TOKEN_ID = "12345678";
+constexpr const char* FORMAT_ONLY_PORT = "ttyTest0";
+constexpr int32_t FORMAT_VENDOR_ID = 0x162e;
+constexpr int32_t FORMAT_PRODUCT_ID = 0x04d2;
+constexpr int32_t FORMAT_PRODUCT_ONLY_ID = 0x0457;
+constexpr int32_t FORMAT_VENDOR_ONLY_ID = 0x08ae;
+constexpr int32_t CLOSE_CALLBACK_WAIT_MILLISECONDS = 200;
 } // namespace
 
 // ============================================================================
@@ -213,23 +222,25 @@ HWTEST_F(SerialServiceTest, OpenSerial_NullCallback_ReturnsInvalidParam, TestSiz
  * @brief 测试 OpenSerial：HDI OpenDevice 失败返回 ERR_SERVICE
  * @details 设置 HDI OpenDevice 失败，验证错误处理
  */
-HWTEST_F(SerialServiceTest, OpenSerial_HdiOpenFailure_ReturnsServiceError, TestSize.Level1)
-{
-    SERIAL_HILOGI(MODULE_SERVICE, "OpenSerial_HdiOpenFailure_ReturnsServiceError: start");
-
-    // 设置 HDI OpenDevice 失败
+HWTEST_F(SerialServiceTest, OpenHdiDevice_FailureReturnsServiceError, TestSize.Level1) {
+    // Negative mapper unit only: never fabricate an attachment or grant.
     mockHdi_->SetOpenDeviceResult(false);
-
-    SerialPortInfo portInfo = CreateTestPortInfo("/dev/ttyUSB0");
     SerialConfig config = CreateDefaultConfig();
+    sptr<ISerialDevice> hdiDevice;
+    sptr<SerialHdiCallback> hdiCallback = new SerialHdiCallback(mockCallback_, "ttyUSB0");
+    EXPECT_EQ(
+        service_->OpenHdiDevice("/dev/ttyUSB0", config, mockCallback_, hdiDevice, hdiCallback), SERIAL_ERR_SERVICE);
+    EXPECT_EQ(hdiDevice, nullptr);
+    EXPECT_EQ(service_->GetDeviceCount(), 0);
+}
 
-    int32_t result = service_->OpenSerial(portInfo, config, mockCallback_);
-
-    // 如果权限检查失败，返回 ERR_PERMISSION_DENIED
-    // 如果权限通过但 HDI 失败，返回 ERR_SERVICE
-    EXPECT_TRUE(result == SERIAL_ERR_SERVICE || result == SERIAL_ERR_PERMISSION_DENIED);
-
-    SERIAL_HILOGI(MODULE_SERVICE, "OpenSerial_HdiOpenFailure_ReturnsServiceError: success, result=%d", result);
+HWTEST_F(SerialServiceTest, OpenSerial_NotEnumeratedPortCannotReachHdi, TestSize.Level1) {
+    // Real conversion exposes a basename; this reported full path cannot
+    // match the enumerated tuple, even if a real USB device happens to exist.
+    SerialPortInfo portInfo = CreateTestPortInfo("/dev/ttyUSB0");
+    EXPECT_CALL(*mockHdi_, OpenDevice(_, _, _, _)).Times(0);
+    EXPECT_EQ(service_->OpenSerial(portInfo, CreateDefaultConfig(), mockCallback_), SERIAL_ERR_DEVICE_DISCONNECTED);
+    EXPECT_EQ(service_->GetDeviceCount(), 0);
 }
 
 /**
@@ -237,8 +248,7 @@ HWTEST_F(SerialServiceTest, OpenSerial_HdiOpenFailure_ReturnsServiceError, TestS
  * @details 设置 HDI OpenDevice 成功，验证成功打开
  *          注意：权限验证依赖真实的 SerialRightManager
  */
-HWTEST_F(SerialServiceTest, OpenSerial_Success_RegistersDeviceContext, TestSize.Level1)
-{
+HWTEST_F(SerialServiceTest, OpenSerial_Success_RegistersDeviceContext, TestSize.Level1) {
     SERIAL_HILOGI(MODULE_SERVICE, "OpenSerial_Success_RegistersDeviceContext: start");
 
     mockHdi_->SetOpenDeviceResult(true); // HDI 成功
@@ -872,32 +882,20 @@ HWTEST_F(SerialServiceTest, AddPortAuthorization_EmptyDeviceId_ReturnsPermission
 /**
  * @brief 测试 BuildDeviceId：完整格式 {vid}_{pid}_{portName}
  */
-HWTEST_F(SerialServiceTest, BuildDeviceId_FullFormat_VidPidPortName, TestSize.Level1)
-{
-    SERIAL_HILOGI(MODULE_SERVICE, "BuildDeviceId_FullFormat_VidPidPortName: start");
-
-    SerialPortInfo portInfo;
-    portInfo.portName = "ttyUSB0";
-    portInfo.productId = 1234;
-    portInfo.vendorId = 5678;
+HWTEST_F(SerialServiceTest, BuildDeviceId_FormatOnlySyntheticPortUsesHexIds, TestSize.Level1) {
+    // Formatting fixture only: this synthetic port is never enumerated/opened.
+    SerialPortInfo portInfo = {};
+    portInfo.portName = FORMAT_ONLY_PORT;
+    portInfo.productId = FORMAT_PRODUCT_ID;
+    portInfo.vendorId = FORMAT_VENDOR_ID;
     portInfo.manufacturer = "FTDI";
-
-    std::string deviceId = service_->BuildDeviceId(portInfo);
-
-    // 验证格式：{productId}_{vendorId}_{portName}
-    EXPECT_TRUE(deviceId.find("1234") != std::string::npos);
-    EXPECT_TRUE(deviceId.find("5678") != std::string::npos);
-    EXPECT_TRUE(deviceId.find("ttyUSB0") != std::string::npos);
-
-    SERIAL_HILOGI(MODULE_SERVICE, "BuildDeviceId result: %{public}s", deviceId.c_str());
-    SERIAL_HILOGI(MODULE_SERVICE, "BuildDeviceId_FullFormat_VidPidPortName: success");
+    EXPECT_EQ(service_->BuildDeviceId(portInfo), "162e_04d2_FTDI_ttyTest0");
 }
 
 /**
  * @brief 测试 BuildDeviceId：仅有 portName
  */
-HWTEST_F(SerialServiceTest, BuildDeviceId_OnlyPortName_ValidFormat, TestSize.Level1)
-{
+HWTEST_F(SerialServiceTest, BuildDeviceId_OnlyPortName_ValidFormat, TestSize.Level1) {
     SERIAL_HILOGI(MODULE_SERVICE, "BuildDeviceId_OnlyPortName_ValidFormat: start");
 
     SerialPortInfo portInfo;
@@ -917,43 +915,39 @@ HWTEST_F(SerialServiceTest, BuildDeviceId_OnlyPortName_ValidFormat, TestSize.Lev
 /**
  * @brief 测试 BuildDeviceId：有 productId 但无 vendorId
  */
-HWTEST_F(SerialServiceTest, BuildDeviceId_HasProductIdNoVendorId_ValidFormat, TestSize.Level1)
-{
-    SERIAL_HILOGI(MODULE_SERVICE, "BuildDeviceId_HasProductIdNoVendorId_ValidFormat: start");
-
-    SerialPortInfo portInfo;
-    portInfo.portName = "ttyUSB1";
-    portInfo.productId = 1111;
+HWTEST_F(SerialServiceTest, BuildDeviceId_FormatOnlyProductIdUsesHex, TestSize.Level1) {
+    SerialPortInfo portInfo = {};
+    portInfo.portName = FORMAT_ONLY_PORT;
+    portInfo.productId = FORMAT_PRODUCT_ONLY_ID;
     portInfo.vendorId = 0;
-
-    std::string deviceId = service_->BuildDeviceId(portInfo);
-
-    EXPECT_TRUE(deviceId.find("1111") != std::string::npos);
-    EXPECT_TRUE(deviceId.find("ttyUSB1") != std::string::npos);
-
-    SERIAL_HILOGI(MODULE_SERVICE, "BuildDeviceId result: %{public}s", deviceId.c_str());
-    SERIAL_HILOGI(MODULE_SERVICE, "BuildDeviceId_HasProductIdNoVendorId_ValidFormat: success");
+    EXPECT_EQ(service_->BuildDeviceId(portInfo), "_0457_ttyTest0");
 }
 
 /**
  * @brief 测试 BuildDeviceId：有 vendorId 但无 productId
  */
-HWTEST_F(SerialServiceTest, BuildDeviceId_HasVendorIdNoProductId_ValidFormat, TestSize.Level1)
-{
-    SERIAL_HILOGI(MODULE_SERVICE, "BuildDeviceId_HasVendorIdNoProductId_ValidFormat: start");
-
-    SerialPortInfo portInfo;
-    portInfo.portName = "ttyACM0";
+HWTEST_F(SerialServiceTest, BuildDeviceId_FormatOnlyVendorIdUsesHex, TestSize.Level1) {
+    SerialPortInfo portInfo = {};
+    portInfo.portName = FORMAT_ONLY_PORT;
     portInfo.productId = 0;
-    portInfo.vendorId = 2222;
+    portInfo.vendorId = FORMAT_VENDOR_ONLY_ID;
+    EXPECT_EQ(service_->BuildDeviceId(portInfo), "08ae_ttyTest0");
+}
 
-    std::string deviceId = service_->BuildDeviceId(portInfo);
-
-    EXPECT_TRUE(deviceId.find("2222") != std::string::npos);
-    EXPECT_TRUE(deviceId.find("ttyACM0") != std::string::npos);
-
-    SERIAL_HILOGI(MODULE_SERVICE, "BuildDeviceId result: %{public}s", deviceId.c_str());
-    SERIAL_HILOGI(MODULE_SERVICE, "BuildDeviceId_HasVendorIdNoProductId_ValidFormat: success");
+HWTEST_F(SerialServiceTest, BuildDeviceId_UsbRequiresActualDevnodeAndSysfs, TestSize.Level1) {
+    for (const char* port : {"ttyUSB0", "ttyUSB1", "ttyACM0"}) {
+        SerialPortInfo portInfo = {};
+        portInfo.portName = port;
+        std::string identity;
+        bool exists = ReadSerialAttachmentIdentity(port, identity);
+        std::string deviceId = service_->BuildDeviceId(portInfo);
+        if (!exists) {
+            EXPECT_TRUE(deviceId.empty());
+        } else {
+            EXPECT_EQ(deviceId, "_" + std::string(port) + SERIAL_ATTACHMENT_SEPARATOR + identity);
+            EXPECT_TRUE(SerialAttachmentMatches(port, deviceId));
+        }
+    }
 }
 
 // ============================================================================
@@ -1017,6 +1011,98 @@ HWTEST_F(SerialServiceTest, FindPortNameForDevice_NoMatch_ReturnsEmpty, TestSize
     EXPECT_TRUE(result.empty() || result == "");
 
     SERIAL_HILOGI(MODULE_SERVICE, "FindPortNameForDevice_NoMatch_ReturnsEmpty: success");
+}
+
+HWTEST_F(SerialServiceTest, LateOfflineCannotRemoveReplacementContext, TestSize.Level1) {
+    // Context-lifetime unit assertion only: no HDI open or transfer is faked.
+    const std::string port = "ttyUSB0";
+    const std::string oldAttachment = "unit-old-attachment";
+    const std::string newAttachment = "unit-new-attachment";
+    auto context = std::make_shared<DeviceContext>();
+    context->deviceId = newAttachment;
+    context->serviceCallback = mockCallback_;
+    service_->deviceContexts_[port] = context;
+    EXPECT_CALL(*mockCallback_, onDisconnect(_)).Times(0);
+    service_->HandleDeviceOffline(port, oldAttachment);
+    ASSERT_NE(service_->deviceContexts_.find(port), service_->deviceContexts_.end());
+    EXPECT_EQ(service_->deviceContexts_[port], context);
+    service_->deviceContexts_.clear();
+}
+
+HWTEST_F(SerialServiceTest, ClosingContextReservesPortAndDoesNotHoldServiceLockDuringHdiClose, TestSize.Level1) {
+    // Mocked cleanup interleaving only, never actual device/UI acceptance.
+    const std::string port = FORMAT_ONLY_PORT;
+    sptr<MockSerialDevice> hdi = new MockSerialDevice();
+    auto context = std::make_shared<DeviceContext>();
+    context->hdiDevice = hdi;
+    context->closing = true;
+    context->deviceId = "unit-closing-attachment";
+    service_->deviceContexts_[port] = context;
+    auto other = std::make_shared<DeviceContext>();
+    service_->deviceContexts_["ttyTest1"] = other;
+    std::promise<void> notified;
+    auto completion = notified.get_future();
+    std::thread callback;
+    EXPECT_CALL(*hdi, Close()).WillOnce(Invoke([&]() {
+        callback = std::thread([&]() {
+            service_->HandleDeviceOffline(port, context->deviceId);
+            notified.set_value();
+        });
+        bool completed = completion.wait_for(std::chrono::milliseconds(CLOSE_CALLBACK_WAIT_MILLISECONDS)) ==
+            std::future_status::ready;
+        EXPECT_TRUE(completed);
+        if (!completed) {
+            return HDF_FAILURE;
+        }
+        EXPECT_EQ(service_->FindDeviceContext(port), nullptr);
+        EXPECT_EQ(service_->deviceContexts_[port], context);
+        SerialPortInfo info = {};
+        info.portName = port;
+        std::unique_lock<std::mutex> lock(service_->serviceMutex_);
+        EXPECT_EQ(service_->OpenAuthorizedSerial(
+                      info, CreateDefaultConfig(), mockCallback_, port, service_->BuildDeviceId(info), lock),
+            SERIAL_ERR_DEVICE_BUSY);
+        return HDF_SUCCESS;
+    }));
+    EXPECT_EQ(service_->CompleteContextClose(port, context), SERIAL_OK);
+    if (callback.joinable()) {
+        callback.join();
+    }
+    EXPECT_EQ(service_->deviceContexts_.count(port), 0);
+    EXPECT_EQ(service_->deviceContexts_["ttyTest1"], other);
+    service_->deviceContexts_.clear();
+}
+
+HWTEST_F(SerialServiceTest, LateOrExpiredDeathCannotRemoveReopenedSameAttachment, TestSize.Level1) {
+    const std::string port = FORMAT_ONLY_PORT;
+    auto old = std::make_shared<DeviceContext>();
+    old->deviceId = "unit-same-attachment";
+    sptr<SerialClientDeathRecipient> recipient = new SerialClientDeathRecipient(port, service_.GetRefPtr(), old);
+    auto replacement = std::make_shared<DeviceContext>();
+    replacement->deviceId = old->deviceId;
+    sptr<MockSerialDevice> hdi = new MockSerialDevice();
+    replacement->hdiDevice = hdi;
+    service_->deviceContexts_[port] = replacement;
+    EXPECT_CALL(*hdi, Close()).Times(0);
+    recipient->OnRemoteDied({});
+    EXPECT_EQ(service_->deviceContexts_[port], replacement);
+    old.reset();
+    recipient->OnRemoteDied({});
+    EXPECT_EQ(service_->deviceContexts_[port], replacement);
+    EXPECT_FALSE(replacement->closing);
+    service_->deviceContexts_.clear();
+}
+
+HWTEST_F(SerialServiceTest, HdiCleanupFailureRemainsNumericError, TestSize.Level1) {
+    const std::string port = FORMAT_ONLY_PORT;
+    auto context = std::make_shared<DeviceContext>();
+    sptr<MockSerialDevice> hdi = new MockSerialDevice();
+    context->hdiDevice = hdi;
+    context->closing = true;
+    service_->deviceContexts_[port] = context;
+    EXPECT_CALL(*hdi, Close()).WillOnce(Return(HDF_ERR_IO));
+    EXPECT_EQ(service_->CompleteContextClose(port, context), SERIAL_ERR_SERVICE);
+    EXPECT_EQ(service_->deviceContexts_.count(port), 0);
 }
 
 } // namespace Serial

@@ -16,15 +16,17 @@
 #ifndef SERIAL_RIGHT_MANAGER_H
 #define SERIAL_RIGHT_MANAGER_H
 
+#include <chrono>
+#include <condition_variable>
 #include <map>
 #include <mutex>
-#include <semaphore.h>
 #include <string>
 #include <vector>
 
 #include "ability_connect_callback_stub.h"
 #include "bundle_mgr_interface.h"
 #include "bundle_resource_interface.h"
+#include "message_parcel.h"
 #include "serial_right_db_helper.h"
 
 // Forward declaration to avoid header dependency
@@ -48,6 +50,7 @@ constexpr int32_t SERIAL_RIGHT_USERID_CONSOLE = 0;
 constexpr int32_t SERIAL_RIGHT_OK = 0;
 constexpr int32_t SERIAL_RIGHT_FAILURE = -1;
 constexpr int32_t SERIAL_RIGHT_NOP = 1;
+constexpr int32_t SERIAL_DIALOG_TIMEOUT_SECONDS = 60;
 
 const std::string SERIAL_RIGHT_DIALOG_TITLE = "Serial Port Authorization";
 
@@ -86,6 +89,10 @@ public:
     bool AddDeviceRight(
         const std::string& deviceId, const std::string& bundleName, const std::string& tokenId, const int32_t& userId);
 
+    bool AuthorizePendingRequest(
+        const std::string& deviceId, const std::string& bundleName, const std::string& tokenId, int32_t userId);
+    bool RevokeDeviceRights(const std::string& deviceId);
+
     bool IsSystemAppOrSa();
 
 private:
@@ -95,20 +102,34 @@ private:
 
     class SerialAbilityConn : public AAFwk::AbilityConnectionStub {
     public:
-        SerialAbilityConn() = default;
+        explicit SerialAbilityConn(const std::map<std::string, std::string>& parameters = {},
+            const std::string& deviceId = {}, int32_t userId = SERIAL_RIGHT_USERID_INVALID)
+            : dialogRequestParams_(parameters), deviceId_(deviceId), userId_(userId) {}
         ~SerialAbilityConn() override = default;
 
         void OnAbilityConnectDone(
             const ElementName& element, const sptr<IRemoteObject>& remoteObject, int32_t resultCode) override;
         void OnAbilityDisconnectDone(const ElementName& element, int32_t resultCode) override;
         void CloseDialog();
-        int32_t GetLastResultCode() const
-        {
+        void CancelDialog();
+        bool AcceptAuthorization(
+            const std::string& requestId, const std::string& bundleName, const std::string& tokenId, int32_t userId);
+        bool WaitForDisconnect(std::chrono::milliseconds timeout = std::chrono::seconds(SERIAL_DIALOG_TIMEOUT_SECONDS));
+        int32_t GetLastResultCode() const {
             return lastResultCode_;
         }
 
     private:
+        bool BuildDialogRequest(MessageParcel& data);
+        void FinishDialog(int32_t resultCode);
+        const std::map<std::string, std::string> dialogRequestParams_;
+        const std::string deviceId_;
+        const int32_t userId_;
+        std::chrono::steady_clock::time_point deadline_ =
+            std::chrono::steady_clock::now() + std::chrono::seconds(SERIAL_DIALOG_TIMEOUT_SECONDS);
         std::mutex remoteMutex_;
+        std::condition_variable dialogFinishedCondition_;
+        bool dialogFinished_ = false;
         sptr<IRemoteObject> remoteObject_ = nullptr;
         int32_t lastResultCode_ = -1;
     };
@@ -118,6 +139,7 @@ private:
     bool ShowSerialDialog(const SerialDeviceInfoForDialog& deviceInfo, const int32_t userId);
     int32_t ConnectAbility(const int32_t userId);
     bool UnShowSerialDialog();
+    void ClearDialogRequest();
 
     // Cache operations
     bool LoadCacheFromDb();
@@ -134,9 +156,11 @@ private:
     sptr<IBundleResource> GetBundleResMgr();
     bool GetAppName(const std::string& bundleName, std::string& appName, int32_t userId);
 
-    static sem_t waitDialogDisappear_;
     static std::mutex dialogParamsMutex_;
     static std::map<std::string, std::string> dialogParams_;
+    static int32_t pendingUserId_;
+    static std::string pendingDeviceId_;
+    static sptr<SerialAbilityConn> pendingConnection_;
 
     std::mutex dialogRunning_;
     std::mutex cacheMutex_;

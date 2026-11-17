@@ -22,6 +22,7 @@
 #include <fstream>
 #include <ipc_skeleton.h>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -55,10 +56,12 @@ constexpr int32_t ACM_PORT_ID_OFFSET = 1000;
 constexpr int32_t TTYS_PORT_ID_OFFSET = 2000;
 
 class SerialService;
+struct DeviceContext;
 
 class SerialHdiCallback : public OHOS::HDI::Serial::V1_0::ISerialDeviceCallback {
 public:
-    explicit SerialHdiCallback(const sptr<ISerialServiceCallback>& serviceCallback, const std::string& portName);
+    explicit SerialHdiCallback(const sptr<ISerialServiceCallback>& serviceCallback, const std::string& portName,
+        const std::string& deviceId = {});
     ~SerialHdiCallback() override = default;
 
     int32_t OnReadData(const std::vector<int8_t>& data, uint32_t dataLen) override;
@@ -67,18 +70,21 @@ public:
 private:
     sptr<ISerialServiceCallback> serviceCallback_;
     std::string portName_;
+    std::string deviceId_;
 };
 
 class SerialClientDeathRecipient : public IRemoteObject::DeathRecipient {
 public:
-    SerialClientDeathRecipient(const std::string& portName, SerialService* service);
+    SerialClientDeathRecipient(
+        const std::string& portName, SerialService* service, const std::weak_ptr<DeviceContext>& context);
     ~SerialClientDeathRecipient() override = default;
 
     void OnRemoteDied(const wptr<IRemoteObject>& object) override;
 
 private:
     std::string portName_;
-    SerialService* service_;
+    wptr<SerialService> service_;
+    std::weak_ptr<DeviceContext> context_;
 };
 
 struct DeviceContext {
@@ -87,11 +93,13 @@ struct DeviceContext {
     sptr<ISerialServiceCallback> serviceCallback;
     sptr<SerialClientDeathRecipient> deathRecipient;
     std::string portName;
+    std::string deviceId;
     std::string bundleName;
     std::string tokenId;
     int32_t userId;
     SerialConfig config;
     std::chrono::steady_clock::time_point openTime;
+    bool closing = false;
 };
 
 class SerialService : public SystemAbility, public SerialServerStub {
@@ -123,8 +131,8 @@ public:
     int32_t GetDsrSignal(const std::string& portName, bool& dsr) override;
     int32_t AddPortAuthorization(const std::string& tokenId, const std::string& deviceId) override;
 
-    void OnClientDied(const std::string& portName);
-    void HandleDeviceOffline(const std::string& portName);
+    void OnClientDied(const std::string& portName, const std::shared_ptr<DeviceContext>& expected = {});
+    void HandleDeviceOffline(const std::string& portName, const std::string& deviceId = {});
     int32_t OnRemoteRequest(uint32_t code, MessageParcel& data, MessageParcel& reply, MessageOption& option) override;
 
     static sptr<SerialService> GetGlobalInstance();
@@ -155,7 +163,7 @@ private:
     int32_t GetCallingUserId();
     int32_t GetCallingUserIdFromToken();
     bool CheckSerialPortRight(const std::string& portName, const std::string& productName);
-    int32_t RequestSerialPortRight(const SerialPortInfo& portInfo);
+    int32_t RequestSerialPortRight(const SerialPortInfo& portInfo, const std::string& deviceId = {});
 
     void ScheduleUnloadSa();
     void CancelUnloadSa();
@@ -167,8 +175,12 @@ private:
     int DoDump(int fd, const std::vector<std::string>& argList);
 
     // Internal helper functions for function decomposition
-    int32_t ValidateOpenSerialParams(const SerialPortInfo& portInfo,
-        const SerialConfig& config, const sptr<ISerialServiceCallback>& token);
+    int32_t ValidateOpenSerialParams(
+        const SerialPortInfo& portInfo, const SerialConfig& config, const sptr<ISerialServiceCallback>& token);
+    int32_t ValidateConnectedPort(const SerialPortInfo& portInfo, const std::string& portName);
+    int32_t OpenAuthorizedSerial(const SerialPortInfo& portInfo, const SerialConfig& config,
+        const sptr<ISerialServiceCallback>& token, const std::string& portName, const std::string& deviceId,
+        std::unique_lock<std::mutex>& serviceLock);
     int32_t CheckWritePreconditions(DeviceContext* context, const std::string& portName);
     int32_t OpenHdiDevice(const std::string& portName, const SerialConfig& config,
         const sptr<ISerialServiceCallback>& token, sptr<OHOS::HDI::Serial::V1_0::ISerialDevice>& hdiDevice,
@@ -176,6 +188,7 @@ private:
     std::shared_ptr<DeviceContext> BuildDeviceContext(const std::string& portName, const SerialConfig& config,
         const sptr<ISerialServiceCallback>& token, const sptr<OHOS::HDI::Serial::V1_0::ISerialDevice>& hdiDevice,
         const sptr<SerialHdiCallback>& hdiCallback);
+    int32_t CompleteContextClose(const std::string& portName, const std::shared_ptr<DeviceContext>& context);
     void DumpPhysicalDevices(int fd);
     void DumpOpenedDevices(int fd);
 
