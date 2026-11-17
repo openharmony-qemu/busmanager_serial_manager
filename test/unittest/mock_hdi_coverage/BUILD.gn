@@ -82,10 +82,18 @@ if (serial_manager_feature_deploy_sa) {
       "drivers_interface_serial:serials_idl_headers",
       "googletest:gmock",
       "googletest:gtest_main",
+      "hdf_core:libhdf_utils",
+      "hdf_core:libhdi",
+      "hicollie:libhicollie",
       "hilog:libhilog",
+      "init:libbeget_proxy",
+      "init:libbegetutil",
       "ipc:ipc_core",
+      "ipc:ipc_single",
       "os_account:os_account_innerkits",
       "relational_store:native_rdb",
+      "safwk:system_ability_fwk",
+      "samgr:samgr_proxy",
     ]
 
     defines = [ "private=public" ]
