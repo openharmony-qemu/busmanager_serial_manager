@@ -62,6 +62,7 @@ constexpr int32_t MOCK_VID_PROLIFIC = 2222;
 constexpr int32_t MOCK_PID_PROLIFIC = 1111;
 constexpr uint32_t ECHO_LEN_OVERFLOW = 99;
 constexpr int32_t MOCK_CALLBACK_ERR_OK = 0;
+constexpr int32_t WRITE_RETURN_ONE_BYTE = 1;
 constexpr const char *PORT_USB0 = "ttyUSB0";
 constexpr const char *PORT_USB1 = "ttyUSB1";
 constexpr const char *MFR_FTDI = "FTDI";
@@ -108,7 +109,6 @@ protected:
     SerialConfig CreateDefaultConfig() const;
     SerialPortInfo CreatePortInfo(const std::string &portName) const;
     bool TryOpenUsbPort(const std::string &portName, const sptr<MockSerialServiceCallback> &callback);
-    sptr<SerialHdiCallback> GetContextHdiCallback(const std::string &portName);
 };
 
 void SerialMockHdiLoopbackTest::SetUp()
@@ -182,20 +182,9 @@ SerialPortInfo SerialMockHdiLoopbackTest::CreatePortInfo(const std::string &port
 bool SerialMockHdiLoopbackTest::TryOpenUsbPort(const std::string &portName,
     const sptr<MockSerialServiceCallback> &callback)
 {
+    // 仅以公共 API 返回值判定打开结果，不读取服务内部状态
     int32_t ret = service_->OpenSerial(CreatePortInfo(portName), CreateDefaultConfig(), callback);
-    if (ret != SERIAL_OK) {
-        return false;
-    }
-    return service_->deviceContexts_.find(portName) != service_->deviceContexts_.end();
-}
-
-sptr<SerialHdiCallback> SerialMockHdiLoopbackTest::GetContextHdiCallback(const std::string &portName)
-{
-    auto it = service_->deviceContexts_.find(portName);
-    if (it == service_->deviceContexts_.end()) {
-        return nullptr;
-    }
-    return it->second->hdiCallback;
+    return ret == SERIAL_OK;
 }
 
 // ============================================================================
@@ -265,21 +254,19 @@ HWTEST_F(SerialMockHdiLoopbackTest, LoopbackReadData_LenLargerThanVector_UsesVec
 // ============================================================================
 
 /**
- * @brief 完整环回链路：打开端口、写入数据、模拟设备回环读回、客户端收到一致数据
- * @details 打开失败（权限/授权环境受限）时按需求默认返回 success
+ * @brief 完整环回链路：写入数据、模拟设备回环读回、客户端收到一致数据
+ * @details 通过共享 helper 注入端口上下文（等效于打开成功），避免依赖
+ *          SerialRightManager 环境获取 Mock 设备句柄；写入走公共 WriteSerial
  */
 HWTEST_F(SerialMockHdiLoopbackTest, LoopbackEcho_OpenWriteEcho_DataMatches, TestSize.Level1)
 {
-    if (!TryOpenUsbPort(PORT_USB0, mockCallback_)) {
-        GTEST_SUCCEED() << "[ENV] mock环境无法打开端口（权限受限），按需求默认 success";
-        return;
-    }
-
-    sptr<SerialHdiCallback> hdiCb = GetContextHdiCallback(PORT_USB0);
-    ASSERT_NE(hdiCb, nullptr);
-    auto context = service_->deviceContexts_[PORT_USB0];
-    sptr<MockSerialDevice> mockDev = static_cast<MockSerialDevice *>(context->hdiDevice.GetRefPtr());
+    // 注入测试端口上下文（等效于打开成功），返回注入的 Mock 设备用于行为注入
+    sptr<MockSerialDevice> mockDev = InsertTestDeviceContext(service_, PORT_USB0, mockCallback_, CreateDefaultConfig());
     ASSERT_NE(mockDev, nullptr);
+
+    // SerialHdiCallback 为公开类，直接构造与 OpenSerial 内部创建等价的 HDI 回调
+    sptr<SerialHdiCallback> hdiCb = new SerialHdiCallback(mockCallback_, PORT_USB0);
+    ASSERT_NE(hdiCb, nullptr);
 
     std::vector<uint8_t> writeData = {0x48, 0x65, 0x6C, 0x6C, 0x6F}; // "Hello"
     int32_t bytesWritten = 0;
@@ -287,10 +274,7 @@ HWTEST_F(SerialMockHdiLoopbackTest, LoopbackEcho_OpenWriteEcho_DataMatches, Test
         .WillOnce(DoAll(SetArgReferee<2>(static_cast<int32_t>(writeData.size())), Return(HDF_SUCCESS)));
 
     int32_t writeRet = service_->WriteSerial(PORT_USB0, writeData, TEST_WRITE_TIMEOUT_MS, bytesWritten);
-    if (writeRet != SERIAL_OK) {
-        GTEST_SUCCEED() << "[ENV] mock环境写入受限，按需求默认 success";
-        return;
-    }
+    EXPECT_EQ(writeRet, SERIAL_OK);
     EXPECT_EQ(bytesWritten, static_cast<int32_t>(writeData.size()));
 
     // 模拟设备 TX/RX 回环：HDI 层回调读数据
@@ -316,7 +300,8 @@ HWTEST_F(SerialMockHdiLoopbackTest, LoopbackEcho_TwoPorts_DataIsolation, TestSiz
         return;
     }
 
-    sptr<SerialHdiCallback> hdiCb0 = GetContextHdiCallback(PORT_USB0);
+    // SerialHdiCallback 为公开类，直接构造端口 0 的 HDI 回调
+    sptr<SerialHdiCallback> hdiCb0 = new SerialHdiCallback(mockCallback_, PORT_USB0);
     ASSERT_NE(hdiCb0, nullptr);
 
     std::vector<uint8_t> port0Data = {0xA0};
@@ -327,7 +312,6 @@ HWTEST_F(SerialMockHdiLoopbackTest, LoopbackEcho_TwoPorts_DataIsolation, TestSiz
 
     int32_t echoRet = hdiCb0->OnReadData(echoData, static_cast<uint32_t>(echoData.size()));
     EXPECT_EQ(echoRet, SERIAL_OK);
-    EXPECT_EQ(service_->GetDeviceCount(), 2u);
 }
 
 // ============================================================================
@@ -335,34 +319,43 @@ HWTEST_F(SerialMockHdiLoopbackTest, LoopbackEcho_TwoPorts_DataIsolation, TestSiz
 // ============================================================================
 
 /**
- * @brief 设备离线回调：通知客户端断开并清理端口上下文
+ * @brief 设备离线：通知客户端断开并清理端口上下文
+ * @details 直接调用公共接口 HandleDeviceOffline（SerialHdiCallback::OnDeviceOffline
+ *          内部即路由到 GetGlobalInstance()->HandleDeviceOffline），
+ *          并以公共 API 行为（写入成功→设备未打开）验证上下文清理
  */
 HWTEST_F(SerialMockHdiLoopbackTest, DeviceOffline_NotifiesClientAndCleansContext, TestSize.Level1)
 {
     // 注入测试端口上下文（tokenId 与调用方一致，无需真实权限环境）
-    InsertTestDeviceContext(service_, PORT_USB0, mockCallback_, CreateDefaultConfig());
-    EXPECT_EQ(service_->GetDeviceCount(), 1u);
+    sptr<MockSerialDevice> mockDev = InsertTestDeviceContext(service_, PORT_USB0, mockCallback_, CreateDefaultConfig());
+    ASSERT_NE(mockDev, nullptr);
 
-    sptr<SerialHdiCallback> hdiCb = GetContextHdiCallback(PORT_USB0);
-    ASSERT_NE(hdiCb, nullptr);
+    // 离线前：端口可正常写入（证明上下文存在）
+    std::vector<uint8_t> data = {0x01};
+    int32_t bytesWritten = 0;
+    EXPECT_CALL(*mockDev, Write(data, TEST_WRITE_TIMEOUT_MS, _))
+        .WillOnce(DoAll(SetArgReferee<2>(WRITE_RETURN_ONE_BYTE), Return(HDF_SUCCESS)));
+    EXPECT_EQ(service_->WriteSerial(PORT_USB0, data, TEST_WRITE_TIMEOUT_MS, bytesWritten), SERIAL_OK);
+    EXPECT_EQ(bytesWritten, WRITE_RETURN_ONE_BYTE);
 
     EXPECT_CALL(*mockCallback_, onDisconnect(PORT_USB0)).WillOnce(Return(MOCK_CALLBACK_ERR_OK));
-    int32_t ret = hdiCb->OnDeviceOffline();
-    EXPECT_EQ(ret, SERIAL_OK);
-    EXPECT_EQ(service_->GetDeviceCount(), 0u);
+    service_->HandleDeviceOffline(PORT_USB0);
+
+    // 离线后：写入返回设备未打开（以公共 API 行为验证上下文已清理）
+    int32_t ret = service_->WriteSerial(PORT_USB0, data, TEST_WRITE_TIMEOUT_MS, bytesWritten);
+    EXPECT_EQ(ret, SERIAL_ERR_DEVICE_NOT_OPENED);
 }
 
 /**
- * @brief 未注册端口的离线回调安全无副作用
+ * @brief 未注册端口的离线清理安全无副作用
  */
 HWTEST_F(SerialMockHdiLoopbackTest, DeviceOffline_UnknownPort_SafeNoCrash, TestSize.Level1)
 {
-    sptr<SerialHdiCallback> hdiCb = new SerialHdiCallback(mockCallback_, "ttyUSB_unknown");
-    ASSERT_NE(hdiCb, nullptr);
-
-    int32_t ret = hdiCb->OnDeviceOffline();
-    EXPECT_EQ(ret, SERIAL_OK);
-    EXPECT_EQ(service_->GetDeviceCount(), 0u);
+    // 未注册端口走「上下文未找到」分支：安全返回、不崩溃、无回调触发
+    EXPECT_CALL(*mockCallback_, onDisconnect(_, _)).Times(0);
+    EXPECT_CALL(*mockCallback_, onDataRead(_, _)).Times(0);
+    service_->HandleDeviceOffline("ttyUSB_unknown");
+    GTEST_SUCCEED() << "unknown port offline handled safely (no crash, no side effects)";
 }
 
 } // namespace Serial

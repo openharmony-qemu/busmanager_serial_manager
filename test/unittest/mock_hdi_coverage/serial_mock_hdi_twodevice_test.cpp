@@ -174,7 +174,6 @@ void SerialMockHdiTwoDeviceTest::InsertBothPorts(sptr<MockSerialDevice> &dev0, s
     dev1 = InsertTestDeviceContext(service_, PORT_USB1, callback1_, CreateDefaultConfig());
     ASSERT_NE(dev0, nullptr);
     ASSERT_NE(dev1, nullptr);
-    ASSERT_EQ(service_->GetDeviceCount(), 2u);
 }
 
 /**
@@ -212,9 +211,8 @@ HWTEST_F(SerialMockHdiTwoDeviceTest, TwoDevices_ReadEcho_IndependentCallbacks, T
     sptr<MockSerialDevice> dev1 = nullptr;
     InsertBothPorts(dev0, dev1);
 
-    auto it = service_->deviceContexts_.find(PORT_USB0);
-    ASSERT_TRUE(it != service_->deviceContexts_.end());
-    sptr<SerialHdiCallback> hdiCb0 = it->second->hdiCallback;
+    // SerialHdiCallback 为公开类，直接构造端口 0 的 HDI 回调
+    sptr<SerialHdiCallback> hdiCb0 = new SerialHdiCallback(callback0_, PORT_USB0);
     ASSERT_NE(hdiCb0, nullptr);
 
     std::vector<uint8_t> port0Data = {PORT0_BYTE_0, PORT0_BYTE_1};
@@ -237,7 +235,12 @@ HWTEST_F(SerialMockHdiTwoDeviceTest, TwoDevices_CloseOne_OtherStillOperable, Tes
 
     int32_t closeRet = service_->CloseSerial(PORT_USB0);
     EXPECT_EQ(closeRet, SERIAL_OK);
-    ASSERT_EQ(service_->GetDeviceCount(), 1u);
+
+    // 以公共 API 行为验证：端口 0 上下文已清理（设备未打开），端口 1 仍存活
+    std::vector<uint8_t> data0 = {PORT0_BYTE_0};
+    int32_t bytesWritten0 = 0;
+    int32_t ret0 = service_->WriteSerial(PORT_USB0, data0, TEST_WRITE_TIMEOUT_MS, bytesWritten0);
+    EXPECT_EQ(ret0, SERIAL_ERR_DEVICE_NOT_OPENED);
 
     std::vector<uint8_t> data1 = {PORT1_BYTE_0};
     int32_t bytesWritten1 = 0;
@@ -259,7 +262,12 @@ HWTEST_F(SerialMockHdiTwoDeviceTest, TwoDevices_ClientDiedOne_OtherSurvives, Tes
 
     EXPECT_CALL(*dev0, Close()).WillOnce(Return(HDF_SUCCESS));
     service_->OnClientDied(PORT_USB0);
-    ASSERT_EQ(service_->GetDeviceCount(), 1u);
+
+    // 以公共 API 行为验证：端口 0 客户端死亡后上下文已清理，端口 1 存活
+    std::vector<uint8_t> data0 = {PORT0_BYTE_0};
+    int32_t bytesWritten0 = 0;
+    int32_t ret0 = service_->WriteSerial(PORT_USB0, data0, TEST_WRITE_TIMEOUT_MS, bytesWritten0);
+    EXPECT_EQ(ret0, SERIAL_ERR_DEVICE_NOT_OPENED);
 
     std::vector<uint8_t> data1 = {PORT1_BYTE_0};
     int32_t bytesWritten1 = 0;

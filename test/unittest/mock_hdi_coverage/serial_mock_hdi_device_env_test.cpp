@@ -110,10 +110,7 @@ void SerialMockHdiDeviceEnvTest::SetUp()
 void SerialMockHdiDeviceEnvTest::TearDown()
 {
     SERIAL_HILOGI(MODULE_SERVICE, "SerialMockHdiDeviceEnvTest::TearDown");
-    if (service_ != nullptr) {
-        // 复位企业策略，避免影响后续测试
-        service_->SetSerialManagePolicy(false);
-    }
+    // 企业策略（isRs232Disabled_）为实例级状态，随本用例的 SerialService 实例销毁自动复位
     mockHdi_ = nullptr;
     service_ = nullptr;
 }

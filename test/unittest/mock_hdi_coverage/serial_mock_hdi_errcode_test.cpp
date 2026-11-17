@@ -427,13 +427,18 @@ HWTEST_F(SerialMockHdiErrcodeTest, ErrInject_Close_HdfFailure_StillCleansContext
 {
     sptr<MockSerialDevice> mockDev = InsertOpenedPort(PORT_USB0);
     ASSERT_NE(mockDev, nullptr);
-    EXPECT_EQ(service_->GetDeviceCount(), 1u);
 
     EXPECT_CALL(*mockDev, Close()).WillOnce(Return(HDF_FAILURE));
 
+    // HDI Close 失败仅告警，关闭仍返回成功
     int32_t ret = service_->CloseSerial(PORT_USB0);
     EXPECT_EQ(ret, SERIAL_OK);
-    EXPECT_EQ(service_->GetDeviceCount(), 0u);
+
+    // 以公共 API 行为验证上下文已清理：写入返回设备未打开
+    std::vector<uint8_t> data = {LOOPBACK_BYTE_0};
+    int32_t bytesWritten = 0;
+    int32_t writeRet = service_->WriteSerial(PORT_USB0, data, TEST_WRITE_TIMEOUT_MS, bytesWritten);
+    EXPECT_EQ(writeRet, SERIAL_ERR_DEVICE_NOT_OPENED);
 }
 
 } // namespace Serial

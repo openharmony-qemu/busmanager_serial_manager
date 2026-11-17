@@ -358,15 +358,8 @@ HWTEST_F(SerialMockHdiParamTest, Param_Write_NotOpened_ReturnsDeviceNotOpened, T
  */
 HWTEST_F(SerialMockHdiParamTest, Param_Write_TokenMismatch_ReturnsNotAllowed, TestSize.Level1)
 {
-    auto context = std::make_shared<DeviceContext>();
-    context->portName = PORT_USB0;
-    context->serviceCallback = mockCallback_;
-    context->hdiCallback = new SerialHdiCallback(mockCallback_, PORT_USB0);
-    context->hdiDevice = new MockSerialDevice();
-    context->config = CreateValidConfig();
-    context->openTime = std::chrono::steady_clock::now();
-    context->tokenId = TOKEN_MISMATCH;
-    service_->deviceContexts_[PORT_USB0] = context;
+    // 复用共享 helper 注入 tokenId 不匹配的上下文（唯一差异点为 tokenId）
+    InsertTestDeviceContextWithToken(service_, PORT_USB0, mockCallback_, CreateValidConfig(), TOKEN_MISMATCH);
 
     std::vector<uint8_t> data = {FILL_BYTE};
     int32_t bytesWritten = 0;
