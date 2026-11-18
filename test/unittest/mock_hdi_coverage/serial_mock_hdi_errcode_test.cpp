@@ -112,7 +112,8 @@ protected:
 void SerialMockHdiErrcodeTest::SetUp()
 {
     SERIAL_HILOGI(MODULE_SERVICE, "SerialMockHdiErrcodeTest::SetUp");
-    mockHdi_ = new MockSerials();
+    // NiceMock：抑制未预期调用的 GMOCK WARNING，未显式声明的调用仍执行 ON_CALL 默认动作
+    mockHdi_ = new NiceMock<MockSerials>();
     ASSERT_NE(mockHdi_, nullptr);
 
     std::vector<SerialDeviceInfo> mockDevices;

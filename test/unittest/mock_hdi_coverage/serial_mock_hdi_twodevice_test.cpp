@@ -116,7 +116,8 @@ protected:
 void SerialMockHdiTwoDeviceTest::SetUp()
 {
     SERIAL_HILOGI(MODULE_SERVICE, "SerialMockHdiTwoDeviceTest::SetUp");
-    mockHdi_ = new MockSerials();
+    // NiceMock：抑制未预期调用的 GMOCK WARNING，未显式声明的调用仍执行 ON_CALL 默认动作
+    mockHdi_ = new NiceMock<MockSerials>();
     ASSERT_NE(mockHdi_, nullptr);
 
     std::vector<SerialDeviceInfo> mockDevices;
@@ -233,6 +234,7 @@ HWTEST_F(SerialMockHdiTwoDeviceTest, TwoDevices_CloseOne_OtherStillOperable, Tes
     sptr<MockSerialDevice> dev1 = nullptr;
     InsertBothPorts(dev0, dev1);
 
+    EXPECT_CALL(*dev0, Close()).WillOnce(Return(HDF_SUCCESS));
     int32_t closeRet = service_->CloseSerial(PORT_USB0);
     EXPECT_EQ(closeRet, SERIAL_OK);
 

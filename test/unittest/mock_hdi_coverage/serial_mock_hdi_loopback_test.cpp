@@ -114,7 +114,9 @@ protected:
 void SerialMockHdiLoopbackTest::SetUp()
 {
     SERIAL_HILOGI(MODULE_SERVICE, "SerialMockHdiLoopbackTest::SetUp");
-    mockHdi_ = new MockSerials();
+    // NiceMock：抑制未预期调用的 GMOCK WARNING（如 OpenSerial 内部隐式调用 QueryDevices、OpenDevice），
+    // 未显式声明预期的调用仍执行 ON_CALL 默认动作，行为不变；EXPECT_CALL 设定的预期照常严格校验
+    mockHdi_ = new NiceMock<MockSerials>();
     ASSERT_NE(mockHdi_, nullptr);
 
     std::vector<SerialDeviceInfo> mockDevices;
