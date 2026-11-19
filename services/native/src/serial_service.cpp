@@ -1374,7 +1374,7 @@ int32_t SerialService::AddPortAuthorization(const std::string& tokenId, const st
 int32_t SerialService::GetCallingUserId()
 {
     int32_t userId = SERIAL_RIGHT_USERID_DEFAULT;
-    int32_t ret = AccountSA::OsAccountManager::GetOsAccountLocalIdFromUid(IPCSkeleton::GetCallingUid(), userId);
+    int32_t ret = AccountSA::OsAccountManager::GetOsAccountLocalIdFromUid(IPCSkeleton::GetCallingAppUid(), userId);
     if (ret != 0) {
         SERIAL_HILOGE(MODULE_SERVICE,
             "%{public}s:%{public}d GetOsAccountLocalIdFromUid failed: %{public}d, set to default", __func__, __LINE__,
@@ -1765,7 +1765,7 @@ void SerialService::ReportSerialOperationAudit(const std::string& portName, cons
         {"happenTime", Serial::SerialSecurityReport::GetCurrentTime()},
         {"portId", portId},
         {"operationType", operationType},
-        {"uid", IPCSkeleton::GetCallingUid()},
+        {"uid", IPCSkeleton::GetCallingAppUid()},
     };
     Serial::SerialSecurityReport::ReportSecurityInfo(
         SERIAL_OP_EVENT_ID, std::string(SERIAL_OP_EVENT_VERSION), operationJson);
