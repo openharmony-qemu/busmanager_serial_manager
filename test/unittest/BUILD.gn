@@ -19,6 +19,7 @@ group("unittest") {
   deps = [ "serial_srv_client_without_service:unittest" ]
   if (serial_manager_feature_deploy_sa) {
     deps += [
+      "mock_hdi_coverage:mock_hdi_coverage",
       "serial_service:unittest",
       "serial_srv_client:unittest",
     ]
