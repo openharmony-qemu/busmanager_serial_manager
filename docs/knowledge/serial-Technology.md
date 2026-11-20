@@ -47,7 +47,7 @@ serial_manager 模块核心技术框架和机制的知识定义，涵盖价值�
 
 | 子维度 | 内容 |
 |---|---|
-| 业务痛点 | 串口管理属低频功能，常驻进程浪费内存；但 EDM 策略下发、应用首次调用都要求服务可被及时唤起；进程异常退出需自愈 |
+| 业务痛点 | 串口管理属低频功能，常驻进程浪费内存；但 EDM 策略下发、应用的任何一次调用都要求服务可被及时唤起；进程异常退出需自愈 |
 | 技术目标 | 无人使用时尽快退出，有人使用时秒级可用，崩溃后自动恢复，且退出前完成授权数据落库 |
 
 ### 原理（Principles）
@@ -130,8 +130,8 @@ serial_manager 模块核心技术框架和机制的知识定义，涵盖价值�
 
 | 子维度 | 内容 |
 |---|---|
-| 核心机制 | 四级链路：HDI 读线程 `OnReadData(data, len)` → `SerialHdiCallback::OnReadData`（int8→uint8 拷贝，`serial_service.cpp:133`）→ `serviceCallback_->onDataRead(portName, data)`（oneway Binder，无回执不阻塞）→ 客户端 `SerialServiceCallback::onDataRead`（锁内按 portName 拷贝回调列表，锁外逐个 `std::function`）→ 绑定层线程跃迁：NAPI 每个 JS 回调有独立 `napi_threadsafe_function`（`CreateThreadSafeFunction`，含 pendingQueue 缓冲），`CallJsCallback` 在 JS 线程构造 `Uint8Array` 后调用；Taihe 经 `napi_async_work`（`ScheduleCallbackAsyncWork`）在 Complete 回调（JS 线程）内以 `taihe::array<uint8_t>` 逐个调用。启停控制：`RegisterDataListener` 在 `listenerMutex_` 内判断"首个监听器"→ IPC `StartRead`（失败回滚）；`UnregisterDataListener` 判断"最后一个移除"→ IPC `StopRead`。断连推送：服务端 `HandleDeviceOffline` → `onDisconnect(portName)` → 客户端分发断连回调后自动 `RemoveAllListeners`（数据监听器一并清理） |
-| 关键流程 | 入口 `StartRead`（首个监听器注册触发）→ HDI 异步读线程产出数据 → 四级链路推送到 JS 回调；`StopRead`（最后一个监听器移除触发）后链路静默。时序见下图 |
+| 核心机制 | 四级链路：HDI 读线程 `OnReadData(data, len)` → `SerialHdiCallback::OnReadData`（int8→uint8 拷贝，`serial_service.cpp:133`）→ `serviceCallback_->onDataRead(portName, data)`（oneway Binder，无回执不阻塞）→ 客户端 `SerialServiceCallback::onDataRead`（锁内按 portName 拷贝回调列表，锁外逐个 `std::function`）→ 绑定层线程跃迁：NAPI 每个 JS 回调有独立 `napi_threadsafe_function`（`CreateThreadSafeFunction`，含 pendingQueue 缓冲），`CallJsCallback` 在 JS 线程构造 `Uint8Array` 后调用；Taihe 经 `napi_async_work`（`ScheduleCallbackAsyncWork`）在 Complete 回调（JS 线程）内以 `taihe::array<uint8_t>` 逐个调用。启停控制：`RegisterDataListener` 在 `listenerMutex_` 内判断"第一个监听器"→ IPC `StartRead`（失败回滚）；`UnregisterDataListener` 判断"最后一个移除"→ IPC `StopRead`。断连推送：服务端 `HandleDeviceOffline` → `onDisconnect(portName)` → 客户端分发断连回调后自动 `RemoveAllListeners`（数据监听器一并清理） |
+| 关键流程 | 入口 `StartRead`（第一个监听器注册触发）→ HDI 异步读线程产出数据 → 四级链路推送到 JS 回调；`StopRead`（最后一个监听器移除触发）后链路静默。时序见下图 |
 
 ```plantuml
 @startuml
@@ -169,7 +169,7 @@ JS -> JS : CallJsCallback\n构造 Uint8Array → 调用 JS 回调
 |---|---|
 | 系统限制 | oneway 回调依赖 Binder 缓冲，洪泛时有丢弃风险（已挂 `IpcFull` 30s 监控）；数据不经服务端缓存，HDI 回调到达时若无监听器即丢弃（仅记日志） |
 | 并发约束 | 注册/注销与启停判定必须原子（`listenerMutex_` 整体覆盖）；回调执行在锁外，注销后已在途的回调仍可能再触发一次（tsfn abort 尽力收敛） |
-| 安全约束 | 回调通道仅服务端使用，应用无法伪造（callback 对象由 stub 持有）；断连回调后 NAPI 端口对象自动标记失效，后续操作返回 35700003 |
+| 安全约束 | 回调通道仅服务端使用，应用无法伪造（callback 对象由 stub 持有）；断连回调后 NAPI 端口对象自动标记失效，后续操作返回 35700003（`close()` 与 `offDataRead`/`offDisconnect` 例外，静默成功） |
 
 ## 端口对象缓存与失效恢复机制
 
@@ -191,7 +191,7 @@ JS -> JS : CallJsCallback\n构造 Uint8Array → 调用 JS 回调
 
 | 子维度 | 内容 |
 |---|---|
-| 核心 API | 应用无感知；对失效对象调用任意方法被 `IsPortInvalidated` 拦截并返回 35700003。测试需触发 GC 时：活动对象因强引用**不会**被回收，必须等待端口从列表消失（INVALIDATE）后制造内存压力（AGENTS.md「常见陷阱 5」） |
+| 核心 API | 应用无感知；对失效对象调用方法被 `IsPortInvalidated` 拦截并返回 35700003，例外：`close()` 与 `offDataRead`/`offDisconnect` 在失效端口上静默成功（`serial_info.cpp:995-1012/1419/2127`，Taihe 侧 `close()` 同样跳过服务调用，`ohos.busManager.serial.impl.cpp:572-577`）。测试需触发 GC 时：活动对象因强引用**不会**被回收，必须等待端口从列表消失（INVALIDATE）后制造内存压力（AGENTS.md「常见陷阱 5」） |
 
 ### 代码关联（Code）
 
@@ -216,7 +216,7 @@ JS -> JS : CallJsCallback\n构造 Uint8Array → 调用 JS 回调
 | 子维度 | 内容 |
 |---|---|
 | 业务痛点 | 串口可触达敏感外设（支付、工业控制），普通应用直接访问有越权风险；系统应用又需要免弹窗与代授权能力 |
-| 技术目标 | "应用 × 设备 × 用户"粒度的用户可见授权：首次打开弹窗确认、授权结果可跨 SA 重启、系统弹窗 HAP 代为写回、系统应用旁路 |
+| 技术目标 | "应用 × 设备 × 用户"粒度的用户可见授权：无授权记录时打开弹窗确认、授权结果可跨 SA 重启、系统弹窗 HAP 代为写回、系统应用旁路 |
 
 ### 原理（Principles）
 
@@ -284,7 +284,7 @@ Svc --> App : open 成功
 
 | 子维度 | 内容 |
 |---|---|
-| 核心机制 | 参数 `persist.edm.rs232_serial_disable`（常量 `RS232_MDM_PARAM`，`serial_service.cpp:85`）三重角色：①init `start-on-demand`：置 0/1 都会拉起 SA（`sa_profile/4202.json`）。②动态监听：`OnStart` 注册 `WatchParameter`，回调中 `SetSerialManagePolicy(disable)`（原子写 `isRs232Disabled_`）+ 上报管理审计事件。③首次上报抑制：`reportManageFlag_` 仅在"参数此前未设置"或"SA 因该参数启动"时为 true；false 时首次管理事件被吞掉（避免非参数触发的启动对旧值重复上报，`serial_service.cpp:195-198, 1741-1747`）。执行面：`QuerySerialDevices` 过滤非 `IsUsbSerial` 设备，若原本有设备但全被过滤返回 `SERIAL_ERR_ENTERPRISE_POLICY`（JS 203，`serial_service.cpp:460`）；`OpenSerial` 及全部端口操作对非 USB 端口直接拒绝（当前返回 `SERIAL_ERR_SERVICE`，`serial_service.cpp:603` 等处——注意操作拒绝用的不是 203，枚举耗尽才用 203，以代码为准） |
+| 核心机制 | 参数 `persist.edm.rs232_serial_disable`（常量 `RS232_MDM_PARAM`，`serial_service.cpp:85`）三重角色：①init `start-on-demand`：置 0/1 都会拉起 SA（`sa_profile/4202.json`）。②动态监听：`OnStart` 注册 `WatchParameter`，回调中 `SetSerialManagePolicy(disable)`（原子写 `isRs232Disabled_`）+ 上报管理审计事件。③管理事件去重：`reportManageFlag_` 仅在"参数此前未设置"或"SA 因该参数启动"时为 true；false 时该管理事件被吞掉（避免非参数触发的启动对旧值重复上报，`serial_service.cpp:195-198, 1741-1747`）。执行面：`QuerySerialDevices` 过滤非 `IsUsbSerial` 设备，若原本有设备但全被过滤返回 `SERIAL_ERR_ENTERPRISE_POLICY`（JS 203，`serial_service.cpp:460`）；`OpenSerial` 及全部端口操作对非 USB 端口直接拒绝（当前返回 `SERIAL_ERR_SERVICE`，`serial_service.cpp:603` 等处——注意操作拒绝用的不是 203，枚举耗尽才用 203，以代码为准） |
 | 关键流程 | EDM 写参数 → init 拉起（或已运行则回调）→ `isRs232Disabled_` 原子置位 → 枚举过滤 + 操作拒绝 → 管理审计事件（portType=RS232, portStatus=Enabled/Disabled） |
 
 ### 使用方式（Usage）
@@ -316,13 +316,13 @@ Svc --> App : open 成功
 | 子维度 | 内容 |
 |---|---|
 | 业务痛点 | 串口操作涉及资金/工业外设，安全事故追责需要"谁在何时对哪个端口做了什么"的不可抵赖记录 |
-| 技术目标 | 覆盖打开/关闭/首次读/首次写四类操作与策略启停，字段稳定可采集，上报不阻塞业务 |
+| 技术目标 | 覆盖打开/关闭与每端口一次的读/写事件及策略启停，字段稳定可采集，上报不阻塞业务 |
 
 ### 原理（Principles）
 
 | 子维度 | 内容 |
 |---|---|
-| 核心机制 | `SerialSecurityReport::ReportSecurityInfo(eventId, version, json, isAsync=true)`（`serial_security_report.cpp:36`）封装 security_guard `NativeDataCollectKit`；`SECURITY_GUARD_ENABLE` 编译门控（部件存在性决定，`services/BUILD.gn:89-93`），未启用时退化为 debug 日志。两事件：操作 `0x030000100`（`ReportSerialOperationAudit`，字段 happenTime/portId/operationType/uid）；管理 `0x030000101`（`ReportSerialManageAuditEvent`，字段 portType/portStatus/userId/happenTime）。上报节流：`portsHasBeenRead_`/`portsHasBeenWritten_` 集合使 read/write 每端口（本次打开周期内）只报首次，`CloseSerial` 时 `ResetFirstRead/Write` 重置；open/close 每次都报。portId 编码见术语表 |
+| 核心机制 | `SerialSecurityReport::ReportSecurityInfo(eventId, version, json, isAsync=true)`（`serial_security_report.cpp:36`）封装 security_guard `NativeDataCollectKit`；`SECURITY_GUARD_ENABLE` 编译门控（部件存在性决定，`services/BUILD.gn:89-93`），未启用时退化为 debug 日志。两事件：操作 `0x030000100`（`ReportSerialOperationAudit`，字段 happenTime/portId/operationType/uid）；管理 `0x030000101`（`ReportSerialManageAuditEvent`，字段 portType/portStatus/userId/happenTime）。上报节流：`portsHasBeenRead_`/`portsHasBeenWritten_` 集合使 read/write 每端口（本次打开周期内）各只报一次，`CloseSerial` 时 `ResetFirstRead/Write` 重置；open/close 每次都报。portId 编码见术语表 |
 | 关键流程 | `OpenSerial`/`CloseSerial`/`StartRead`/`WriteSerial` 入口处构造 JSON → 异步上报（不等待结果） |
 
 ### 使用方式（Usage）
@@ -345,7 +345,7 @@ Svc --> App : open 成功
 |---|---|
 | 系统限制 | 事件 ID、字段名、版本串是采集契约，禁止修改；异步上报不保证送达时序 |
 | 并发约束 | 首/重置标记集合独立加锁，避免并发首调漏报或重报 |
-| 安全约束 | 服务进程持 `securityguard.REPORT_SECURITY_INFO` 权限（`serial_service.cfg`）；uid 字段来自 `IPCSkeleton::GetCallingUid`，不可伪造 |
+| 安全约束 | 服务进程持 `securityguard.REPORT_SECURITY_INFO` 权限（`serial_service.cfg`）；uid 字段来自 `IPCSkeleton::GetCallingAppUid`，不可伪造 |
 
 ## 统一错误码体系
 
@@ -391,7 +391,7 @@ Svc --> App : open 成功
 
 | 子维度 | 内容 |
 |---|---|
-| 业务痛点 | SA 按需加载意味着首次调用时服务可能不存在；SA 空闲自卸载或崩溃后，客户端持有的代理失效；应用不感知这些细节 |
+| 业务痛点 | SA 按需加载意味着调用时服务可能尚未运行；SA 空闲自卸载或崩溃后，客户端持有的代理失效；应用不感知这些细节 |
 | 技术目标 | 懒加载 + 死亡感知 + 透明重连，绑定层无感 |
 
 ### 原理（Principles）

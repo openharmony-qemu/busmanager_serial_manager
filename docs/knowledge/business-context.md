@@ -13,7 +13,7 @@ serial_manager（部件 `@ohos/serial_manager`，部件名 `serial_manager`，�
 - **数据读写**：`write(data, timeout)` 异步写入（数据长度 (0, 4096]，timeout ∈ [0, 300000] ms，默认 0 非阻塞）；接收侧不提供同步 read，统一通过 `onDataRead` 回调由服务端推送。
 - **串口信号**：`setRts` / `getCts` / `setDtr` / `getDsr` 读写流控与调制解调器信号。
 - **缓冲控制**：`flush`（清空缓冲）、`drain`（等待发送完成）、`sendBrk`（发送断帧信号）。
-- **应用级授权**：非系统应用首次 `open` 触发授权弹窗（连接 `com.usb.right` 弹窗 HAP），授权以"应用 × 设备"为粒度记录到内存缓存并在 SA 停止时落 RDB；系统应用经 `addPortAuthorization(tokenId, deviceId)` 代目标应用授权（`@systemapi`）。
+- **应用级授权**：非系统应用在无授权记录时 `open` 触发授权弹窗（连接 `com.usb.right` 弹窗 HAP），授权以"应用 × 设备"为粒度记录到内存缓存并在 SA 停止时落 RDB；系统应用经 `addPortAuthorization(tokenId, deviceId)` 代目标应用授权（`@systemapi`）。
 - **企业管控**：监听 EDM 参数 `persist.edm.rs232_serial_disable`，置 1 时禁用 RS-232（板载串口）类端口，仅保留 USB 串口。
 - **安全审计**：向 security_guard 上报串口操作事件（`0x030000100`）与串口管理事件（`0x030000101`）。
 - **DFX**：hilog（域 `0xD002A08`，四个模块 tag）、`hidumper -s 4202` 设备信息 dump、hicollie IPC full 监控。

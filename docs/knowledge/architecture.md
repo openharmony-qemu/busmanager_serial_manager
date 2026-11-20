@@ -67,7 +67,7 @@ CFG ..> SVC : SA 注册与进程属性
 2. **客户端层** `interfaces/innerkits/`
    - IDL 生成物把请求序列化后经 Binder 发往 SA；`ISerialServiceCallback` 的 `serial_service_callback_stub` 驻留客户端接收服务端 oneway 回调。
    - `SerialSrvClient`（`serial_srv_client.cpp`）：static 局部变量单例；`GetProxy()` 空则 `LoadSystemAbility(4202, 4s)`；`SerialSrvDeathRecipient` 监听服务死亡 → `ResetProxy` → 下次调用自动重连；所有 IPC 返回值经 `SerialInternalToJsCode()` 转成 JS 错误码再返回调用方。
-   - `SerialServiceCallback`（`serial_service_callback.cpp`）：`map<portName, map<handle, callback>>` 监听器多路复用；首个注册触发 `StartRead`、最后一个移除触发 `StopRead`。
+   - `SerialServiceCallback`（`serial_service_callback.cpp`）：`map<portName, map<handle, callback>>` 监听器多路复用；第一个注册触发 `StartRead`、最后一个移除触发 `StopRead`。
 3. **服务层** `services/native/`
    - `SerialService`（`serial_service.cpp`，1843 行）：`OnStart` 依次完成 EDM 参数监听 → `InitHdiProxy` → `LoadPcieSerialConfig` → `SerialRightManager::Init` → IPC full 监控 → 卸载定时器初始化 → `Publish`。14 个 IDL 方法统一模式：审计 → EDM 检查 → 参数校验 → `serviceMutex_` 加锁 → `FindDeviceContext` → `CheckPortAccessPermission`（tokenId 归属校验）→ HDI 调用 → `SerialHdiToInternalCode` 错误映射。
    - `SerialRightManager` / `SerialRightDbHelper` / `SerialSecurityReport`：授权、持久化与审计子模块（见 Entity/Technology）。
@@ -82,14 +82,14 @@ CFG ..> SVC : SA 注册与进程属性
 **构建与测试**（命令来自 AGENTS.md，本次知识构建未执行）：
 
 ```bash
-# 完整编译（改了 bundle.json / BUILD.gn / 首次必须），工作目录为 build.sh 所在目录
+# 完整编译（改了 bundle.json / BUILD.gn / 或尚无构建产物时必须），工作目录为 build.sh 所在目录
 ./build.sh --product-name rk3568 --ccache --build-target serial_manager serial_manager_tests
 # 快速编译（仅改 .cpp/.h/.idl 源文件时可用，跳过 GN 阶段）
 ./build.sh --product-name rk3568 --ccache --fast-rebuild --build-target serial_manager serial_manager_tests
 ```
 
 测试目标（`test/BUILD.gn` group `serial_manager_tests` = develop + fuzztest + unittest）：
-- `unittest/`：`SerialServiceTest`（mock HDI，`mock_serial_hdi.cpp`）、`SerialRightTest`（DB/授权管理）、`serial_srv_client` 单测（mock server + mock samgr）、`serial_srv_client_without_service`。
+- `unittest/`：`serial_service`（`SerialServiceTest` mock HDI + `SerialRightTest` DB/授权管理，`mock_serial_hdi.cpp`）、`mock_hdi_coverage`（`SerialMockHdiTest`，Mock HDI 覆盖测试，无真实设备可执行）、`serial_srv_client` 单测（mock server + mock samgr）、`serial_srv_client_without_service`。
 - `develop/`（服务变体，`install_enable=false`，部署方式为替换 `libserialservice.z.so`）：`serialservice_errcodetest`（按轮次返回预设错误码）、`serial_service_lifecycle_test`（设备枚举模拟 + 环回读线程）、`serialservice_paramtest`、`serial_service_twodevice_test`、`serialservice_authdialog_test`。
 - `fuzztest/`：`SerialMgrFuzzTest`。
 - `module_test/`：`SerialModuleTest` 可执行（loopback/db/dialog/all/help 子命令）。
@@ -103,7 +103,7 @@ CFG ..> SVC : SA 注册与进程属性
 | 资源泄漏防护（设备离线） | `SerialHdiCallback::OnDeviceOffline` → `HandleDeviceOffline`：先 `onDisconnect` 通知客户端，再清上下文；**跳过 `hdiDevice->Close()`**（物理拔出后 Close 可能无限阻塞并占住 `serviceMutex_`，`serial_service.cpp:823` 注释） |
 | 关机顺序安全 | `OnStop` **不调用 HDI Close**（HDI 服务可能先于本服务停止，调用已停代理会段错误，`serial_service.cpp:278` 注释）；仅移除死亡通知并清表；先调 `SerialRightManager::OnStop` 落库再清理 |
 | 并发安全 | 服务端单 `serviceMutex_`；读/写审计标记独立 `readStatusMutex_`/`writeStatusMutex_`；客户端 `mutex_`（代理）/`listenerMutex_`（注册串行化）；NAPI 层 `g_callbackMutex`/`g_disconnectedCallbackMutex`/`g_portCacheMutex`；Taihe 层 `g_callbackMutex`/`g_disconnectedCallbackMutex`/`g_portCacheMutex`/`g_holderRegistryMutex`/`g_napiEnvMutex`；授权缓存 `cacheMutex_`；弹窗互斥 `dialogRunning_` |
-| 内存安全 | 产物统一开 `integer_overflow`/`ubsan`/`boundary_sanitize`/`cfi`/`cfi_cross_dso` + `branch_protector_ret = "pac_ret"`（各 BUILD.gn）；敏感拷贝用 `memcpy_s`/`snprintf_s`；Taihe 回调经 `napi_async_work` 调度回 JS 线程执行 |
+| 内存安全 | 加固开关按产物区分（各 BUILD.gn）：NAPI `libserial.z.so` 与 innerkits `serialsrv_client` 开 `integer_overflow`/`ubsan`/`boundary_sanitize` + `pac_ret`；innerkits `serial_server_stub` 与 Taihe 产物开 `cfi`/`cfi_cross_dso`（前者另有 `pac_ret`）；`utils` 仅 `pac_ret`。敏感拷贝用 `memcpy_s`/`snprintf_s`；Taihe 回调经 `napi_async_work` 调度回 JS 线程执行 |
 | 性能 | 读数据经 `[oneway]` 回调异步推送，避免客户端阻塞等待；SA 加载超时 4s；写入单次上限 4096 字节防大包占锁 |
 | 安全 | 进程 `serial`/`serial` + `apl system_basic` + SELinux `u:r:serial_service:s0`；持有 `GET_BUNDLE_INFO_PRIVILEGED`/`GET_BUNDLE_RESOURCES`/`LISTEN_BUNDLE_CHANGE`/`securityguard.REPORT_SECURITY_INFO` 权限（`serial_service.cfg`）；RDB 安全级别 S1；`AddPortAuthorization` 仅允许 `com.usb.right` 系统应用调用 |
 

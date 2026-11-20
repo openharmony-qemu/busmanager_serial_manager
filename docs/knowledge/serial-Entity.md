@@ -1,6 +1,6 @@
 # 业务实体知识
 
-serial_manager 模块核心业务实体的完整知识定义，涵盖静态概念、动态运行、规则约束与代码映射。路径均相对仓根 `E:\yjw\11-10\busmanager_serial_manager`。
+serial_manager 模块核心业务实体的完整知识定义，涵盖静态概念、动态运行、规则约束与代码映射。路径均相对仓库根目录。
 
 ## 串口设备信息（SerialPortInfo）
 
@@ -137,7 +137,7 @@ serial_manager 模块核心业务实体的完整知识定义，涵盖静态概�
 
 | 子维度 | 内容 |
 |---|---|
-| 交互流程 | 注册：JS `onDataRead(cb)` → NAPI `RegisterOnDataReadListener`（`serial_info.cpp:1244`）建 tsfn → `SerialSrvClient::RegisterDataListener`（`serial_srv_client.cpp:400`）加表；**该端口首个**监听器触发 IPC `StartRead`（失败回滚已加表项）。数据到达：服务端 oneway `onDataRead` → `SerialServiceCallback::onDataRead` 锁内拷贝、锁外逐个回调 → NAPI `CallJsCallback`（JS 线程）。注销：`offDataRead([cb])` → 定向移除（`napi_strict_equals` 匹配）或全清；**最后一个**移除触发 IPC `StopRead` |
+| 交互流程 | 注册：JS `onDataRead(cb)` → NAPI `RegisterOnDataReadListener`（`serial_info.cpp:1244`）建 tsfn → `SerialSrvClient::RegisterDataListener`（`serial_srv_client.cpp:400`）加表；**该端口第一个**监听器触发 IPC `StartRead`（失败回滚已加表项）。数据到达：服务端 oneway `onDataRead` → `SerialServiceCallback::onDataRead` 锁内拷贝、锁外逐个回调 → NAPI `CallJsCallback`（JS 线程）。注销：`offDataRead([cb])` → 定向移除（`napi_strict_equals` 匹配）或全清；**最后一个**移除触发 IPC `StopRead` |
 | 状态流转 | 句柄生命周期 = 注册→注销；`close()` 与 `onDisconnect`（客户端侧收到后）会清空该端口全部监听器；`OpenSerial` 成功后客户端也先清空该端口旧监听器（`serial_srv_client.cpp:174-177`） |
 
 ### 规格与约束
@@ -185,7 +185,7 @@ serial_manager 模块核心业务实体的完整知识定义，涵盖静态概�
 
 | 子维度 | 内容 |
 |---|---|
-| 业务规则 | 活动对象强引用 ref=1 阻止 GC：想触发回收必须先 INVALIDATE（降弱引用）再 GC（AGENTS.md「常见陷阱 5」）；对失效对象调用方法返回 `35700003`（`IsPortInvalidated` 检查）；`write`/`onDataRead` 等方法前检查 `isOpened`（未打开抛 `35700005`） |
+| 业务规则 | 活动对象强引用 ref=1 阻止 GC：想触发回收必须先 INVALIDATE（降弱引用）再 GC（AGENTS.md「常见陷阱 5」）；对失效对象调用方法返回 `35700003`（`IsPortInvalidated` 检查），**例外**：`close()` 跳过服务调用直接 resolve（`serial_info.cpp:995-1012`）、`offDataRead`/`offDisconnect` 静默成功（`skipService`，`serial_info.cpp:1419/2127`），Taihe `close()` 同样跳过（`ohos.busManager.serial.impl.cpp:572-577`）；`write`/`onDataRead` 等方法前检查 `isOpened`（未打开抛 `35700005`） |
 | 并发约束 | 两表由 `g_portCacheMutex` 保护；对象内部标志为 atomic；Taihe 侧 `g_portCacheMutex`/`g_holderRegistryMutex` |
 
 ### 知识关联
@@ -211,14 +211,14 @@ serial_manager 模块核心业务实体的完整知识定义，涵盖静态概�
 |---|---|
 | 实体名称 | 串口审计事件（`SERIAL_OP_EVENT_ID` 操作事件 / `SERIAL_EDM_EVENT_ID` 管理事件） |
 | 实体定义 | 上报给 security_guard 的安全留痕事实。操作事件记录"谁对哪个端口做了 Open/Close/Read/Write"；管理事件记录"RS-232 策略被启停" |
-| 核心特征 | ID 与版本常量 `serial_service.h:46-49`；操作事件 JSON 字段：`happenTime`（ms）、`portId`（`CalculatePortId` 编码）、`operationType`（`SerialOpen/SerialClose/SerialRead/SerialWrite`）、`uid`（`IPCSkeleton::GetCallingUid`）；管理事件字段：`portType`（"RS232"）、`portStatus`（Disabled/Enabled）、`userId`、`happenTime` |
+| 核心特征 | ID 与版本常量 `serial_service.h:46-49`；操作事件 JSON 字段：`happenTime`（ms）、`portId`（`CalculatePortId` 编码）、`operationType`（`SerialOpen/SerialClose/SerialRead/SerialWrite`）、`uid`（`IPCSkeleton::GetCallingAppUid`）；管理事件字段：`portType`（"RS232"）、`portStatus`（Disabled/Enabled）、`userId`、`happenTime` |
 | 类型/分类 | 两类；均默认异步上报（`ReportSecurityInfoAsync`） |
 
 ### 上下文与场景
 
 | 子维度 | 内容 |
 |---|---|
-| 交互流程 | `OpenSerial`/`CloseSerial` 每次调用直接上报；`StartRead`/`WriteSerial` 经 `QueryAndRecordFirstRead/Write`（端口名插入 set，首次才上报）——即同一端口的读/写各只上报一次，`CloseSerial` 时 `ResetFirstRead/Write` 重置；EDM 策略变化经 `WatchParameter` 回调上报管理事件（`reportManageFlag_` 抑制非参数触发的首次上报，`serial_service.cpp:1741-1747`） |
+| 交互流程 | `OpenSerial`/`CloseSerial` 每次调用直接上报；`StartRead`/`WriteSerial` 经 `QueryAndRecordFirstRead/Write`（端口名插入 set，插入成功才上报）——即同一端口的读/写各只上报一次，`CloseSerial` 时 `ResetFirstRead/Write` 重置；EDM 策略变化经 `WatchParameter` 回调上报管理事件（`reportManageFlag_` 抑制非参数触发的管理事件上报，`serial_service.cpp:1741-1747`） |
 | 状态流转 | 事件为一次性产物，无状态；"已上报"标记存于 `portsHasBeenRead_`/`portsHasBeenWritten_`（独立互斥锁），随端口关闭重置 |
 
 ### 规格与约束
@@ -226,7 +226,7 @@ serial_manager 模块核心业务实体的完整知识定义，涵盖静态概�
 | 子维度 | 内容 |
 |---|---|
 | 业务规则 | 事件 ID/版本、字段名为安全采集契约，禁止修改（AGENTS.md「Do not」）；`SECURITY_GUARD_ENABLE` 由部件存在性门控（`services/BUILD.gn:89-93`），未启用时上报退化为日志 |
-| 并发约束 | 读/写标记分别由 `readStatusMutex_`/`writeStatusMutex_` 保护，避免并发首次调用漏报 |
+| 并发约束 | 读/写标记分别由 `readStatusMutex_`/`writeStatusMutex_` 保护，避免并发调用漏报 |
 
 ### 知识关联
 

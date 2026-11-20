@@ -19,7 +19,7 @@
 ## 安全与审计（不可绕过）
 
 - **禁止**绕过 `CheckPortAccessPermission()`（`serial_service.cpp:413`）的 tokenId 归属校验去操作端口：所有打开后的操作必须确认 `DeviceContext::tokenId == GetCallingTokenId()`。
-- **禁止**跳过 `SerialSecurityReport` 审计上报：`open`/`close` 每次上报，`StartRead`/`WriteSerial` 每端口首次上报（`QueryAndRecordFirstRead/Write`），策略变更上报管理事件。
+- **禁止**跳过 `SerialSecurityReport` 审计上报：`open`/`close` 每次上报，`StartRead`/`WriteSerial` 每端口各仅一次上报（`QueryAndRecordFirstRead/Write`），策略变更上报管理事件。
 - **禁止**修改日志域 `0xD002A08`、审计事件 ID `0x030000100`/`0x030000101`、EDM 参数名 `persist.edm.rs232_serial_disable`：DFX 采集与安全审计按固定取值消费（AGENTS.md「Do not」）。
 - **禁止**放宽 `AddPortAuthorization` 的调用方校验（`serial_service.cpp:1277` `ValidateDialogHapCaller`）：调用方必须是 HAP token + 系统应用 + `bundleName == "com.usb.right"`。修改弹窗 HAP 包名属安全评审事项。
 - **禁止**未经请示修改授权缓存键格式（`userId_deviceId_bundleName_tokenId`，`serial_right_manager.cpp:88`）或 `serial_right` 表结构：旧数据需迁移（AGENTS.md「Ask before」）。
@@ -47,12 +47,12 @@
 - **禁止**单个函数（含 lambda）非空非注释行数超过 **50 行**（AGENTS.md「函数体行数限制」）；超出必须拆子函数（参考 `serial_service.cpp` 的 `ValidateOpenSerialParams`/`OpenHdiDevice`/`BuildDeviceContext` 拆分模式）。
 - **禁止**C 风格类型转换（`(int)x`、`(void**)&p`）；必须用 `static_cast`/`reinterpret_cast`/`const_cast`。例外：Taihe impl 中既有的 `(uint32_t)ResourceFlag::...` 风格不应扩散到新代码。
 - **禁止**魔鬼数字：数字常量必须定义为 `constexpr` 命名常量（如 `UNLOAD_SA_DELAY_MS`、`ACM_PORT_ID_OFFSET`）；`0`/`1` 等语义明确值可保留。
-- 提交前格式化：C/C++ 用 `clang-format -i`（配置在仓根 `.clang-format`）；BUILD.gn 用 `gn format`（`prebuilts/build-tools/linux-x86/bin/gn`）；bundle.json 用 python json 序列化。
+- 提交前格式化：C/C++ 与 BUILD.gn 的格式化命令及配置见 AGENTS.md 格式化说明（C/C++ 用仓根配置文件，BUILD.gn 用 `gn format`，路径 `prebuilts/build-tools/linux-x86/bin/gn`）；bundle.json 用 python json 序列化。
 - IDL/头文件遵循仓内命名：类型 PascalCase，方法与成员 camelCase，文件 snake_case，日志宏 `SERIAL_HILOGI/E/W/D/F(MODULE_*, ...)` 按四模块（`MODULE_INNERKIT`/`MODULE_SERVICE`/`MODULE_JS_NAPI`/`MODULE_TAIHE`）选择。
 
 ## 构建纪律
 
-- 改了 `bundle.json`、任何 `BUILD.gn`、新增/删除源文件、首次编译：**必须完整编译**（无 `--fast-rebuild`），否则出现 "Duplicate definition"。
+- 改了 `bundle.json`、任何 `BUILD.gn`、新增/删除源文件、或尚无构建产物：**必须完整编译**（无 `--fast-rebuild`），否则出现 "Duplicate definition"。
 - 仅改 `.cpp`/`.h`/`.idl`：可用 `--fast-rebuild`（约省 50-70% 时间）。
 - 编译必须在 build.sh 所在目录（`../../../`）执行，且按 AGENTS.md 要求使用子 agent，不在主会话直接执行。
 

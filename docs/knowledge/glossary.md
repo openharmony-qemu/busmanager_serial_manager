@@ -36,7 +36,7 @@ IDL 结构 `SerialConfig`（8 个 int/boolean 字段）与 JS 侧 `SerialConfigs
 
 ## 授权记录（SerialRightFullRecord / rightCache_）
 
-"某用户下某应用对某设备享有串口访问授权"的实体（`serial_right_db_helper.h:50`）。内存缓存 `rightCache_`（`serial_right_manager.cpp:143`）键格式为 `userId_deviceId_bundleName_tokenId`（`BuildCacheKey`）。`HasRight`/`AddDeviceRight` 只操作缓存不触碰数据库；RDB 仅在 SA `OnStart` 加载、`OnStop` 批量落库。
+"某用户下某应用对某设备享有串口访问授权"的实体（`serial_right_db_helper.h:50`）。内存缓存 `rightCache_`（`serial_right_manager.h:143`）键格式为 `userId_deviceId_bundleName_tokenId`（`BuildCacheKey`）。`HasRight`/`AddDeviceRight` 只操作缓存不触碰数据库；RDB 仅在 SA `OnStart` 加载、`OnStop` 批量落库。
 
 ## 授权数据库（SerialRight.db / serial_right 表）
 
@@ -72,7 +72,7 @@ RDB 文件 `/data/service/el1/public/database/serial_manager/SerialRight.db`（`
 
 ## 监听器与监听器句柄（ListenerHandle）
 
-客户端侧"JS 回调的登记凭证"，`uint64_t`，从 1 递增（`serial_service_callback.h:32`）。数据监听按 `map<portName, map<handle, callback>>` 多路复用：首个注册触发 `StartRead`、最后一个注销触发 `StopRead`（`serial_srv_client.cpp:400-535`）。NAPI 层另维护 `g_dataCallbacks`（napi_ref → CallbackInfo）完成 tsfn 与 handle 的对应；Taihe 层每端口只向 innerkit 注册一个监听器（`g_innerkitHandles`），对上多路复用 `g_callbacks`。
+客户端侧"JS 回调的登记凭证"，`uint64_t`，从 1 递增（`serial_service_callback.h:32`）。数据监听按 `map<portName, map<handle, callback>>` 多路复用：第一个注册触发 `StartRead`、最后一个注销触发 `StopRead`（`serial_srv_client.cpp:400-535`）。NAPI 层另维护 `g_dataCallbacks`（napi_ref → CallbackInfo）完成 tsfn 与 handle 的对应；Taihe 层每端口只向 innerkit 注册一个监听器（`g_innerkitHandles`），对上多路复用 `g_callbacks`。
 
 ## 端口对象缓存（g_activePorts / g_invalidatedPorts / SerialPortNative）
 
@@ -92,7 +92,7 @@ NAPI 层的 JS `SerialPort` 对象与 `SerialPortNative*` 绑定表（`serial_in
 
 ## 审计事件（0x030000100 / 0x030000101）
 
-security_guard 上报的两个安全事件（`serial_service.h:46-47`）：**操作审计** `SERIAL_OP_EVENT_ID=0x030000100`，字段 happenTime/portId/operationType(SerialOpen/SerialClose/SerialRead/SerialWrite)/uid；open 与 close 每次上报，read/write 每端口首次上报（关闭时重置）；**管理审计** `SERIAL_EDM_EVENT_ID=0x030000101`，字段 portType(RS232)/portStatus(Enabled/Disabled)/userId/happenTime。上报经 `SerialSecurityReport::ReportSecurityInfo`（默认异步，`SECURITY_GUARD_ENABLE` 门控）。
+security_guard 上报的两个安全事件（`serial_service.h:46-47`）：**操作审计** `SERIAL_OP_EVENT_ID=0x030000100`，字段 happenTime/portId/operationType(SerialOpen/SerialClose/SerialRead/SerialWrite)/uid；open 与 close 每次上报，read/write 每端口各一次（关闭时重置）；**管理审计** `SERIAL_EDM_EVENT_ID=0x030000101`，字段 portType(RS232)/portStatus(Enabled/Disabled)/userId/happenTime。上报经 `SerialSecurityReport::ReportSecurityInfo`（默认异步，`SECURITY_GUARD_ENABLE` 门控）。
 
 ## Taihe / ANI / ABC
 
