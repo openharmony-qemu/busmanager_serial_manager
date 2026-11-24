@@ -30,6 +30,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include "hilog_wrapper.h"
 #include "ipc_skeleton.h"
@@ -54,6 +55,21 @@ namespace Serial {
 namespace {
 constexpr const char* TEST_DEVICE_ID_1 = "5678_1234_ttyUSB0";
 constexpr const char* TEST_TOKEN_ID = "12345678";
+constexpr int32_t TEST_HDI_FAILURE = -1;
+constexpr int32_t TEST_WRITE_BYTES = 5;
+constexpr int32_t TEST_TIMEOUT_MS = 1000;
+constexpr int32_t INVALID_FD = -1;
+constexpr int32_t PIPE_READ = 0;
+constexpr int32_t PIPE_WRITE = 1;
+constexpr size_t WRITE_DATA_MAX_SIZE = 4096;
+constexpr int32_t WRITE_TIMEOUT_MAX_MS = 300000;
+constexpr int32_t MOCK_VID_FTDI = 5678;
+constexpr int32_t MOCK_PID_FTDI = 1234;
+constexpr int32_t MOCK_VID_PROLIFIC = 2222;
+constexpr int32_t MOCK_PID_PROLIFIC = 1111;
+constexpr int32_t EXPECTED_ACM_PORT_1 = 1001;
+constexpr int32_t EXPECTED_TTYS_PORT_2 = 2002;
+constexpr uint8_t TEST_DATA_BYTE = 0x41;
 } // namespace
 
 // ============================================================================
@@ -96,8 +112,8 @@ public:
     void SetUp() override
     {
         SERIAL_HILOGI(MODULE_SERVICE, "SerialServiceTest::SetUp");
-        // 创建 Mock HDI 代理
-        mockHdi_ = new MockSerials();
+        // 创建 Mock HDI 代理（NiceMock 抑制未预期调用的 GMOCK WARNING）
+        mockHdi_ = new NiceMock<MockSerials>();
         ASSERT_NE(mockHdi_, nullptr);
 
         // 创建 SerialService 实例（用于测试）
@@ -110,6 +126,9 @@ public:
         // 设置 Mock 设备列表
         SetupMockDevices();
 
+        // 预授权测试设备，绕过 RequestRight 弹框阻塞
+        PreAuthorizeTestDevices();
+
         // 创建 Mock 回调
         mockCallback_ = new MockSerialServiceCallback();
         ASSERT_NE(mockCallback_, nullptr);
@@ -121,9 +140,12 @@ public:
         // 清理资源
         if (service_ != nullptr) {
             // 尝试关闭可能打开的设备
-            service_->CloseSerial("/dev/ttyUSB0");
-            service_->CloseSerial("/dev/ttyUSB1");
+            service_->CloseSerial("ttyUSB0");
+            service_->CloseSerial("ttyUSB1");
         }
+        // 清理 SerialRightManager 进程级单例的授权缓存，
+        // 防止本 fixture 预授权的 deviceId 污染后续用例的权限判定
+        ClearAuthorizedRights();
         mockCallback_ = nullptr;
         mockHdi_ = nullptr;
         service_ = nullptr;
@@ -141,20 +163,51 @@ protected:
     {
         std::vector<SerialDeviceInfo> mockDevices;
         SerialDeviceInfo device1;
-        device1.portName = "/dev/ttyUSB0";
-        device1.productId = 1234;
-        device1.vendorId = 5678;
+        device1.portName = "ttyUSB0";
+        device1.productId = MOCK_PID_FTDI;
+        device1.vendorId = MOCK_VID_FTDI;
         device1.manufacturer = "FTDI";
         mockDevices.push_back(device1);
 
         SerialDeviceInfo device2;
-        device2.portName = "/dev/ttyUSB1";
-        device2.productId = 1111;
-        device2.vendorId = 2222;
+        device2.portName = "ttyUSB1";
+        device2.productId = MOCK_PID_PROLIFIC;
+        device2.vendorId = MOCK_VID_PROLIFIC;
         device2.manufacturer = "Prolific";
         mockDevices.push_back(device2);
 
         mockHdi_->SetMockDevices(mockDevices);
+    }
+
+    void PreAuthorizeTestDevices()
+    {
+        std::string bundleName = service_->GetCallingBundleName();
+        std::string tokenId = service_->GetCallingTokenId();
+        int32_t userId = service_->GetCallingUserIdFromToken();
+        SerialPortInfo portInfo1 = CreateTestPortInfo("ttyUSB0");
+        std::string deviceId1 = service_->BuildDeviceId(portInfo1);
+        SerialRightManager::GetInstance().AddDeviceRight(deviceId1, bundleName, tokenId, userId);
+        SerialPortInfo portInfo2;
+        portInfo2.portName = "ttyUSB1";
+        portInfo2.productId = MOCK_PID_PROLIFIC;
+        portInfo2.vendorId = MOCK_VID_PROLIFIC;
+        portInfo2.manufacturer = "Prolific";
+        std::string deviceId2 = service_->BuildDeviceId(portInfo2);
+        SerialRightManager::GetInstance().AddDeviceRight(deviceId2, bundleName, tokenId, userId);
+    }
+
+    /**
+     * @brief 清理 SerialRightManager 进程级单例的授权缓存
+     * @details SetUp 中 PreAuthorizeTestDevices 向 rightCache_ 写入两条授权记录，
+     *          SerialRightManager 无公开清理 API，且为进程级单例，用例间共享。
+     *          此处通过 private=public 编译定义直接清理，防止预授权的 deviceId
+     *          污染同进程后续用例的权限判定（如负向权限拒绝用例）。
+     */
+    void ClearAuthorizedRights()
+    {
+        auto& mgr = SerialRightManager::GetInstance();
+        std::lock_guard<std::mutex> lock(mgr.cacheMutex_);
+        mgr.rightCache_.clear();
     }
 
     /**
@@ -181,10 +234,27 @@ protected:
     {
         SerialPortInfo portInfo;
         portInfo.portName = portName;
-        portInfo.productId = 1234;
-        portInfo.vendorId = 5678;
+        portInfo.productId = MOCK_PID_FTDI;
+        portInfo.vendorId = MOCK_VID_FTDI;
         portInfo.manufacturer = "FTDI";
         return portInfo;
+    }
+
+    sptr<MockSerialDevice> InjectDeviceContext(const std::string& portName)
+    {
+        sptr<MockSerialDevice> mockDevice = new MockSerialDevice();
+        // 抑制 TearDown → CloseSerial → hdiDevice->Close() 的未预期调用 WARNING
+        ON_CALL(*mockDevice, Close()).WillByDefault(Return(HDF_SUCCESS));
+        auto context = std::make_shared<DeviceContext>();
+        context->hdiDevice = mockDevice;
+        context->serviceCallback = mockCallback_;
+        context->portName = portName;
+        context->tokenId = service_->GetCallingTokenId();
+        context->userId = 0;
+        context->config = CreateDefaultConfig();
+        context->openTime = std::chrono::steady_clock::now();
+        service_->deviceContexts_[portName] = context;
+        return mockDevice;
     }
 };
 
@@ -202,7 +272,7 @@ HWTEST_F(SerialServiceTest, OpenSerial_NullCallback_ReturnsInvalidParam, TestSiz
 
     sptr<ISerialServiceCallback> nullCallback = nullptr;
 
-    SerialPortInfo portInfo = CreateTestPortInfo("/dev/ttyUSB0");
+    SerialPortInfo portInfo = CreateTestPortInfo("ttyUSB0");
     SerialConfig config = CreateDefaultConfig();
 
     int32_t result = service_->OpenSerial(portInfo, config, nullCallback);
@@ -223,7 +293,7 @@ HWTEST_F(SerialServiceTest, OpenSerial_HdiOpenFailure_ReturnsServiceError, TestS
     // 设置 HDI OpenDevice 失败
     mockHdi_->SetOpenDeviceResult(false);
 
-    SerialPortInfo portInfo = CreateTestPortInfo("/dev/ttyUSB0");
+    SerialPortInfo portInfo = CreateTestPortInfo("ttyUSB0");
     SerialConfig config = CreateDefaultConfig();
 
     int32_t result = service_->OpenSerial(portInfo, config, mockCallback_);
@@ -246,7 +316,7 @@ HWTEST_F(SerialServiceTest, OpenSerial_Success_RegistersDeviceContext, TestSize.
 
     mockHdi_->SetOpenDeviceResult(true); // HDI 成功
 
-    SerialPortInfo portInfo = CreateTestPortInfo("/dev/ttyUSB0");
+    SerialPortInfo portInfo = CreateTestPortInfo("ttyUSB0");
     SerialConfig config = CreateDefaultConfig();
 
     // 打开前设备数为 0
@@ -280,7 +350,7 @@ HWTEST_F(SerialServiceTest, OpenSerial_DeviceAlreadyOpen_ReturnsDeviceBusy, Test
 
     mockHdi_->SetOpenDeviceResult(true);
 
-    SerialPortInfo portInfo = CreateTestPortInfo("/dev/ttyUSB0");
+    SerialPortInfo portInfo = CreateTestPortInfo("ttyUSB0");
     SerialConfig config = CreateDefaultConfig();
 
     // 第一次打开
@@ -316,7 +386,7 @@ HWTEST_F(SerialServiceTest, CloseSerial_DeviceOpened_ReturnsSuccess, TestSize.Le
 
     mockHdi_->SetOpenDeviceResult(true);
 
-    SerialPortInfo portInfo = CreateTestPortInfo("/dev/ttyUSB0");
+    SerialPortInfo portInfo = CreateTestPortInfo("ttyUSB0");
     SerialConfig config = CreateDefaultConfig();
 
     // 尝试打开设备
@@ -325,14 +395,14 @@ HWTEST_F(SerialServiceTest, CloseSerial_DeviceOpened_ReturnsSuccess, TestSize.Le
 
     if (openResult == SERIAL_OK) {
         // 关闭设备
-        int32_t closeResult = service_->CloseSerial("/dev/ttyUSB0");
+        int32_t closeResult = service_->CloseSerial("ttyUSB0");
         EXPECT_EQ(closeResult, SERIAL_OK);
         // DeviceContext 被移除
         EXPECT_EQ(service_->GetDeviceCount(), 0);
     } else {
         // 未成功打开，关闭应返回 ERR_DEVICE_DISCONNECTED
-        int32_t closeResult = service_->CloseSerial("/dev/ttyUSB0");
-        EXPECT_EQ(closeResult, SERIAL_ERR_DEVICE_DISCONNECTED);
+        int32_t closeResult = service_->CloseSerial("ttyUSB0");
+        EXPECT_EQ(closeResult, SERIAL_ERR_DEVICE_NOT_OPENED);
     }
 
     SERIAL_HILOGI(MODULE_SERVICE, "CloseSerial_DeviceOpened_ReturnsSuccess: success");
@@ -342,15 +412,15 @@ HWTEST_F(SerialServiceTest, CloseSerial_DeviceOpened_ReturnsSuccess, TestSize.Le
  * @brief 测试 CloseSerial：关闭不存在的设备返回 ERR_DEVICE_DISCONNECTED
  * @details 验证对未打开设备关闭的错误处理
  */
-HWTEST_F(SerialServiceTest, CloseSerial_DeviceNotExist_ReturnsDisconnected, TestSize.Level1)
+HWTEST_F(SerialServiceTest, CloseSerial_DeviceNotExist_ReturnsNotOpened, TestSize.Level1)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "CloseSerial_DeviceNotExist_ReturnsDisconnected: start");
+    SERIAL_HILOGI(MODULE_SERVICE, "CloseSerial_DeviceNotExist_ReturnsNotOpened: start");
 
-    int32_t result = service_->CloseSerial("/dev/ttyUSB_nonexistent");
+    int32_t result = service_->CloseSerial("ttyUSB_nonexistent");
 
-    EXPECT_EQ(result, SERIAL_ERR_DEVICE_DISCONNECTED);
+    EXPECT_EQ(result, SERIAL_ERR_DEVICE_NOT_OPENED);
 
-    SERIAL_HILOGI(MODULE_SERVICE, "CloseSerial_DeviceNotExist_ReturnsDisconnected: success");
+    SERIAL_HILOGI(MODULE_SERVICE, "CloseSerial_DeviceNotExist_ReturnsNotOpened: success");
 }
 
 /**
@@ -364,8 +434,8 @@ HWTEST_F(SerialServiceTest, CloseSerial_LastDevice_TriggersUnloadTimer, TestSize
     mockHdi_->SetOpenDeviceResult(true);
 
     // 尝试打开两个设备
-    SerialPortInfo portInfo1 = CreateTestPortInfo("/dev/ttyUSB0");
-    SerialPortInfo portInfo2 = CreateTestPortInfo("/dev/ttyUSB1");
+    SerialPortInfo portInfo1 = CreateTestPortInfo("ttyUSB0");
+    SerialPortInfo portInfo2 = CreateTestPortInfo("ttyUSB1");
     SerialConfig config = CreateDefaultConfig();
 
     int32_t result1 = service_->OpenSerial(portInfo1, config, mockCallback_);
@@ -384,10 +454,10 @@ HWTEST_F(SerialServiceTest, CloseSerial_LastDevice_TriggersUnloadTimer, TestSize
 
     // 关闭设备
     if (result1 == SERIAL_OK) {
-        EXPECT_EQ(service_->CloseSerial("/dev/ttyUSB0"), SERIAL_OK);
+        EXPECT_EQ(service_->CloseSerial("ttyUSB0"), SERIAL_OK);
     }
     if (result2 == SERIAL_OK) {
-        EXPECT_EQ(service_->CloseSerial("/dev/ttyUSB1"), SERIAL_OK);
+        EXPECT_EQ(service_->CloseSerial("ttyUSB1"), SERIAL_OK);
     }
 
     // 所有设备关闭后，设备数为 0
@@ -410,7 +480,7 @@ HWTEST_F(SerialServiceTest, OnClientDied_RemovesDeviceContext, TestSize.Level1)
 
     mockHdi_->SetOpenDeviceResult(true);
 
-    SerialPortInfo portInfo = CreateTestPortInfo("/dev/ttyUSB0");
+    SerialPortInfo portInfo = CreateTestPortInfo("ttyUSB0");
     SerialConfig config = CreateDefaultConfig();
 
     // 尝试打开设备
@@ -421,13 +491,13 @@ HWTEST_F(SerialServiceTest, OnClientDied_RemovesDeviceContext, TestSize.Level1)
         EXPECT_EQ(service_->GetDeviceCount(), 1);
 
         // 模拟客户端死亡
-        service_->OnClientDied("/dev/ttyUSB0");
+        service_->OnClientDied("ttyUSB0");
 
         // DeviceContext 被移除
         EXPECT_EQ(service_->GetDeviceCount(), 0);
     } else {
         // 未成功打开
-        service_->OnClientDied("/dev/ttyUSB0");
+        service_->OnClientDied("ttyUSB0");
         EXPECT_EQ(service_->GetDeviceCount(), 0);
     }
 
@@ -443,7 +513,7 @@ HWTEST_F(SerialServiceTest, OnClientDied_DeviceNotExist_NoError, TestSize.Level1
     SERIAL_HILOGI(MODULE_SERVICE, "OnClientDied_DeviceNotExist_NoError: start");
 
     // 对不存在的设备调用 OnClientDied
-    service_->OnClientDied("/dev/ttyUSB_nonexistent");
+    service_->OnClientDied("ttyUSB_nonexistent");
 
     // 无错误即为成功，设备数仍为 0
     EXPECT_EQ(service_->GetDeviceCount(), 0);
@@ -461,7 +531,7 @@ HWTEST_F(SerialServiceTest, OnClientDied_LastDevice_TriggersUnloadTimer, TestSiz
 
     mockHdi_->SetOpenDeviceResult(true);
 
-    SerialPortInfo portInfo = CreateTestPortInfo("/dev/ttyUSB0");
+    SerialPortInfo portInfo = CreateTestPortInfo("ttyUSB0");
     SerialConfig config = CreateDefaultConfig();
 
     // 尝试打开设备
@@ -471,12 +541,12 @@ HWTEST_F(SerialServiceTest, OnClientDied_LastDevice_TriggersUnloadTimer, TestSiz
         EXPECT_EQ(service_->GetDeviceCount(), 1);
 
         // 客户端死亡
-        service_->OnClientDied("/dev/ttyUSB0");
+        service_->OnClientDied("ttyUSB0");
 
         // 无活跃设备
         EXPECT_EQ(service_->GetDeviceCount(), 0);
     } else {
-        service_->OnClientDied("/dev/ttyUSB0");
+        service_->OnClientDied("ttyUSB0");
         EXPECT_EQ(service_->GetDeviceCount(), 0);
     }
 
@@ -517,7 +587,7 @@ HWTEST_F(SerialServiceTest, OnIdle_HasActiveDevices_Behavior, TestSize.Level1)
 
     mockHdi_->SetOpenDeviceResult(true);
 
-    SerialPortInfo portInfo = CreateTestPortInfo("/dev/ttyUSB0");
+    SerialPortInfo portInfo = CreateTestPortInfo("ttyUSB0");
     SerialConfig config = CreateDefaultConfig();
 
     // 尝试打开设备
@@ -530,7 +600,7 @@ HWTEST_F(SerialServiceTest, OnIdle_HasActiveDevices_Behavior, TestSize.Level1)
         service_->GetDeviceCount());
 
     // 清理
-    service_->CloseSerial("/dev/ttyUSB0");
+    service_->CloseSerial("ttyUSB0");
 
     SERIAL_HILOGI(MODULE_SERVICE, "OnIdle_HasActiveDevices_Behavior: success");
 }
@@ -555,14 +625,14 @@ HWTEST_F(SerialServiceTest, QuerySerialDevices_HdiSuccess_ReturnsCorrectList, Te
     EXPECT_EQ(devices.size(), 2);
 
     if (devices.size() >= 1) {
-        EXPECT_EQ(devices[0].portName, "/dev/ttyUSB0");
-        EXPECT_EQ(devices[0].productId, 1234);
-        EXPECT_EQ(devices[0].vendorId, 5678);
+        EXPECT_EQ(devices[0].portName, "ttyUSB0");
+        EXPECT_EQ(devices[0].productId, MOCK_PID_FTDI);
+        EXPECT_EQ(devices[0].vendorId, MOCK_VID_FTDI);
     }
     if (devices.size() >= 2) {
-        EXPECT_EQ(devices[1].portName, "/dev/ttyUSB1");
-        EXPECT_EQ(devices[1].productId, 1111);
-        EXPECT_EQ(devices[1].vendorId, 2222);
+        EXPECT_EQ(devices[1].portName, "ttyUSB1");
+        EXPECT_EQ(devices[1].productId, MOCK_PID_PROLIFIC);
+        EXPECT_EQ(devices[1].vendorId, MOCK_VID_PROLIFIC);
     }
 
     SERIAL_HILOGI(MODULE_SERVICE, "QuerySerialDevices_HdiSuccess_ReturnsCorrectList: success");
@@ -617,19 +687,19 @@ HWTEST_F(SerialServiceTest, QuerySerialDevices_HdiFailure_ReturnsServiceError, T
  * @brief 测试 WriteSerial：写入未打开设备返回 ERR_DEVICE_DISCONNECTED
  * @details 验证对未打开设备写入的错误处理
  */
-HWTEST_F(SerialServiceTest, WriteSerial_DeviceNotOpened_ReturnsDisconnected, TestSize.Level1)
+HWTEST_F(SerialServiceTest, WriteSerial_DeviceNotOpened_ReturnsNotOpened, TestSize.Level1)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "WriteSerial_DeviceNotOpened_ReturnsDisconnected: start");
+    SERIAL_HILOGI(MODULE_SERVICE, "WriteSerial_DeviceNotOpened_ReturnsNotOpened: start");
 
     std::vector<uint8_t> testData = {0x01, 0x02, 0x03, 0x04, 0x05};
     int32_t bytesWritten = 0;
 
-    int32_t result = service_->WriteSerial("/dev/ttyUSB_nonexistent", testData, 1000, bytesWritten);
+    int32_t result = service_->WriteSerial("ttyUSB_nonexistent", testData, 1000, bytesWritten);
 
-    EXPECT_EQ(result, SERIAL_ERR_DEVICE_DISCONNECTED);
+    EXPECT_EQ(result, SERIAL_ERR_DEVICE_NOT_OPENED);
     EXPECT_EQ(bytesWritten, 0);
 
-    SERIAL_HILOGI(MODULE_SERVICE, "WriteSerial_DeviceNotOpened_ReturnsDisconnected: success");
+    SERIAL_HILOGI(MODULE_SERVICE, "WriteSerial_DeviceNotOpened_ReturnsNotOpened: success");
 }
 
 /**
@@ -642,7 +712,7 @@ HWTEST_F(SerialServiceTest, WriteSerial_DeviceOpened_CallsHdiWrite, TestSize.Lev
 
     mockHdi_->SetOpenDeviceResult(true);
 
-    SerialPortInfo portInfo = CreateTestPortInfo("/dev/ttyUSB0");
+    SerialPortInfo portInfo = CreateTestPortInfo("ttyUSB0");
     SerialConfig config = CreateDefaultConfig();
 
     // 尝试打开设备
@@ -652,11 +722,11 @@ HWTEST_F(SerialServiceTest, WriteSerial_DeviceOpened_CallsHdiWrite, TestSize.Lev
         std::vector<uint8_t> testData = {0x01, 0x02, 0x03, 0x04, 0x05};
         int32_t bytesWritten = 0;
 
-        int32_t result = service_->WriteSerial("/dev/ttyUSB0", testData, 1000, bytesWritten);
+        int32_t result = service_->WriteSerial("ttyUSB0", testData, 1000, bytesWritten);
         SERIAL_HILOGI(MODULE_SERVICE, "WriteSerial result: %d, bytesWritten: %d", result, bytesWritten);
 
         // 清理
-        service_->CloseSerial("/dev/ttyUSB0");
+        service_->CloseSerial("ttyUSB0");
     } else {
         SERIAL_HILOGI(MODULE_SERVICE, "OpenSerial failed, skip write test");
     }
@@ -672,30 +742,30 @@ HWTEST_F(SerialServiceTest, WriteSerial_DeviceOpened_CallsHdiWrite, TestSize.Lev
  * @brief 测试 StartRead：未打开设备返回 ERR_DEVICE_DISCONNECTED
  * @details 验证对未打开设备调用 StartRead 的错误处理
  */
-HWTEST_F(SerialServiceTest, StartRead_DeviceNotOpened_ReturnsDisconnected, TestSize.Level1)
+HWTEST_F(SerialServiceTest, StartRead_DeviceNotOpened_ReturnsNotOpened, TestSize.Level1)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "StartRead_DeviceNotOpened_ReturnsDisconnected: start");
+    SERIAL_HILOGI(MODULE_SERVICE, "StartRead_DeviceNotOpened_ReturnsNotOpened: start");
 
-    int32_t result = service_->StartRead("/dev/ttyUSB_nonexistent");
+    int32_t result = service_->StartRead("ttyUSB_nonexistent");
 
-    EXPECT_EQ(result, SERIAL_ERR_DEVICE_DISCONNECTED);
+    EXPECT_EQ(result, SERIAL_ERR_DEVICE_NOT_OPENED);
 
-    SERIAL_HILOGI(MODULE_SERVICE, "StartRead_DeviceNotOpened_ReturnsDisconnected: success");
+    SERIAL_HILOGI(MODULE_SERVICE, "StartRead_DeviceNotOpened_ReturnsNotOpened: success");
 }
 
 /**
  * @brief 测试 StopRead：未打开设备返回 ERR_DEVICE_DISCONNECTED
  * @details 验证对未打开设备调用 StopRead 的错误处理
  */
-HWTEST_F(SerialServiceTest, StopRead_DeviceNotOpened_ReturnsDisconnected, TestSize.Level1)
+HWTEST_F(SerialServiceTest, StopRead_DeviceNotOpened_ReturnsNotOpened, TestSize.Level1)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "StopRead_DeviceNotOpened_ReturnsDisconnected: start");
+    SERIAL_HILOGI(MODULE_SERVICE, "StopRead_DeviceNotOpened_ReturnsNotOpened: start");
 
-    int32_t result = service_->StopRead("/dev/ttyUSB_nonexistent");
+    int32_t result = service_->StopRead("ttyUSB_nonexistent");
 
-    EXPECT_EQ(result, SERIAL_ERR_DEVICE_DISCONNECTED);
+    EXPECT_EQ(result, SERIAL_ERR_DEVICE_NOT_OPENED);
 
-    SERIAL_HILOGI(MODULE_SERVICE, "StopRead_DeviceNotOpened_ReturnsDisconnected: success");
+    SERIAL_HILOGI(MODULE_SERVICE, "StopRead_DeviceNotOpened_ReturnsNotOpened: success");
 }
 
 // ============================================================================
@@ -705,43 +775,43 @@ HWTEST_F(SerialServiceTest, StopRead_DeviceNotOpened_ReturnsDisconnected, TestSi
 /**
  * @brief 测试 Flush：未打开设备返回 ERR_DEVICE_DISCONNECTED
  */
-HWTEST_F(SerialServiceTest, Flush_DeviceNotOpened_ReturnsDisconnected, TestSize.Level1)
+HWTEST_F(SerialServiceTest, Flush_DeviceNotOpened_ReturnsNotOpened, TestSize.Level1)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "Flush_DeviceNotOpened_ReturnsDisconnected: start");
+    SERIAL_HILOGI(MODULE_SERVICE, "Flush_DeviceNotOpened_ReturnsNotOpened: start");
 
-    int32_t result = service_->Flush("/dev/ttyUSB_nonexistent");
+    int32_t result = service_->Flush("ttyUSB_nonexistent");
 
-    EXPECT_EQ(result, SERIAL_ERR_DEVICE_DISCONNECTED);
+    EXPECT_EQ(result, SERIAL_ERR_DEVICE_NOT_OPENED);
 
-    SERIAL_HILOGI(MODULE_SERVICE, "Flush_DeviceNotOpened_ReturnsDisconnected: success");
+    SERIAL_HILOGI(MODULE_SERVICE, "Flush_DeviceNotOpened_ReturnsNotOpened: success");
 }
 
 /**
  * @brief 测试 Drain：未打开设备返回 ERR_DEVICE_DISCONNECTED
  */
-HWTEST_F(SerialServiceTest, Drain_DeviceNotOpened_ReturnsDisconnected, TestSize.Level1)
+HWTEST_F(SerialServiceTest, Drain_DeviceNotOpened_ReturnsNotOpened, TestSize.Level1)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "Drain_DeviceNotOpened_ReturnsDisconnected: start");
+    SERIAL_HILOGI(MODULE_SERVICE, "Drain_DeviceNotOpened_ReturnsNotOpened: start");
 
-    int32_t result = service_->Drain("/dev/ttyUSB_nonexistent");
+    int32_t result = service_->Drain("ttyUSB_nonexistent");
 
-    EXPECT_EQ(result, SERIAL_ERR_DEVICE_DISCONNECTED);
+    EXPECT_EQ(result, SERIAL_ERR_DEVICE_NOT_OPENED);
 
-    SERIAL_HILOGI(MODULE_SERVICE, "Drain_DeviceNotOpened_ReturnsDisconnected: success");
+    SERIAL_HILOGI(MODULE_SERVICE, "Drain_DeviceNotOpened_ReturnsNotOpened: success");
 }
 
 /**
  * @brief 测试 SendBrkSignal：未打开设备返回 ERR_DEVICE_DISCONNECTED
  */
-HWTEST_F(SerialServiceTest, SendBrkSignal_DeviceNotOpened_ReturnsDisconnected, TestSize.Level1)
+HWTEST_F(SerialServiceTest, SendBrkSignal_DeviceNotOpened_ReturnsNotOpened, TestSize.Level1)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "SendBrkSignal_DeviceNotOpened_ReturnsDisconnected: start");
+    SERIAL_HILOGI(MODULE_SERVICE, "SendBrkSignal_DeviceNotOpened_ReturnsNotOpened: start");
 
-    int32_t result = service_->SendBrkSignal("/dev/ttyUSB_nonexistent");
+    int32_t result = service_->SendBrkSignal("ttyUSB_nonexistent");
 
-    EXPECT_EQ(result, SERIAL_ERR_DEVICE_DISCONNECTED);
+    EXPECT_EQ(result, SERIAL_ERR_DEVICE_NOT_OPENED);
 
-    SERIAL_HILOGI(MODULE_SERVICE, "SendBrkSignal_DeviceNotOpened_ReturnsDisconnected: success");
+    SERIAL_HILOGI(MODULE_SERVICE, "SendBrkSignal_DeviceNotOpened_ReturnsNotOpened: success");
 }
 
 // ============================================================================
@@ -751,30 +821,30 @@ HWTEST_F(SerialServiceTest, SendBrkSignal_DeviceNotOpened_ReturnsDisconnected, T
 /**
  * @brief 测试 SetRtsSignal：未打开设备返回 ERR_DEVICE_DISCONNECTED
  */
-HWTEST_F(SerialServiceTest, SetRtsSignal_DeviceNotOpened_ReturnsDisconnected, TestSize.Level1)
+HWTEST_F(SerialServiceTest, SetRtsSignal_DeviceNotOpened_ReturnsNotOpened, TestSize.Level1)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "SetRtsSignal_DeviceNotOpened_ReturnsDisconnected: start");
+    SERIAL_HILOGI(MODULE_SERVICE, "SetRtsSignal_DeviceNotOpened_ReturnsNotOpened: start");
 
-    int32_t result = service_->SetRtsSignal("/dev/ttyUSB_nonexistent", true);
+    int32_t result = service_->SetRtsSignal("ttyUSB_nonexistent", true);
 
-    EXPECT_EQ(result, SERIAL_ERR_DEVICE_DISCONNECTED);
+    EXPECT_EQ(result, SERIAL_ERR_DEVICE_NOT_OPENED);
 
-    SERIAL_HILOGI(MODULE_SERVICE, "SetRtsSignal_DeviceNotOpened_ReturnsDisconnected: success");
+    SERIAL_HILOGI(MODULE_SERVICE, "SetRtsSignal_DeviceNotOpened_ReturnsNotOpened: success");
 }
 
 /**
  * @brief 测试 GetCtsSignal：未打开设备返回 ERR_DEVICE_DISCONNECTED
  */
-HWTEST_F(SerialServiceTest, GetCtsSignal_DeviceNotOpened_ReturnsDisconnected, TestSize.Level1)
+HWTEST_F(SerialServiceTest, GetCtsSignal_DeviceNotOpened_ReturnsNotOpened, TestSize.Level1)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "GetCtsSignal_DeviceNotOpened_ReturnsDisconnected: start");
+    SERIAL_HILOGI(MODULE_SERVICE, "GetCtsSignal_DeviceNotOpened_ReturnsNotOpened: start");
 
     bool cts = false;
-    int32_t result = service_->GetCtsSignal("/dev/ttyUSB_nonexistent", cts);
+    int32_t result = service_->GetCtsSignal("ttyUSB_nonexistent", cts);
 
-    EXPECT_EQ(result, SERIAL_ERR_DEVICE_DISCONNECTED);
+    EXPECT_EQ(result, SERIAL_ERR_DEVICE_NOT_OPENED);
 
-    SERIAL_HILOGI(MODULE_SERVICE, "GetCtsSignal_DeviceNotOpened_ReturnsDisconnected: success");
+    SERIAL_HILOGI(MODULE_SERVICE, "GetCtsSignal_DeviceNotOpened_ReturnsNotOpened: success");
 }
 
 // ============================================================================
@@ -802,8 +872,8 @@ HWTEST_F(SerialServiceTest, GetDeviceCount_AfterOpen_ReturnsCorrectCount, TestSi
 
     mockHdi_->SetOpenDeviceResult(true);
 
-    SerialPortInfo portInfo1 = CreateTestPortInfo("/dev/ttyUSB0");
-    SerialPortInfo portInfo2 = CreateTestPortInfo("/dev/ttyUSB1");
+    SerialPortInfo portInfo1 = CreateTestPortInfo("ttyUSB0");
+    SerialPortInfo portInfo2 = CreateTestPortInfo("ttyUSB1");
     SerialConfig config = CreateDefaultConfig();
 
     EXPECT_EQ(service_->GetDeviceCount(), 0);
@@ -821,11 +891,11 @@ HWTEST_F(SerialServiceTest, GetDeviceCount_AfterOpen_ReturnsCorrectCount, TestSi
 
     // 关闭设备
     if (result1 == SERIAL_OK) {
-        service_->CloseSerial("/dev/ttyUSB0");
+        service_->CloseSerial("ttyUSB0");
         expectedCount--;
     }
     if (result2 == SERIAL_OK) {
-        service_->CloseSerial("/dev/ttyUSB1");
+        service_->CloseSerial("ttyUSB1");
         expectedCount--;
     }
 
@@ -881,15 +951,15 @@ HWTEST_F(SerialServiceTest, BuildDeviceId_FullFormat_VidPidPortName, TestSize.Le
 
     SerialPortInfo portInfo;
     portInfo.portName = "ttyUSB0";
-    portInfo.productId = 1234;
-    portInfo.vendorId = 5678;
+    portInfo.productId = MOCK_PID_FTDI;
+    portInfo.vendorId = MOCK_VID_FTDI;
     portInfo.manufacturer = "FTDI";
 
     std::string deviceId = service_->BuildDeviceId(portInfo);
 
-    // 验证格式：{productId}_{vendorId}_{portName}
-    EXPECT_TRUE(deviceId.find("1234") != std::string::npos);
-    EXPECT_TRUE(deviceId.find("5678") != std::string::npos);
+    // 验证格式：{vendorId:hex}_{productId:hex}_{manufacturer}_{portName}
+    EXPECT_TRUE(deviceId.find("162e") != std::string::npos);
+    EXPECT_TRUE(deviceId.find("04d2") != std::string::npos);
     EXPECT_TRUE(deviceId.find("ttyUSB0") != std::string::npos);
 
     SERIAL_HILOGI(MODULE_SERVICE, "BuildDeviceId result: %{public}s", deviceId.c_str());
@@ -926,12 +996,12 @@ HWTEST_F(SerialServiceTest, BuildDeviceId_HasProductIdNoVendorId_ValidFormat, Te
 
     SerialPortInfo portInfo;
     portInfo.portName = "ttyUSB1";
-    portInfo.productId = 1111;
+    portInfo.productId = MOCK_PID_PROLIFIC;
     portInfo.vendorId = 0;
 
     std::string deviceId = service_->BuildDeviceId(portInfo);
 
-    EXPECT_TRUE(deviceId.find("1111") != std::string::npos);
+    EXPECT_TRUE(deviceId.find("0457") != std::string::npos);
     EXPECT_TRUE(deviceId.find("ttyUSB1") != std::string::npos);
 
     SERIAL_HILOGI(MODULE_SERVICE, "BuildDeviceId result: %{public}s", deviceId.c_str());
@@ -948,11 +1018,11 @@ HWTEST_F(SerialServiceTest, BuildDeviceId_HasVendorIdNoProductId_ValidFormat, Te
     SerialPortInfo portInfo;
     portInfo.portName = "ttyACM0";
     portInfo.productId = 0;
-    portInfo.vendorId = 2222;
+    portInfo.vendorId = MOCK_VID_PROLIFIC;
 
     std::string deviceId = service_->BuildDeviceId(portInfo);
 
-    EXPECT_TRUE(deviceId.find("2222") != std::string::npos);
+    EXPECT_TRUE(deviceId.find("08ae") != std::string::npos);
     EXPECT_TRUE(deviceId.find("ttyACM0") != std::string::npos);
 
     SERIAL_HILOGI(MODULE_SERVICE, "BuildDeviceId result: %{public}s", deviceId.c_str());
@@ -971,12 +1041,12 @@ HWTEST_F(SerialServiceTest, FindPortNameForDevice_DirectMatch_ReturnsPortName, T
     SERIAL_HILOGI(MODULE_SERVICE, "FindPortNameForDevice_DirectMatch_ReturnsPortName: start");
 
     SerialPortInfo portInfo;
-    portInfo.portName = "/dev/ttyUSB0";
+    portInfo.portName = "ttyUSB0";
     portInfo.productId = 0;
     portInfo.vendorId = 0;
 
     std::string result = service_->FindPortNameForDevice(portInfo);
-    EXPECT_EQ(result, "/dev/ttyUSB0");
+    EXPECT_EQ(result, "ttyUSB0");
 
     SERIAL_HILOGI(MODULE_SERVICE, "FindPortNameForDevice_DirectMatch_ReturnsPortName: success");
 }
@@ -994,8 +1064,8 @@ HWTEST_F(SerialServiceTest, FindPortNameForDevice_ByVidPid_ReturnsPortName, Test
     // portName 为空，但有 productId/vendorId
     SerialPortInfo portInfo;
     portInfo.portName = "";
-    portInfo.productId = 1234;
-    portInfo.vendorId = 5678;
+    portInfo.productId = MOCK_PID_FTDI;
+    portInfo.vendorId = MOCK_VID_FTDI;
 
     std::string result = service_->FindPortNameForDevice(portInfo);
     // 应返回对应的 portName（如果 mock 设备列表中有匹配）
@@ -1022,52 +1092,514 @@ HWTEST_F(SerialServiceTest, FindPortNameForDevice_NoMatch_ReturnsEmpty, TestSize
     SERIAL_HILOGI(MODULE_SERVICE, "FindPortNameForDevice_NoMatch_ReturnsEmpty: success");
 }
 
-/**
- * @brief 测试 GetCallingAppUid 与 GetCallingUid 等值性：迁移 GetCallingUid→GetCallingAppUid
- *        的行为不变式；当前 IPC 实现中两者一致，IPC 层后续分化语义时该用例报警提示复核。
- */
-HWTEST_F(SerialServiceTest, GetCallingAppUid_EqualsGetCallingUid, TestSize.Level1)
+// ============================================================================
+// 14. SetDtrSignal 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, SetDtrSignal_DeviceNotOpened_ReturnsNotOpened, TestSize.Level1)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "GetCallingAppUid_EqualsGetCallingUid: start");
-
-    EXPECT_EQ(IPCSkeleton::GetCallingAppUid(), IPCSkeleton::GetCallingUid());
-
-    SERIAL_HILOGI(MODULE_SERVICE, "GetCallingAppUid_EqualsGetCallingUid: success");
+    int32_t result = service_->SetDtrSignal("ttyUSB_nonexistent", true);
+    EXPECT_EQ(result, SERIAL_ERR_DEVICE_NOT_OPENED);
 }
 
-/**
- * @brief 测试 GetCallingUserId：以 GetCallingAppUid 经账号服务推导 userId，
- *        结果与直接调用 GetOsAccountLocalIdFromUid(GetCallingAppUid()) 一致；
- *        账号服务失败时回落 SERIAL_RIGHT_USERID_DEFAULT(100)。
- */
-HWTEST_F(SerialServiceTest, GetCallingUserId_MatchesOsAccountOracle, TestSize.Level1)
+HWTEST_F(SerialServiceTest, SetDtrSignal_Success_ReturnsOk, TestSize.Level1)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "GetCallingUserId_MatchesOsAccountOracle: start");
+    sptr<MockSerialDevice> mockDevice = InjectDeviceContext("ttyUSB0");
+    EXPECT_CALL(*mockDevice, SetDtrSignal(true)).WillOnce(Return(0));
 
-    int32_t userId = service_->GetCallingUserId();
-
-    int32_t oracle = -1;
-    int32_t ret = AccountSA::OsAccountManager::GetOsAccountLocalIdFromUid(IPCSkeleton::GetCallingAppUid(), oracle);
-    int32_t expected = (ret == 0) ? oracle : SERIAL_RIGHT_USERID_DEFAULT;
-    EXPECT_EQ(userId, expected);
-    EXPECT_GE(userId, 0);
-
-    SERIAL_HILOGI(
-        MODULE_SERVICE, "GetCallingUserId_MatchesOsAccountOracle: ret=%{public}d userId=%{public}d", ret, userId);
+    int32_t result = service_->SetDtrSignal("ttyUSB0", true);
+    EXPECT_EQ(result, SERIAL_OK);
 }
 
-/**
- * @brief 测试 ReportSerialOperationAudit：使用 GetCallingAppUid 记录审计 uid，
- *        调用完成后无崩溃（事件经 hisysevent 上报）。
- */
-HWTEST_F(SerialServiceTest, ReportSerialOperationAudit_CompletesWithoutCrash, TestSize.Level1)
+HWTEST_F(SerialServiceTest, SetDtrSignal_HdiFailure_ReturnsServiceError, TestSize.Level1)
 {
-    SERIAL_HILOGI(MODULE_SERVICE, "ReportSerialOperationAudit_CompletesWithoutCrash: start");
+    sptr<MockSerialDevice> mockDevice = InjectDeviceContext("ttyUSB0");
+    EXPECT_CALL(*mockDevice, SetDtrSignal(false)).WillOnce(Return(TEST_HDI_FAILURE));
 
-    service_->ReportSerialOperationAudit("/dev/ttyUSB0", "open");
-    EXPECT_EQ(IPCSkeleton::GetCallingAppUid(), IPCSkeleton::GetCallingUid());
+    int32_t result = service_->SetDtrSignal("ttyUSB0", false);
+    EXPECT_EQ(result, SERIAL_ERR_SERVICE);
+}
 
-    SERIAL_HILOGI(MODULE_SERVICE, "ReportSerialOperationAudit_CompletesWithoutCrash: success");
+// ============================================================================
+// 15. GetDsrSignal 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, GetDsrSignal_DeviceNotOpened_ReturnsNotOpened, TestSize.Level1)
+{
+    bool dsr = false;
+    int32_t result = service_->GetDsrSignal("ttyUSB_nonexistent", dsr);
+    EXPECT_EQ(result, SERIAL_ERR_DEVICE_NOT_OPENED);
+}
+
+HWTEST_F(SerialServiceTest, GetDsrSignal_Success_ReturnsOk, TestSize.Level1)
+{
+    sptr<MockSerialDevice> mockDevice = InjectDeviceContext("ttyUSB0");
+    EXPECT_CALL(*mockDevice, GetDsrSignal(_)).WillOnce(DoAll(SetArgReferee<0>(true), Return(0)));
+
+    bool dsr = false;
+    int32_t result = service_->GetDsrSignal("ttyUSB0", dsr);
+    EXPECT_EQ(result, SERIAL_OK);
+    EXPECT_TRUE(dsr);
+}
+
+HWTEST_F(SerialServiceTest, GetDsrSignal_HdiFailure_ReturnsServiceError, TestSize.Level1)
+{
+    sptr<MockSerialDevice> mockDevice = InjectDeviceContext("ttyUSB0");
+    EXPECT_CALL(*mockDevice, GetDsrSignal(_)).WillOnce(Return(TEST_HDI_FAILURE));
+
+    bool dsr = false;
+    int32_t result = service_->GetDsrSignal("ttyUSB0", dsr);
+    EXPECT_EQ(result, SERIAL_ERR_SERVICE);
+}
+
+// ============================================================================
+// 16. HandleDeviceOffline 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, HandleDeviceOffline_DeviceNotFound_NoError, TestSize.Level1)
+{
+    EXPECT_EQ(service_->GetDeviceCount(), 0);
+
+    service_->HandleDeviceOffline("ttyUSB_nonexistent");
+
+    EXPECT_EQ(service_->GetDeviceCount(), 0);
+}
+
+HWTEST_F(SerialServiceTest, HandleDeviceOffline_DeviceFound_RemovesContext, TestSize.Level1)
+{
+    InjectDeviceContext("ttyUSB0");
+    EXPECT_EQ(service_->GetDeviceCount(), 1);
+
+    std::string capPort;
+    EXPECT_CALL(*mockCallback_, onDisconnect(_))
+        .WillOnce(DoAll(SaveArg<0>(&capPort), Return(ERR_OK)));
+
+    service_->HandleDeviceOffline("ttyUSB0");
+
+    EXPECT_EQ(service_->GetDeviceCount(), 0);
+    EXPECT_EQ(capPort, "ttyUSB0");
+}
+
+// ============================================================================
+// 17. Dump 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, Dump_InvalidFd_ReturnsInvalidParam, TestSize.Level1)
+{
+    std::vector<std::u16string> args;
+    args.push_back(u"-h");
+    int32_t result = service_->Dump(INVALID_FD, args);
+    EXPECT_EQ(result, SERIAL_ERR_INVALID_PARAM);
+}
+
+HWTEST_F(SerialServiceTest, Dump_EmptyArgs_ReturnsInvalidParam, TestSize.Level1)
+{
+    int32_t pipeFd[2] = {0};
+    ASSERT_EQ(pipe(pipeFd), 0);
+
+    std::vector<std::u16string> emptyArgs;
+    int32_t result = service_->Dump(pipeFd[PIPE_WRITE], emptyArgs);
+    EXPECT_EQ(result, SERIAL_ERR_INVALID_PARAM);
+
+    close(pipeFd[PIPE_READ]);
+    close(pipeFd[PIPE_WRITE]);
+}
+
+HWTEST_F(SerialServiceTest, Dump_HelpOption_ReturnsOk, TestSize.Level1)
+{
+    int32_t pipeFd[2] = {0};
+    ASSERT_EQ(pipe(pipeFd), 0);
+
+    std::vector<std::u16string> args;
+    args.push_back(u"-h");
+    int32_t result = service_->Dump(pipeFd[PIPE_WRITE], args);
+    EXPECT_EQ(result, SERIAL_OK);
+
+    close(pipeFd[PIPE_READ]);
+    close(pipeFd[PIPE_WRITE]);
+}
+
+HWTEST_F(SerialServiceTest, Dump_AllOption_ReturnsOk, TestSize.Level1)
+{
+    int32_t pipeFd[2] = {0};
+    ASSERT_EQ(pipe(pipeFd), 0);
+
+    std::vector<std::u16string> args;
+    args.push_back(u"-a");
+    int32_t result = service_->Dump(pipeFd[PIPE_WRITE], args);
+    EXPECT_EQ(result, SERIAL_OK);
+
+    close(pipeFd[PIPE_READ]);
+    close(pipeFd[PIPE_WRITE]);
+}
+
+HWTEST_F(SerialServiceTest, Dump_ListOption_ReturnsOk, TestSize.Level1)
+{
+    int32_t pipeFd[2] = {0};
+    ASSERT_EQ(pipe(pipeFd), 0);
+
+    std::vector<std::u16string> args;
+    args.push_back(u"-l");
+    int32_t result = service_->Dump(pipeFd[PIPE_WRITE], args);
+    EXPECT_EQ(result, SERIAL_OK);
+
+    close(pipeFd[PIPE_READ]);
+    close(pipeFd[PIPE_WRITE]);
+}
+
+HWTEST_F(SerialServiceTest, Dump_UnknownOption_ReturnsInvalidParam, TestSize.Level1)
+{
+    int32_t pipeFd[2] = {0};
+    ASSERT_EQ(pipe(pipeFd), 0);
+
+    std::vector<std::u16string> args;
+    args.push_back(u"-x");
+    int32_t result = service_->Dump(pipeFd[PIPE_WRITE], args);
+    EXPECT_EQ(result, SERIAL_ERR_INVALID_PARAM);
+
+    close(pipeFd[PIPE_READ]);
+    close(pipeFd[PIPE_WRITE]);
+}
+
+// ============================================================================
+// 18. IsUsbSerial 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, IsUsbSerial_UsbPort_ReturnsTrue, TestSize.Level1)
+{
+    EXPECT_TRUE(service_->IsUsbSerial("ttyUSB0"));
+}
+
+HWTEST_F(SerialServiceTest, IsUsbSerial_AcmPort_ReturnsTrue, TestSize.Level1)
+{
+    EXPECT_TRUE(service_->IsUsbSerial("ttyACM0"));
+}
+
+HWTEST_F(SerialServiceTest, IsUsbSerial_TtysPort_ReturnsFalse, TestSize.Level1)
+{
+    EXPECT_FALSE(service_->IsUsbSerial("ttyS0"));
+}
+
+// ============================================================================
+// 19. SetSerialManagePolicy 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, SetSerialManagePolicy_DisableRs232_UsbDevicesNotFiltered, TestSize.Level1)
+{
+    service_->SetSerialManagePolicy(true);
+
+    std::vector<SerialPortInfo> devices;
+    int32_t result = service_->QuerySerialDevices(devices);
+    EXPECT_EQ(result, SERIAL_OK);
+    EXPECT_EQ(devices.size(), static_cast<size_t>(2));
+
+    service_->SetSerialManagePolicy(false);
+}
+
+HWTEST_F(SerialServiceTest, SetSerialManagePolicy_DisableRs232_NonUsbOnly_ReturnsEnterprisePolicy, TestSize.Level1)
+{
+    std::vector<SerialDeviceInfo> nonUsbDevices;
+    SerialDeviceInfo device;
+    device.portName = "ttyS0";
+    device.productId = MOCK_PID_PROLIFIC;
+    device.vendorId = MOCK_VID_PROLIFIC;
+    device.manufacturer = "Prolific";
+    nonUsbDevices.push_back(device);
+    mockHdi_->SetMockDevices(nonUsbDevices);
+
+    service_->SetSerialManagePolicy(true);
+
+    std::vector<SerialPortInfo> devices;
+    int32_t result = service_->QuerySerialDevices(devices);
+    EXPECT_EQ(result, SERIAL_ERR_ENTERPRISE_POLICY);
+    EXPECT_EQ(devices.size(), static_cast<size_t>(0));
+
+    service_->SetSerialManagePolicy(false);
+    SetupMockDevices();
+}
+
+HWTEST_F(SerialServiceTest, SetSerialManagePolicy_EnableRs232_ReturnsAllDevices, TestSize.Level1)
+{
+    service_->SetSerialManagePolicy(false);
+
+    std::vector<SerialPortInfo> devices;
+    int32_t result = service_->QuerySerialDevices(devices);
+    EXPECT_EQ(result, SERIAL_OK);
+    EXPECT_EQ(devices.size(), static_cast<size_t>(2));
+}
+
+// ============================================================================
+// 20. CalculatePortId 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, CalculatePortId_UsbPort_ReturnsBaseId, TestSize.Level1)
+{
+    int32_t portId = service_->CalculatePortId("ttyUSB0");
+    EXPECT_EQ(portId, 0);
+}
+
+HWTEST_F(SerialServiceTest, CalculatePortId_AcmPort_ReturnsBaseIdWithOffset, TestSize.Level1)
+{
+    int32_t portId = service_->CalculatePortId("ttyACM1");
+    EXPECT_EQ(portId, EXPECTED_ACM_PORT_1);
+}
+
+HWTEST_F(SerialServiceTest, CalculatePortId_TtysPort_ReturnsBaseIdWithOffset, TestSize.Level1)
+{
+    // 加载 PCIE 串口配置，使 pcieSerialOffsets_["ttyS"] = TTYS_PORT_ID_OFFSET(2000)
+    service_->LoadPcieSerialConfig();
+    int32_t portId = service_->CalculatePortId("ttyS2");
+    EXPECT_EQ(portId, EXPECTED_TTYS_PORT_2);
+}
+
+HWTEST_F(SerialServiceTest, CalculatePortId_InvalidPortName_ReturnsInvalidParam, TestSize.Level1)
+{
+    int32_t portId = service_->CalculatePortId("noNumbers");
+    EXPECT_EQ(portId, SERIAL_ERR_INVALID_PARAM);
+}
+
+// ============================================================================
+// 21. WriteSerial 参数校验测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, WriteSerial_EmptyData_ReturnsInvalidParam, TestSize.Level1)
+{
+    std::vector<uint8_t> emptyData;
+    int32_t bytesWritten = 0;
+    int32_t result = service_->WriteSerial("ttyUSB0", emptyData, TEST_TIMEOUT_MS, bytesWritten);
+    EXPECT_EQ(result, SERIAL_ERR_INVALID_PARAM);
+}
+
+HWTEST_F(SerialServiceTest, WriteSerial_OversizeData_ReturnsInvalidParam, TestSize.Level1)
+{
+    std::vector<uint8_t> oversizeData(WRITE_DATA_MAX_SIZE + 1, TEST_DATA_BYTE);
+    int32_t bytesWritten = 0;
+    int32_t result = service_->WriteSerial("ttyUSB0", oversizeData, TEST_TIMEOUT_MS, bytesWritten);
+    EXPECT_EQ(result, SERIAL_ERR_INVALID_PARAM);
+}
+
+HWTEST_F(SerialServiceTest, WriteSerial_NegativeTimeout_ReturnsInvalidParam, TestSize.Level1)
+{
+    std::vector<uint8_t> data = {TEST_DATA_BYTE};
+    int32_t bytesWritten = 0;
+    int32_t result = service_->WriteSerial("ttyUSB0", data, -1, bytesWritten);
+    EXPECT_EQ(result, SERIAL_ERR_INVALID_PARAM);
+}
+
+HWTEST_F(SerialServiceTest, WriteSerial_ExceedMaxTimeout_ReturnsInvalidParam, TestSize.Level1)
+{
+    std::vector<uint8_t> data = {TEST_DATA_BYTE};
+    int32_t bytesWritten = 0;
+    int32_t result = service_->WriteSerial("ttyUSB0", data, WRITE_TIMEOUT_MAX_MS + 1, bytesWritten);
+    EXPECT_EQ(result, SERIAL_ERR_INVALID_PARAM);
+}
+
+HWTEST_F(SerialServiceTest, WriteSerial_EdmDisabled_ReturnsServiceError, TestSize.Level1)
+{
+    service_->SetSerialManagePolicy(true);
+
+    std::vector<uint8_t> data = {TEST_DATA_BYTE};
+    int32_t bytesWritten = 0;
+    int32_t result = service_->WriteSerial("ttyS0", data, TEST_TIMEOUT_MS, bytesWritten);
+    EXPECT_EQ(result, SERIAL_ERR_SERVICE);
+
+    service_->SetSerialManagePolicy(false);
+}
+
+HWTEST_F(SerialServiceTest, WriteSerial_Success_ReturnsOk, TestSize.Level1)
+{
+    sptr<MockSerialDevice> mockDevice = InjectDeviceContext("ttyUSB0");
+    EXPECT_CALL(*mockDevice, Write(_, _, _))
+        .WillOnce(DoAll(SetArgReferee<2>(TEST_WRITE_BYTES), Return(0)));
+
+    std::vector<uint8_t> data(TEST_WRITE_BYTES, TEST_DATA_BYTE);
+    int32_t bytesWritten = 0;
+    int32_t result = service_->WriteSerial("ttyUSB0", data, TEST_TIMEOUT_MS, bytesWritten);
+    EXPECT_EQ(result, SERIAL_OK);
+    EXPECT_EQ(bytesWritten, TEST_WRITE_BYTES);
+}
+
+// ============================================================================
+// 22. Flush/Drain/SendBrkSignal 正向路径测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, Flush_Success_ReturnsOk, TestSize.Level1)
+{
+    sptr<MockSerialDevice> mockDevice = InjectDeviceContext("ttyUSB0");
+    EXPECT_CALL(*mockDevice, Flush()).WillOnce(Return(0));
+
+    int32_t result = service_->Flush("ttyUSB0");
+    EXPECT_EQ(result, SERIAL_OK);
+}
+
+HWTEST_F(SerialServiceTest, Drain_Success_ReturnsOk, TestSize.Level1)
+{
+    sptr<MockSerialDevice> mockDevice = InjectDeviceContext("ttyUSB0");
+    EXPECT_CALL(*mockDevice, Drain()).WillOnce(Return(0));
+
+    int32_t result = service_->Drain("ttyUSB0");
+    EXPECT_EQ(result, SERIAL_OK);
+}
+
+HWTEST_F(SerialServiceTest, SendBrkSignal_Success_ReturnsOk, TestSize.Level1)
+{
+    sptr<MockSerialDevice> mockDevice = InjectDeviceContext("ttyUSB0");
+    EXPECT_CALL(*mockDevice, SendBrkSignal()).WillOnce(Return(0));
+
+    int32_t result = service_->SendBrkSignal("ttyUSB0");
+    EXPECT_EQ(result, SERIAL_OK);
+}
+
+// ============================================================================
+// 23. SetRtsSignal/GetCtsSignal 正向路径测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, SetRtsSignal_Success_ReturnsOk, TestSize.Level1)
+{
+    sptr<MockSerialDevice> mockDevice = InjectDeviceContext("ttyUSB0");
+    EXPECT_CALL(*mockDevice, SetRtsSignal(true)).WillOnce(Return(0));
+
+    int32_t result = service_->SetRtsSignal("ttyUSB0", true);
+    EXPECT_EQ(result, SERIAL_OK);
+}
+
+HWTEST_F(SerialServiceTest, GetCtsSignal_Success_ReturnsOk, TestSize.Level1)
+{
+    sptr<MockSerialDevice> mockDevice = InjectDeviceContext("ttyUSB0");
+    EXPECT_CALL(*mockDevice, GetCtsSignal(_)).WillOnce(DoAll(SetArgReferee<0>(true), Return(0)));
+
+    bool cts = false;
+    int32_t result = service_->GetCtsSignal("ttyUSB0", cts);
+    EXPECT_EQ(result, SERIAL_OK);
+    EXPECT_TRUE(cts);
+}
+
+// ============================================================================
+// 24. StartRead/StopRead 正向路径测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, StartRead_Success_ReturnsOk, TestSize.Level1)
+{
+    sptr<MockSerialDevice> mockDevice = InjectDeviceContext("ttyUSB0");
+    EXPECT_CALL(*mockDevice, StartRead()).WillOnce(Return(0));
+
+    int32_t result = service_->StartRead("ttyUSB0");
+    EXPECT_EQ(result, SERIAL_OK);
+}
+
+HWTEST_F(SerialServiceTest, StopRead_Success_ReturnsOk, TestSize.Level1)
+{
+    sptr<MockSerialDevice> mockDevice = InjectDeviceContext("ttyUSB0");
+    EXPECT_CALL(*mockDevice, StopRead()).WillOnce(Return(0));
+
+    int32_t result = service_->StopRead("ttyUSB0");
+    EXPECT_EQ(result, SERIAL_OK);
+}
+
+// ============================================================================
+// 25. ParseTargetTokenId 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, ParseTargetTokenId_ValidNumeric_ReturnsOk, TestSize.Level1)
+{
+    Security::AccessToken::AccessTokenID targetTokenId = 0;
+    int32_t result = service_->ParseTargetTokenId("12345678", targetTokenId);
+    EXPECT_EQ(result, SERIAL_OK);
+    EXPECT_EQ(targetTokenId, static_cast<Security::AccessToken::AccessTokenID>(12345678));
+}
+
+HWTEST_F(SerialServiceTest, ParseTargetTokenId_NonNumeric_ReturnsInvalidParam, TestSize.Level1)
+{
+    Security::AccessToken::AccessTokenID targetTokenId = 0;
+    int32_t result = service_->ParseTargetTokenId("abc", targetTokenId);
+    EXPECT_EQ(result, SERIAL_ERR_INVALID_PARAM);
+}
+
+HWTEST_F(SerialServiceTest, ParseTargetTokenId_EmptyString_ReturnsInvalidParam, TestSize.Level1)
+{
+    Security::AccessToken::AccessTokenID targetTokenId = 0;
+    int32_t result = service_->ParseTargetTokenId("", targetTokenId);
+    EXPECT_EQ(result, SERIAL_ERR_INVALID_PARAM);
+}
+
+// ============================================================================
+// 26. BuildDeviceId 含 manufacturer 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, BuildDeviceId_WithManufacturer_ContainsAllFields, TestSize.Level1)
+{
+    SerialPortInfo portInfo;
+    portInfo.portName = "ttyUSB0";
+    portInfo.productId = MOCK_PID_FTDI;
+    portInfo.vendorId = MOCK_VID_FTDI;
+    portInfo.manufacturer = "FTDI";
+
+    std::string deviceId = service_->BuildDeviceId(portInfo);
+    EXPECT_TRUE(deviceId.find("162e") != std::string::npos);
+    EXPECT_TRUE(deviceId.find("04d2") != std::string::npos);
+    EXPECT_TRUE(deviceId.find("FTDI") != std::string::npos);
+    EXPECT_TRUE(deviceId.find("ttyUSB0") != std::string::npos);
+}
+
+// ============================================================================
+// 27. QueryAndRecordFirstRead/Write 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, QueryAndRecordFirstRead_FirstCallReturnsTrue, TestSize.Level1)
+{
+    EXPECT_TRUE(service_->QueryAndRecordFirstRead("ttyUSB0"));
+}
+
+HWTEST_F(SerialServiceTest, QueryAndRecordFirstRead_SecondCallReturnsFalse, TestSize.Level1)
+{
+    service_->QueryAndRecordFirstRead("ttyUSB0");
+    EXPECT_FALSE(service_->QueryAndRecordFirstRead("ttyUSB0"));
+}
+
+HWTEST_F(SerialServiceTest, ResetFirstRead_AllowsReRecord, TestSize.Level1)
+{
+    service_->QueryAndRecordFirstRead("ttyUSB0");
+    service_->ResetFirstRead("ttyUSB0");
+    EXPECT_TRUE(service_->QueryAndRecordFirstRead("ttyUSB0"));
+}
+
+HWTEST_F(SerialServiceTest, QueryAndRecordFirstWrite_FirstCallReturnsTrue, TestSize.Level1)
+{
+    EXPECT_TRUE(service_->QueryAndRecordFirstWrite("ttyUSB0"));
+}
+
+HWTEST_F(SerialServiceTest, ResetFirstWrite_AllowsReRecord, TestSize.Level1)
+{
+    service_->QueryAndRecordFirstWrite("ttyUSB0");
+    service_->ResetFirstWrite("ttyUSB0");
+    EXPECT_TRUE(service_->QueryAndRecordFirstWrite("ttyUSB0"));
+}
+
+// ============================================================================
+// 28. ScheduleUnloadSa 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceTest, ScheduleUnloadSa_WithDevicesOpen_SkipsUnload, TestSize.Level1)
+{
+    InjectDeviceContext("ttyUSB0");
+    EXPECT_EQ(service_->GetDeviceCount(), 1);
+
+    service_->ScheduleUnloadSa();
+
+    EXPECT_EQ(service_->unloadTimerId_, static_cast<uint32_t>(0));
+}
+
+HWTEST_F(SerialServiceTest, ScheduleUnloadSa_NoDevices_SchedulesTimer, TestSize.Level1)
+{
+    EXPECT_EQ(service_->GetDeviceCount(), 0);
+
+    service_->unloadTimer_.Setup();
+    service_->ScheduleUnloadSa();
+
+    EXPECT_NE(service_->unloadTimerId_, static_cast<uint32_t>(0));
+
+    service_->CancelUnloadSa();
+    service_->unloadTimer_.Shutdown();
 }
 
 } // namespace Serial

@@ -78,6 +78,7 @@ if (serial_manager_feature_deploy_sa) {
       "cJSON:cjson",
       "c_utils:utils",
       "common_event_service:cesfwk_innerkits",
+      "config_policy:configpolicy_util",
       "drivers_interface_serial:libserials_proxy_1.0",
       "drivers_interface_serial:serials_idl_headers",
       "googletest:gmock",

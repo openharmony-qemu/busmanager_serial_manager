@@ -1189,5 +1189,202 @@ HWTEST_F(SerialSrvClientTest, CloseSerial_RemovesListeners_001, TestSize.Level1)
     EXPECT_FALSE(client.callback_->HasListeners("/dev/ttyS0"));
 }
 
+// ============================================================================
+// SetDtrSignal 测试
+// ============================================================================
+
+HWTEST_F(SerialSrvClientTest, SetDtrSignal_001, TestSize.Level1)
+{
+    EXPECT_CALL(*mockProxy_, SetDtrSignal(testing::_, testing::_)).WillOnce(testing::Return(SERIAL_OK));
+
+    auto& client = SerialSrvClient::GetInstance();
+    int32_t ret = client.SetDtrSignal("/dev/ttyS0", true);
+    EXPECT_EQ(ret, SERIAL_OK);
+}
+
+HWTEST_F(SerialSrvClientTest, SetDtrSignal_002, TestSize.Level1)
+{
+    EXPECT_CALL(*mockProxy_, SetDtrSignal(testing::_, testing::_)).WillOnce(testing::Return(SERIAL_ERR_SERVICE));
+
+    auto& client = SerialSrvClient::GetInstance();
+    int32_t ret = client.SetDtrSignal("/dev/ttyS0", true);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_SERVICE);
+}
+
+HWTEST_F(SerialSrvClientTest, SetDtrSignal_003, TestSize.Level1)
+{
+    EXPECT_CALL(*mockProxy_, SetDtrSignal(testing::_, testing::_))
+        .WillOnce(testing::Return(SERIAL_ERR_DEVICE_DISCONNECTED));
+
+    auto& client = SerialSrvClient::GetInstance();
+    int32_t ret = client.SetDtrSignal("/dev/ttyS0", false);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
+}
+
+HWTEST_F(SerialSrvClientTest, SetDtrSignal_004, TestSize.Level1)
+{
+    EXPECT_CALL(*mockProxy_, SetDtrSignal(testing::_, testing::_))
+        .WillOnce(testing::Return(SERIAL_ERR_DEVICE_NOT_OPENED));
+
+    auto& client = SerialSrvClient::GetInstance();
+    int32_t ret = client.SetDtrSignal("/dev/ttyS0", true);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_DEVICE_NOT_OPENED);
+}
+
+HWTEST_F(SerialSrvClientTest, SetDtrSignal_005, TestSize.Level1)
+{
+    auto& client = SerialSrvClient::GetInstance();
+    int32_t ret = client.SetDtrSignal("", true);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_INVALID_PARAM);
+}
+
+HWTEST_F(SerialSrvClientTest, SetDtrSignal_006, TestSize.Level1)
+{
+    EXPECT_CALL(*mockProxy_, SetDtrSignal(testing::_, testing::_)).WillOnce(testing::Return(SERIAL_ERR_DEVICE_BUSY));
+
+    auto& client = SerialSrvClient::GetInstance();
+    int32_t ret = client.SetDtrSignal("/dev/ttyS0", false);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_DEVICE_BUSY);
+}
+
+// ============================================================================
+// GetDsrSignal 测试
+// ============================================================================
+
+HWTEST_F(SerialSrvClientTest, GetDsrSignal_001, TestSize.Level1)
+{
+    EXPECT_CALL(*mockProxy_, GetDsrSignal(testing::_, testing::_))
+        .WillOnce(testing::DoAll(testing::SetArgReferee<1>(true), testing::Return(SERIAL_OK)));
+
+    auto& client = SerialSrvClient::GetInstance();
+    bool dsr = false;
+    int32_t ret = client.GetDsrSignal("/dev/ttyS0", dsr);
+    EXPECT_EQ(ret, SERIAL_OK);
+    EXPECT_TRUE(dsr);
+}
+
+HWTEST_F(SerialSrvClientTest, GetDsrSignal_002, TestSize.Level1)
+{
+    EXPECT_CALL(*mockProxy_, GetDsrSignal(testing::_, testing::_)).WillOnce(testing::Return(SERIAL_ERR_SERVICE));
+
+    auto& client = SerialSrvClient::GetInstance();
+    bool dsr = false;
+    int32_t ret = client.GetDsrSignal("/dev/ttyS0", dsr);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_SERVICE);
+}
+
+HWTEST_F(SerialSrvClientTest, GetDsrSignal_003, TestSize.Level1)
+{
+    EXPECT_CALL(*mockProxy_, GetDsrSignal(testing::_, testing::_))
+        .WillOnce(testing::Return(SERIAL_ERR_DEVICE_DISCONNECTED));
+
+    auto& client = SerialSrvClient::GetInstance();
+    bool dsr = false;
+    int32_t ret = client.GetDsrSignal("/dev/ttyS0", dsr);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_DEVICE_DISCONNECTED);
+}
+
+HWTEST_F(SerialSrvClientTest, GetDsrSignal_004, TestSize.Level1)
+{
+    EXPECT_CALL(*mockProxy_, GetDsrSignal(testing::_, testing::_))
+        .WillOnce(testing::Return(SERIAL_ERR_DEVICE_NOT_OPENED));
+
+    auto& client = SerialSrvClient::GetInstance();
+    bool dsr = false;
+    int32_t ret = client.GetDsrSignal("/dev/ttyS0", dsr);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_DEVICE_NOT_OPENED);
+}
+
+HWTEST_F(SerialSrvClientTest, GetDsrSignal_005, TestSize.Level1)
+{
+    auto& client = SerialSrvClient::GetInstance();
+    bool dsr = false;
+    int32_t ret = client.GetDsrSignal("", dsr);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_INVALID_PARAM);
+}
+
+HWTEST_F(SerialSrvClientTest, GetDsrSignal_006, TestSize.Level1)
+{
+    EXPECT_CALL(*mockProxy_, GetDsrSignal(testing::_, testing::_)).WillOnce(testing::Return(SERIAL_ERR_DEVICE_BUSY));
+
+    auto& client = SerialSrvClient::GetInstance();
+    bool dsr = false;
+    int32_t ret = client.GetDsrSignal("/dev/ttyS0", dsr);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_DEVICE_BUSY);
+}
+
+// ============================================================================
+// RegisterDisconnectedListener 测试
+// ============================================================================
+
+HWTEST_F(SerialSrvClientTest, RegisterDisconnectedListener_001, TestSize.Level1)
+{
+    auto& client = SerialSrvClient::GetInstance();
+    auto callback = [](const std::string& portName) {};
+    ListenerHandle handle = 0;
+    int32_t ret = client.RegisterDisconnectedListener("/dev/ttyS0", callback, handle);
+    EXPECT_EQ(ret, SERIAL_OK);
+    EXPECT_NE(handle, static_cast<ListenerHandle>(0));
+}
+
+HWTEST_F(SerialSrvClientTest, RegisterDisconnectedListener_002, TestSize.Level1)
+{
+    auto& client = SerialSrvClient::GetInstance();
+    DisconnectedCallback nullCallback;
+    ListenerHandle handle = 0;
+    int32_t ret = client.RegisterDisconnectedListener("/dev/ttyS0", nullCallback, handle);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_INVALID_PARAM);
+    EXPECT_EQ(handle, static_cast<ListenerHandle>(0));
+}
+
+HWTEST_F(SerialSrvClientTest, RegisterDisconnectedListener_003, TestSize.Level1)
+{
+    auto& client = SerialSrvClient::GetInstance();
+    auto callback = [](const std::string& portName) {};
+    ListenerHandle handle1 = 0;
+    ListenerHandle handle2 = 0;
+    int32_t ret1 = client.RegisterDisconnectedListener("/dev/ttyS0", callback, handle1);
+    int32_t ret2 = client.RegisterDisconnectedListener("/dev/ttyS0", callback, handle2);
+    EXPECT_EQ(ret1, SERIAL_OK);
+    EXPECT_EQ(ret2, SERIAL_OK);
+    EXPECT_NE(handle1, static_cast<ListenerHandle>(0));
+    EXPECT_NE(handle2, static_cast<ListenerHandle>(0));
+    EXPECT_NE(handle1, handle2);
+}
+
+// ============================================================================
+// UnregisterDisconnectedListener 测试
+// ============================================================================
+
+HWTEST_F(SerialSrvClientTest, UnregisterDisconnectedListener_001, TestSize.Level1)
+{
+    auto& client = SerialSrvClient::GetInstance();
+    auto callback = [](const std::string& portName) {};
+    ListenerHandle handle = 0;
+    client.RegisterDisconnectedListener("/dev/ttyS0", callback, handle);
+
+    int32_t ret = client.UnregisterDisconnectedListener("/dev/ttyS0", handle);
+    EXPECT_EQ(ret, SERIAL_OK);
+}
+
+HWTEST_F(SerialSrvClientTest, UnregisterDisconnectedListener_002, TestSize.Level1)
+{
+    auto& client = SerialSrvClient::GetInstance();
+    int32_t ret = client.UnregisterDisconnectedListener("/dev/ttyS0", NONEXISTENT_HANDLE_FIRST);
+    EXPECT_NE(ret, SERIAL_OK);
+}
+
+HWTEST_F(SerialSrvClientTest, UnregisterDisconnectedListener_003, TestSize.Level1)
+{
+    auto& client = SerialSrvClient::GetInstance();
+    auto callback = [](const std::string& portName) {};
+    ListenerHandle handle = 0;
+    client.RegisterDisconnectedListener("/dev/ttyS0", callback, handle);
+    client.UnregisterDisconnectedListener("/dev/ttyS0", handle);
+
+    int32_t ret = client.UnregisterDisconnectedListener("/dev/ttyS0", handle);
+    EXPECT_NE(ret, SERIAL_OK);
+}
+
 } // namespace Serial
 } // namespace OHOS
