@@ -38,6 +38,7 @@
 #include "mock_serial_hdi.h"
 #include "mock_hdi_test_helper.h"
 #include "serial_error_code.h"
+#include "serial_right_manager.h"
 #include "serial_service.h"
 #include "serial_service_callback.h"
 #include "system_ability_definition.h"
@@ -138,6 +139,17 @@ void SerialMockHdiLoopbackTest::SetUp()
     ASSERT_NE(service_, nullptr);
     service_->serialsProxy_ = mockHdi_;
 
+    // 预授权测试设备，绕过 RequestRight 弹框阻塞
+    std::string bundleName = service_->GetCallingBundleName();
+    std::string tokenId = service_->GetCallingTokenId();
+    int32_t userId = service_->GetCallingUserIdFromToken();
+    SerialPortInfo portInfo0 = CreatePortInfo(PORT_USB0);
+    SerialRightManager::GetInstance().AddDeviceRight(
+        service_->BuildDeviceId(portInfo0), bundleName, tokenId, userId);
+    SerialPortInfo portInfo1 = CreatePortInfo(PORT_USB1);
+    SerialRightManager::GetInstance().AddDeviceRight(
+        service_->BuildDeviceId(portInfo1), bundleName, tokenId, userId);
+
     mockCallback_ = new MockSerialServiceCallback();
     ASSERT_NE(mockCallback_, nullptr);
 }
@@ -204,9 +216,14 @@ HWTEST_F(SerialMockHdiLoopbackTest, LoopbackReadData_ForwardsToClientCallback, T
     std::vector<int8_t> hdiData = {0x01, 0x02, 0x03, 0x04, 0x05};
     std::vector<uint8_t> expected(hdiData.begin(), hdiData.end());
 
-    EXPECT_CALL(*mockCallback_, onDataRead(PORT_USB0, expected)).WillOnce(Return(MOCK_CALLBACK_ERR_OK));
+    std::string capPort;
+    std::vector<uint8_t> capData;
+    EXPECT_CALL(*mockCallback_, onDataRead(_, _))
+        .WillOnce(DoAll(SaveArg<0>(&capPort), SaveArg<1>(&capData), Return(MOCK_CALLBACK_ERR_OK)));
     int32_t ret = hdiCb->OnReadData(hdiData, static_cast<uint32_t>(hdiData.size()));
     EXPECT_EQ(ret, SERIAL_OK);
+    EXPECT_EQ(capPort, PORT_USB0);
+    EXPECT_EQ(capData, expected);
 }
 
 /**
@@ -231,9 +248,14 @@ HWTEST_F(SerialMockHdiLoopbackTest, LoopbackReadData_EmptyData_SafeNoCrash, Test
     ASSERT_NE(hdiCb, nullptr);
 
     std::vector<int8_t> emptyData;
-    EXPECT_CALL(*mockCallback_, onDataRead(PORT_USB0, std::vector<uint8_t> {})).WillOnce(Return(MOCK_CALLBACK_ERR_OK));
+    std::string capPort;
+    std::vector<uint8_t> capData;
+    EXPECT_CALL(*mockCallback_, onDataRead(_, _))
+        .WillOnce(DoAll(SaveArg<0>(&capPort), SaveArg<1>(&capData), Return(MOCK_CALLBACK_ERR_OK)));
     int32_t ret = hdiCb->OnReadData(emptyData, 0);
     EXPECT_EQ(ret, SERIAL_OK);
+    EXPECT_EQ(capPort, PORT_USB0);
+    EXPECT_EQ(capData, std::vector<uint8_t> {});
 }
 
 /**
@@ -245,10 +267,14 @@ HWTEST_F(SerialMockHdiLoopbackTest, LoopbackReadData_LenLargerThanVector_UsesVec
     ASSERT_NE(hdiCb, nullptr);
 
     std::vector<int8_t> hdiData = {0x05, 0x06};
-    EXPECT_CALL(*mockCallback_, onDataRead(PORT_USB0, testing::ElementsAre(0x05, 0x06)))
-        .WillOnce(Return(MOCK_CALLBACK_ERR_OK));
+    std::string capPort;
+    std::vector<uint8_t> capData;
+    EXPECT_CALL(*mockCallback_, onDataRead(_, _))
+        .WillOnce(DoAll(SaveArg<0>(&capPort), SaveArg<1>(&capData), Return(MOCK_CALLBACK_ERR_OK)));
     int32_t ret = hdiCb->OnReadData(hdiData, ECHO_LEN_OVERFLOW);
     EXPECT_EQ(ret, SERIAL_OK);
+    EXPECT_EQ(capPort, PORT_USB0);
+    EXPECT_EQ(capData, (std::vector<uint8_t> {0x05, 0x06}));
 }
 
 // ============================================================================
@@ -281,9 +307,14 @@ HWTEST_F(SerialMockHdiLoopbackTest, LoopbackEcho_OpenWriteEcho_DataMatches, Test
 
     // 模拟设备 TX/RX 回环：HDI 层回调读数据
     std::vector<int8_t> echoData(writeData.begin(), writeData.end());
-    EXPECT_CALL(*mockCallback_, onDataRead(PORT_USB0, writeData)).WillOnce(Return(MOCK_CALLBACK_ERR_OK));
+    std::string capPort;
+    std::vector<uint8_t> capData;
+    EXPECT_CALL(*mockCallback_, onDataRead(_, _))
+        .WillOnce(DoAll(SaveArg<0>(&capPort), SaveArg<1>(&capData), Return(MOCK_CALLBACK_ERR_OK)));
     int32_t echoRet = hdiCb->OnReadData(echoData, static_cast<uint32_t>(echoData.size()));
     EXPECT_EQ(echoRet, SERIAL_OK);
+    EXPECT_EQ(capPort, PORT_USB0);
+    EXPECT_EQ(capData, writeData);
 }
 
 /**
@@ -308,12 +339,17 @@ HWTEST_F(SerialMockHdiLoopbackTest, LoopbackEcho_TwoPorts_DataIsolation, TestSiz
 
     std::vector<uint8_t> port0Data = {0xA0};
     std::vector<int8_t> echoData(port0Data.begin(), port0Data.end());
-    EXPECT_CALL(*mockCallback_, onDataRead(PORT_USB0, port0Data)).WillOnce(Return(MOCK_CALLBACK_ERR_OK));
+    std::string capPort;
+    std::vector<uint8_t> capData;
+    EXPECT_CALL(*mockCallback_, onDataRead(_, _))
+        .WillOnce(DoAll(SaveArg<0>(&capPort), SaveArg<1>(&capData), Return(MOCK_CALLBACK_ERR_OK)));
     // 端口1的回调不应被端口0的数据触发
     EXPECT_CALL(*cb1, onDataRead(_, _)).Times(0);
 
     int32_t echoRet = hdiCb0->OnReadData(echoData, static_cast<uint32_t>(echoData.size()));
     EXPECT_EQ(echoRet, SERIAL_OK);
+    EXPECT_EQ(capPort, PORT_USB0);
+    EXPECT_EQ(capData, port0Data);
 }
 
 // ============================================================================
@@ -340,8 +376,12 @@ HWTEST_F(SerialMockHdiLoopbackTest, DeviceOffline_NotifiesClientAndCleansContext
     EXPECT_EQ(service_->WriteSerial(PORT_USB0, data, TEST_WRITE_TIMEOUT_MS, bytesWritten), SERIAL_OK);
     EXPECT_EQ(bytesWritten, WRITE_RETURN_ONE_BYTE);
 
-    EXPECT_CALL(*mockCallback_, onDisconnect(PORT_USB0)).WillOnce(Return(MOCK_CALLBACK_ERR_OK));
+    std::string capPort;
+    EXPECT_CALL(*mockCallback_, onDisconnect(_))
+        .WillOnce(DoAll(SaveArg<0>(&capPort), Return(MOCK_CALLBACK_ERR_OK)));
     service_->HandleDeviceOffline(PORT_USB0);
+
+    EXPECT_EQ(capPort, PORT_USB0);
 
     // 离线后：写入返回设备未打开（以公共 API 行为验证上下文已清理）
     int32_t ret = service_->WriteSerial(PORT_USB0, data, TEST_WRITE_TIMEOUT_MS, bytesWritten);
@@ -354,7 +394,7 @@ HWTEST_F(SerialMockHdiLoopbackTest, DeviceOffline_NotifiesClientAndCleansContext
 HWTEST_F(SerialMockHdiLoopbackTest, DeviceOffline_UnknownPort_SafeNoCrash, TestSize.Level1)
 {
     // 未注册端口走「上下文未找到」分支：安全返回、不崩溃、无回调触发
-    EXPECT_CALL(*mockCallback_, onDisconnect(_, _)).Times(0);
+    EXPECT_CALL(*mockCallback_, onDisconnect(_)).Times(0);
     EXPECT_CALL(*mockCallback_, onDataRead(_, _)).Times(0);
     service_->HandleDeviceOffline("ttyUSB_unknown");
     GTEST_SUCCEED() << "unknown port offline handled safely (no crash, no side effects)";

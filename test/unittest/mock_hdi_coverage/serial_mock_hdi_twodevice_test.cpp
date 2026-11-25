@@ -218,11 +218,16 @@ HWTEST_F(SerialMockHdiTwoDeviceTest, TwoDevices_ReadEcho_IndependentCallbacks, T
 
     std::vector<uint8_t> port0Data = {PORT0_BYTE_0, PORT0_BYTE_1};
     std::vector<int8_t> echoData(port0Data.begin(), port0Data.end());
-    EXPECT_CALL(*callback0_, onDataRead(PORT_USB0, port0Data)).WillOnce(Return(MOCK_CALLBACK_ERR_OK));
+    std::string capPort;
+    std::vector<uint8_t> capData;
+    EXPECT_CALL(*callback0_, onDataRead(_, _))
+        .WillOnce(DoAll(SaveArg<0>(&capPort), SaveArg<1>(&capData), Return(MOCK_CALLBACK_ERR_OK)));
     EXPECT_CALL(*callback1_, onDataRead(_, _)).Times(0);
 
     int32_t echoRet = hdiCb0->OnReadData(echoData, static_cast<uint32_t>(echoData.size()));
     EXPECT_EQ(echoRet, SERIAL_OK);
+    EXPECT_EQ(capPort, PORT_USB0);
+    EXPECT_EQ(capData, port0Data);
 }
 
 /**

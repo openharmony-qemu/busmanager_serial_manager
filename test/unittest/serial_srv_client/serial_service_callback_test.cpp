@@ -295,5 +295,192 @@ HWTEST_F(SerialServiceCallbackTest, OnDataRead_005, TestSize.Level1)
     EXPECT_EQ(callCount2, 0);
 }
 
+// ============================================================================
+// AddDisconnectedListener 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceCallbackTest, AddDisconnectedListener_001, TestSize.Level1)
+{
+    auto cb = [](const std::string& portName) {};
+    ListenerHandle handle = callback_->AddDisconnectedListener("/dev/ttyS0", cb);
+    EXPECT_NE(handle, static_cast<ListenerHandle>(0));
+}
+
+HWTEST_F(SerialServiceCallbackTest, AddDisconnectedListener_002, TestSize.Level1)
+{
+    DisconnectedCallback nullCb;
+    ListenerHandle handle = callback_->AddDisconnectedListener("/dev/ttyS0", nullCb);
+    EXPECT_EQ(handle, static_cast<ListenerHandle>(0));
+}
+
+HWTEST_F(SerialServiceCallbackTest, AddDisconnectedListener_003, TestSize.Level1)
+{
+    auto cb = [](const std::string& portName) {};
+    ListenerHandle handle1 = callback_->AddDisconnectedListener("/dev/ttyS0", cb);
+    ListenerHandle handle2 = callback_->AddDisconnectedListener("/dev/ttyS0", cb);
+    EXPECT_NE(handle1, static_cast<ListenerHandle>(0));
+    EXPECT_NE(handle2, static_cast<ListenerHandle>(0));
+    EXPECT_NE(handle1, handle2);
+}
+
+HWTEST_F(SerialServiceCallbackTest, AddDisconnectedListener_004, TestSize.Level1)
+{
+    auto cb = [](const std::string& portName) {};
+    ListenerHandle handle1 = callback_->AddDisconnectedListener("/dev/ttyS0", cb);
+    ListenerHandle handle2 = callback_->AddDisconnectedListener("/dev/ttyS1", cb);
+    EXPECT_NE(handle1, static_cast<ListenerHandle>(0));
+    EXPECT_NE(handle2, static_cast<ListenerHandle>(0));
+}
+
+// ============================================================================
+// RemoveDisconnectedListener 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceCallbackTest, RemoveDisconnectedListener_001, TestSize.Level1)
+{
+    auto cb = [](const std::string& portName) {};
+    ListenerHandle handle = callback_->AddDisconnectedListener("/dev/ttyS0", cb);
+    ASSERT_NE(handle, static_cast<ListenerHandle>(0));
+
+    bool result = callback_->RemoveDisconnectedListener("/dev/ttyS0", handle);
+    EXPECT_TRUE(result);
+}
+
+HWTEST_F(SerialServiceCallbackTest, RemoveDisconnectedListener_002, TestSize.Level1)
+{
+    bool result = callback_->RemoveDisconnectedListener("/dev/ttyS0", 999);
+    EXPECT_FALSE(result);
+}
+
+HWTEST_F(SerialServiceCallbackTest, RemoveDisconnectedListener_003, TestSize.Level1)
+{
+    auto cb = [](const std::string& portName) {};
+    ListenerHandle handle = callback_->AddDisconnectedListener("/dev/ttyS0", cb);
+    ASSERT_NE(handle, static_cast<ListenerHandle>(0));
+
+    bool result1 = callback_->RemoveDisconnectedListener("/dev/ttyS0", handle);
+    EXPECT_TRUE(result1);
+
+    bool result2 = callback_->RemoveDisconnectedListener("/dev/ttyS0", handle);
+    EXPECT_FALSE(result2);
+}
+
+HWTEST_F(SerialServiceCallbackTest, RemoveDisconnectedListener_004, TestSize.Level1)
+{
+    auto cb = [](const std::string& portName) {};
+    ListenerHandle handle1 = callback_->AddDisconnectedListener("/dev/ttyS0", cb);
+    ListenerHandle handle2 = callback_->AddDisconnectedListener("/dev/ttyS0", cb);
+    ASSERT_NE(handle1, static_cast<ListenerHandle>(0));
+    ASSERT_NE(handle2, static_cast<ListenerHandle>(0));
+
+    bool result = callback_->RemoveDisconnectedListener("/dev/ttyS0", handle1);
+    EXPECT_TRUE(result);
+}
+
+// ============================================================================
+// RemoveAllDisconnectedListeners 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceCallbackTest, RemoveAllDisconnectedListeners_001, TestSize.Level1)
+{
+    auto cb = [](const std::string& portName) {};
+    callback_->AddDisconnectedListener("/dev/ttyS0", cb);
+    callback_->AddDisconnectedListener("/dev/ttyS0", cb);
+
+    callback_->RemoveAllDisconnectedListeners("/dev/ttyS0");
+
+    ListenerHandle handle = callback_->AddDisconnectedListener("/dev/ttyS0", cb);
+    EXPECT_NE(handle, static_cast<ListenerHandle>(0));
+}
+
+HWTEST_F(SerialServiceCallbackTest, RemoveAllDisconnectedListeners_002, TestSize.Level1)
+{
+    auto cb = [](const std::string& portName) {};
+    callback_->AddDisconnectedListener("/dev/ttyS0", cb);
+    callback_->AddDisconnectedListener("/dev/ttyS1", cb);
+
+    callback_->RemoveAllDisconnectedListeners("/dev/ttyS0");
+
+    ListenerHandle handle1 = callback_->AddDisconnectedListener("/dev/ttyS0", cb);
+    ListenerHandle handle2 = callback_->AddDisconnectedListener("/dev/ttyS1", cb);
+    EXPECT_NE(handle1, handle2);
+}
+
+HWTEST_F(SerialServiceCallbackTest, RemoveAllDisconnectedListeners_003, TestSize.Level1)
+{
+    callback_->RemoveAllDisconnectedListeners("/dev/ttyNONEXISTENT");
+}
+
+// ============================================================================
+// onDisconnect 测试
+// ============================================================================
+
+HWTEST_F(SerialServiceCallbackTest, OnDisconnect_001, TestSize.Level1)
+{
+    std::string disconnectedPort;
+    auto cb = [&disconnectedPort](const std::string& portName) {
+        disconnectedPort = portName;
+    };
+    callback_->AddDisconnectedListener("/dev/ttyS0", cb);
+
+    ErrCode ret = callback_->onDisconnect("/dev/ttyS0");
+    EXPECT_EQ(ret, ERR_OK);
+    EXPECT_EQ(disconnectedPort, "/dev/ttyS0");
+}
+
+HWTEST_F(SerialServiceCallbackTest, OnDisconnect_002, TestSize.Level1)
+{
+    ErrCode ret = callback_->onDisconnect("/dev/ttyS0");
+    EXPECT_EQ(ret, ERR_OK);
+}
+
+HWTEST_F(SerialServiceCallbackTest, OnDisconnect_003, TestSize.Level1)
+{
+    int callCount1 = 0;
+    int callCount2 = 0;
+    auto cb1 = [&callCount1](const std::string& portName) {
+        callCount1++;
+    };
+    auto cb2 = [&callCount2](const std::string& portName) {
+        callCount2++;
+    };
+    callback_->AddDisconnectedListener("/dev/ttyS0", cb1);
+    callback_->AddDisconnectedListener("/dev/ttyS0", cb2);
+
+    ErrCode ret = callback_->onDisconnect("/dev/ttyS0");
+    EXPECT_EQ(ret, ERR_OK);
+    EXPECT_EQ(callCount1, 1);
+    EXPECT_EQ(callCount2, 1);
+}
+
+HWTEST_F(SerialServiceCallbackTest, OnDisconnect_004, TestSize.Level1)
+{
+    int callCount1 = 0;
+    int callCount2 = 0;
+    auto cb1 = [&callCount1](const std::string& portName) {
+        callCount1++;
+    };
+    auto cb2 = [&callCount2](const std::string& portName) {
+        callCount2++;
+    };
+    callback_->AddDisconnectedListener("/dev/ttyS0", cb1);
+    callback_->AddDisconnectedListener("/dev/ttyS1", cb2);
+
+    callback_->onDisconnect("/dev/ttyS0");
+    EXPECT_EQ(callCount1, 1);
+    EXPECT_EQ(callCount2, 0);
+}
+
+HWTEST_F(SerialServiceCallbackTest, OnDisconnect_CleansUpDataListeners, TestSize.Level1)
+{
+    auto dataCb = [](const std::vector<uint8_t>& data) {};
+    callback_->AddListener("/dev/ttyS0", dataCb);
+    EXPECT_TRUE(callback_->HasListeners("/dev/ttyS0"));
+
+    callback_->onDisconnect("/dev/ttyS0");
+
+    EXPECT_FALSE(callback_->HasListeners("/dev/ttyS0"));
+}
+
 } // namespace Serial
 } // namespace OHOS

@@ -183,6 +183,56 @@ HWTEST_F(SerialSrvClientWithoutServiceTest, GetCtsSignal_ReturnsNotSupported, Te
     EXPECT_FALSE(cts);
 }
 
+HWTEST_F(SerialSrvClientWithoutServiceTest, SetDtrSignal_ReturnsNotSupported, TestSize.Level1)
+{
+    auto& client = SerialSrvClient::GetInstance();
+    int32_t ret = client.SetDtrSignal("/dev/ttyS0", true);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_NOT_SUPPORTED);
+}
+
+HWTEST_F(SerialSrvClientWithoutServiceTest, SetDtrSignal_False_ReturnsNotSupported, TestSize.Level1)
+{
+    auto& client = SerialSrvClient::GetInstance();
+    int32_t ret = client.SetDtrSignal("/dev/ttyS0", false);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_NOT_SUPPORTED);
+}
+
+HWTEST_F(SerialSrvClientWithoutServiceTest, GetDsrSignal_ReturnsNotSupported, TestSize.Level1)
+{
+    auto& client = SerialSrvClient::GetInstance();
+    bool dsr = true;
+    int32_t ret = client.GetDsrSignal("/dev/ttyS0", dsr);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_NOT_SUPPORTED);
+    EXPECT_FALSE(dsr);
+}
+
+HWTEST_F(SerialSrvClientWithoutServiceTest, RegisterDisconnectedListener_ReturnsNonZero, TestSize.Level1)
+{
+    auto& client = SerialSrvClient::GetInstance();
+    auto callback = [](const std::string& portName) {};
+    ListenerHandle handle = 0;
+    int32_t ret = client.RegisterDisconnectedListener("/dev/ttyS0", callback, handle);
+    EXPECT_EQ(ret, SERIAL_OK);
+    EXPECT_NE(handle, static_cast<ListenerHandle>(0));
+}
+
+HWTEST_F(SerialSrvClientWithoutServiceTest, RegisterDisconnectedListener_NullCallback_ReturnsZero, TestSize.Level1)
+{
+    auto& client = SerialSrvClient::GetInstance();
+    DisconnectedCallback nullCallback;
+    ListenerHandle handle = 0;
+    int32_t ret = client.RegisterDisconnectedListener("/dev/ttyS0", nullCallback, handle);
+    EXPECT_EQ(ret, SERIAL_JS_ERR_INVALID_PARAM);
+    EXPECT_EQ(handle, static_cast<ListenerHandle>(0));
+}
+
+HWTEST_F(SerialSrvClientWithoutServiceTest, UnregisterDisconnectedListener_AnyHandle_ReturnsOk, TestSize.Level1)
+{
+    auto& client = SerialSrvClient::GetInstance();
+    int32_t ret = client.UnregisterDisconnectedListener("/dev/ttyS0", NONEXISTENT_HANDLE);
+    EXPECT_EQ(ret, SERIAL_OK);
+}
+
 HWTEST_F(SerialSrvClientWithoutServiceTest, AddPortAuthorization_ReturnsSuccess, TestSize.Level1)
 {
     auto& client = SerialSrvClient::GetInstance();
@@ -246,9 +296,13 @@ HWTEST_F(SerialSrvClientWithoutServiceTest, AllNotSupportedMethods_Return801, Te
     EXPECT_EQ(client.Drain("/dev/ttyS0"), SERIAL_JS_ERR_NOT_SUPPORTED);
     EXPECT_EQ(client.SendBrkSignal("/dev/ttyS0"), SERIAL_JS_ERR_NOT_SUPPORTED);
     EXPECT_EQ(client.SetRtsSignal("/dev/ttyS0", true), SERIAL_JS_ERR_NOT_SUPPORTED);
+    EXPECT_EQ(client.SetDtrSignal("/dev/ttyS0", true), SERIAL_JS_ERR_NOT_SUPPORTED);
 
     bool cts = true;
     EXPECT_EQ(client.GetCtsSignal("/dev/ttyS0", cts), SERIAL_JS_ERR_NOT_SUPPORTED);
+
+    bool dsr = true;
+    EXPECT_EQ(client.GetDsrSignal("/dev/ttyS0", dsr), SERIAL_JS_ERR_NOT_SUPPORTED);
 }
 
 HWTEST_F(SerialSrvClientWithoutServiceTest, AllSuccessMethods_DoNotReturn801, TestSize.Level1)
